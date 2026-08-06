@@ -1,6 +1,6 @@
 # Third-party and synthetic asset disclosure
 
-Last updated: 2026-08-05
+Last updated: 2026-08-07
 
 This ledger must be updated whenever a library, model, API, dataset, media source, font, or generated asset enters the repository.
 
@@ -34,9 +34,37 @@ Versions below are resolved by `package-lock.json` on 5 August 2026.
 
 Transitive packages and integrity hashes are recorded in `package-lock.json`.
 
+## Python clipper dependencies
+
+Versions below are minimums from `services/video-clipper/requirements.txt` and
+`pyproject.toml`; exact installed versions are resolved by the operator's Python
+environment.
+
+| Component | Version | Licence | Purpose |
+| --- | ---: | --- | --- |
+| yt-dlp | >=2025.1.1 | Unlicense | Metadata, captions, heatmaps, and direct stream URL resolution without downloading full video. |
+| OpenCV / opencv-python | >=4.9 | Apache-2.0 | Frame sampling, saliency, subject tracking, and QC measurements. |
+| numpy | >=1.26 | BSD-3-Clause | Audio/frame numeric analysis and scoring support. |
+| imageio-ffmpeg | >=0.5 | BSD-2-Clause | Bundled ffmpeg binary fallback when system ffmpeg is unavailable. |
+| ffmpeg | system or imageio bundled | LGPL/GPL depending build | Range extraction, transcode, caption burn-in, loudness normalization, and probing. |
+| OpenAI Python SDK | >=1.50 | Apache-2.0 | Optional callback thread extraction, callback judging, and embeddings. |
+| pytest | >=8 | MIT | Python service regression tests. |
+| faster-whisper | optional >=1.0 | MIT | Optional ASR fallback when sources have no captions. |
+| Anthropic Python SDK | optional >=0.40 | MIT | Optional legacy `--llm` ranking and vision QC policy. |
+| mcp Python SDK | optional >=1.2 | MIT | Optional MCP server transport. |
+
+## Models and remote assets
+
+| Component | Provider | Purpose | Disclosure |
+| --- | --- | --- | --- |
+| `text-embedding-3-small` | OpenAI | Semantic retrieval over stored creator threads. | Called only when callback memory is enabled. |
+| `AFTERPLAY_CLIPPER_MODEL` | OpenAI Responses API | Thread extraction and callback/payoff judgment for the Python clipper. | Defaults to `gpt-5.6-sol`; operator-configurable. |
+| `AFTERPLAY_OPENAI_MODEL` | OpenAI Responses API | Optional web app live strategy director. | Defaults to `gpt-5.6-sol`; separate from the clipper model. |
+| YuNet face detection ONNX | OpenCV Zoo | Optional face-aware reframing when the model is downloaded. | Downloaded on demand from OpenCV's public model host; saliency fallback works without it. |
+
 ## External services
 
-- OpenAI Responses API in optional live mode.
+- OpenAI Responses API in optional live strategy mode and optional callback-memory mode.
 - Simulated YouTube Shorts, TikTok, and Instagram Reels distribution adapters in demo mode.
 - No real social account credentials, public posting, or private creator archive leaves the judge environment by default.
 

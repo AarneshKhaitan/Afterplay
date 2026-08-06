@@ -13,6 +13,17 @@ has been selected and the cited source timestamp has been verified.
 - Current media path:
 - Current transcript path:
 
+## Authored Smoke Artifact
+
+The repo may contain a gitignored local smoke run at:
+
+- `services/video-clipper/.memory/e2e_demo/threads.json`
+- `services/video-clipper/.work/e2e_callback/manifest.json`
+
+That artifact proves plumbing only. It uses deterministic test stubs and must be labelled
+synthetic if used as a fallback demo. The real submission pass should still fill the input
+fields above with creator-owned streams and a live OpenAI run.
+
 ## Expected Evidence
 
 The clip manifest should include:

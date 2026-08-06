@@ -2,9 +2,9 @@
 
 **The team behind the player.**
 
-Afterplay is an autonomous growth team for gaming creators. It studies creator evidence, chooses a falsifiable growth experiment, prepares coordinated work, waits for creator approval before external action, reads the result, and changes the next plan.
+Afterplay is an autonomous growth team for gaming creators. It studies creator history, finds moments whose meaning depends on prior streams, chooses a falsifiable growth experiment, prepares coordinated work, waits for creator approval before external action, reads the result, and changes the next plan.
 
-This repository is a working end-to-end prototype for the Garena AI Build Challenge 2026. It is not a clipper with an AI sidebar: the central object is a growth experiment and the north star is returning audience behavior.
+This repository is a working end-to-end prototype for the Garena AI Build Challenge 2026. The clipper is part of the team: it can backfill creator memory, find callback/payoff moments, render shorts, and hand Studio a manifest with cited evidence. The central object remains a growth experiment and the north star is returning audience behavior.
 
 `diagnosis → hypothesis → plan → production → approval → simulated distribution → result → learning → next experiment`
 
@@ -16,6 +16,7 @@ This repository is a working end-to-end prototype for the Garena AI Build Challe
 - Idempotent simulated distribution receipts; no social platform is contacted.
 - Labelled synthetic results, explicit limits, and no causal-growth claim.
 - A deterministic offline strategy director and an optional live OpenAI director returning the same validated schema.
+- A nested Python clipper service that can backfill channel memory, select callback-aware clips, render them, QC them, and write manifests consumed by Studio.
 - A visible reset control for repeatable judge runs.
 - Public HTTP, browser, production-mode, accessibility, and mobile-overflow tests.
 
@@ -29,6 +30,10 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
+
+For callback clip review, run the Python clipper from `services/video-clipper` first,
+then refresh Studio. The web app intentionally reads the latest local manifest; it does
+not launch long-running media jobs from the browser.
 
 For a production-shaped local run:
 

@@ -6,12 +6,20 @@ This is the proof order, not the final spoken script. Every segment must show wo
 
 ## 0:00-0:25 - Problem and promise
 
-Open directly in the selected creator's Growth HQ.
+Before recording, run the clipper CLI on the prepared creator-owned source material:
+
+```powershell
+cd services\video-clipper
+python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
+python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
+```
+
+Then open directly in the selected creator's Growth HQ.
 
 The judge must understand:
 
 - this creator sometimes gets views but does not build a returning audience;
-- Afterplay is an autonomous growth team, not a clipper;
+- Afterplay is an autonomous growth team with a callback-aware clipper as one worker;
 - one creator decision currently needs attention.
 
 ## 0:25-1:10 - Diagnosis and AI contribution
@@ -30,6 +38,9 @@ State the removal test: without semantic judgment across creator history, the sy
 
 Move into Studio through the experiment, not through disconnected navigation. Show:
 
+- the latest real clipper manifest, if prepared before the recording;
+- the playable callback clip;
+- the cited prior stream, timestamp, and quote that make the clip meaningful;
 - the experiment's stream premise;
 - prepared content variants;
 - target audience and intended job of each output;
@@ -79,3 +90,5 @@ Close on the product contract: the creator plays; Afterplay decides what to test
 - No claim implies real public posting or proven creator growth.
 - No static slide substitutes for a required workflow step.
 - The app remains fully usable without network access or external credentials.
+- The web app does not claim to launch the clipper. The demo boundary is CLI first,
+  refresh Studio second.
