@@ -73,6 +73,30 @@ test("Studio renders callback citation and media route from latest manifest", as
   );
 });
 
+test("clip video controls are clickable and not covered by the card overlay", async ({ page }) => {
+  // `.output-preview::after` is a decorative gradient stretched over the whole
+  // preview. Without pointer-events:none it paints above the <video> and eats
+  // every click, so the native play button and scrub bar cannot be used at all
+  // even though the media itself loads fine.
+  await page.goto("/studio", { waitUntil: "domcontentloaded" });
+  const video = page.locator('video[aria-label="clip01_shorts preview"]');
+  await video.scrollIntoViewIfNeeded();
+
+  const hits = await video.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const at = (x: number, y: number) => document.elementFromPoint(x, y)?.tagName.toLowerCase();
+    return {
+      centre: at(r.left + r.width / 2, r.top + r.height / 2),
+      controls: at(r.left + 26, r.bottom - 42),
+      scrubBar: at(r.left + r.width / 2, r.bottom - 14),
+    };
+  });
+
+  expect(hits.centre).toBe("video");
+  expect(hits.controls).toBe("video");
+  expect(hits.scrubBar).toBe("video");
+});
+
 test("clip media serves byte ranges so a browser can start and seek playback", async ({ request }) => {
   // A <video> element opens media with `Range: bytes=0-`. Answering 200 without
   // Accept-Ranges makes the element treat the source as non-seekable and playback
