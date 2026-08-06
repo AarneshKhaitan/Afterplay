@@ -2,8 +2,10 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { TEST_CLIPPER_WORKDIR } from "./clipper-workdir";
+
 test.beforeAll(() => {
-  const jobDir = join(process.cwd(), "services", "video-clipper", ".work", "ui_callback");
+  const jobDir = join(TEST_CLIPPER_WORKDIR, "ui_callback");
   const clipPath = join(jobDir, "clip01_shorts.mp4");
   mkdirSync(jobDir, { recursive: true });
   writeFileSync(clipPath, Buffer.from("not-a-real-mp4"));
@@ -69,4 +71,35 @@ test("Studio renders callback citation and media route from latest manifest", as
     "src",
     /\/api\/clips\/clip01_shorts\/media/,
   );
+});
+
+test("clip media serves byte ranges so a browser can start and seek playback", async ({ request }) => {
+  // A <video> element opens media with `Range: bytes=0-`. Answering 200 without
+  // Accept-Ranges makes the element treat the source as non-seekable and playback
+  // never starts, so these status codes are the actual playability contract.
+  const full = await request.get("/api/clips/clip01_shorts/media");
+  expect(full.status()).toBe(200);
+  expect(full.headers()["accept-ranges"]).toBe("bytes");
+
+  const size = Number(full.headers()["content-length"]);
+  expect(size).toBeGreaterThan(0);
+
+  const opening = await request.get("/api/clips/clip01_shorts/media", {
+    headers: { Range: "bytes=0-" },
+  });
+  expect(opening.status()).toBe(206);
+  expect(opening.headers()["content-range"]).toBe(`bytes 0-${size - 1}/${size}`);
+
+  const seek = await request.get("/api/clips/clip01_shorts/media", {
+    headers: { Range: "bytes=2-5" },
+  });
+  expect(seek.status()).toBe(206);
+  expect(seek.headers()["content-range"]).toBe(`bytes 2-5/${size}`);
+  expect((await seek.body()).length).toBe(4);
+
+  const unsatisfiable = await request.get("/api/clips/clip01_shorts/media", {
+    headers: { Range: `bytes=${size + 1000}-` },
+  });
+  expect(unsatisfiable.status()).toBe(416);
+  expect(unsatisfiable.headers()["content-range"]).toBe(`bytes */${size}`);
 });
