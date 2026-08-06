@@ -150,17 +150,37 @@ class ChannelMemory:
             return self.embedder(texts)
         return embed_texts(texts)
 
+    def retrieved_thread(self, thread: ThreadRecord, score: float) -> dict:
+        d = thread.to_dict()
+        d.pop("embedding", None)
+        d.pop("updated", None)
+        d["mentions"] = d.get("mentions", [])[:3]
+        d["similarity"] = round(score, 4)
+        return d
+
     def retrieve(self, text: str, k: int = 3) -> list[dict]:
+        found = self.retrieve_many([text], k=k, top_windows=1)
+        return found.get(0, [])
+
+    def retrieve_many(self, texts: list[str], k: int = 3, top_windows: int = 10) -> dict[int, list[dict]]:
         if not self.threads:
-            return []
-        query = self.embed([text])[0]
-        scored = [(cosine(query, t.embedding), t) for t in self.threads if t.embedding]
-        scored.sort(key=lambda item: -item[0])
-        out = []
-        for score, thread in scored[:k]:
-            d = thread.to_dict()
-            d["similarity"] = round(score, 4)
-            out.append(d)
+            return {}
+        eligible = [t for t in self.threads if t.embedding]
+        if not eligible or not texts:
+            return {}
+
+        query_vectors = self.embed(texts)
+        windows = []
+        for idx, query in enumerate(query_vectors):
+            scored = [(cosine(query, t.embedding), t) for t in eligible]
+            scored.sort(key=lambda item: -item[0])
+            if scored:
+                windows.append((idx, scored[0][0], scored[:k]))
+
+        windows.sort(key=lambda item: -item[1])
+        out = {}
+        for idx, _, scored in windows[:top_windows]:
+            out[idx] = [self.retrieved_thread(thread, score) for score, thread in scored]
         return out
 
     def backfill(self, stream_id: str, sents, extractor=None) -> list[ThreadRecord]:
@@ -238,29 +258,47 @@ def embed_texts(texts: list[str], *, model: str = "text-embedding-3-small") -> l
     return [list(item.embedding) for item in response.data]
 
 
+def clipper_model() -> str:
+    return os.environ.get("AFTERPLAY_CLIPPER_MODEL", "gpt-5.6-sol")
+
+
+def parsed_response(response) -> dict:
+    parsed = getattr(response, "output_parsed", None)
+    if parsed is not None:
+        return parsed
+    from .prompts import extract_json
+    return extract_json(response.output_text)
+
+
 def extract_threads_with_openai(stream_id: str, transcript: str) -> dict:
-    from .prompts import SYSTEM, extract_json, thread_extraction_prompt
+    from .prompts import (SYSTEM, THREAD_EXTRACTION_JSON_SCHEMA, json_schema_format,
+                          thread_extraction_prompt)
     client = openai_client()
     response = client.responses.create(
-        model=os.environ.get("AFTERPLAY_OPENAI_MODEL", "gpt-4o-mini"),
+        model=clipper_model(),
         input=[
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": thread_extraction_prompt(stream_id, transcript[:120000])},
         ],
+        text={"format": json_schema_format("afterplay_thread_extraction",
+                                           THREAD_EXTRACTION_JSON_SCHEMA)},
         store=False,
     )
-    return extract_json(response.output_text)
+    return parsed_response(response)
 
 
 def judge_callback_with_openai(window_text: str, retrieved: list[dict]) -> dict:
-    from .prompts import SYSTEM, callback_judge_prompt, extract_json
+    from .prompts import (CALLBACK_JUDGE_JSON_SCHEMA, SYSTEM, callback_judge_prompt,
+                          json_schema_format)
     client = openai_client()
     response = client.responses.create(
-        model=os.environ.get("AFTERPLAY_OPENAI_MODEL", "gpt-4o-mini"),
+        model=clipper_model(),
         input=[
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": callback_judge_prompt(window_text[:12000], retrieved)},
         ],
+        text={"format": json_schema_format("afterplay_callback_judge",
+                                           CALLBACK_JUDGE_JSON_SCHEMA)},
         store=False,
     )
-    return extract_json(response.output_text)
+    return parsed_response(response)

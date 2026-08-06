@@ -66,12 +66,19 @@ Then set:
 ```text
 AFTERPLAY_ENABLE_LIVE_AI=true
 OPENAI_API_KEY=your_server_only_key
-AFTERPLAY_OPENAI_MODEL=gpt-4o-mini
+AFTERPLAY_OPENAI_MODEL=gpt-5.6-sol
 ```
 
 Live mode is exposed through `POST /api/strategy/plan` with `mode: "live"`. It uses the OpenAI Responses API, strict Structured Outputs, `store: false`, medium reasoning effort, a hashed safety identifier, and domain validation. If live mode is unavailable or fails, the API returns a visible error and does **not** substitute the demo proposal.
 
 The judge workflow deliberately stays in deterministic mode.
+
+The nested clipper service uses a separate model variable for callback extraction and
+judging, so clipper experiments do not silently change the app's strategy director:
+
+```text
+AFTERPLAY_CLIPPER_MODEL=gpt-5.6-sol
+```
 
 ## Verification
 

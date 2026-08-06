@@ -210,6 +210,42 @@ THREAD_EXTRACTION_SCHEMA = """{
   ]
 }"""
 
+THREAD_EXTRACTION_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "threads": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": ["string", "null"]},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["running_joke", "rivalry", "person",
+                                 "unfinished_story", "recurring_bit"],
+                    },
+                    "label": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "status": {"type": "string", "enum": ["open", "paid_off"]},
+                    "first_seen": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "t": {"type": "number"},
+                            "quote": {"type": "string"},
+                        },
+                        "required": ["t", "quote"],
+                    },
+                },
+                "required": ["id", "kind", "label", "summary", "status", "first_seen"],
+            },
+        },
+    },
+    "required": ["threads"],
+}
+
 THREAD_EXTRACTION = """# Job
 Extract creator-specific threads that could make a future clip meaningful as a callback.
 
@@ -248,6 +284,18 @@ CALLBACK_JUDGE_SCHEMA = """{
   "why": "<one sentence grounded in the current window and retrieved thread>"
 }"""
 
+CALLBACK_JUDGE_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "is_callback": {"type": "boolean"},
+        "thread_id": {"type": ["string", "null"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "why": {"type": "string"},
+    },
+    "required": ["is_callback", "thread_id", "confidence", "why"],
+}
+
 CALLBACK_JUDGE = """# Job
 Judge whether the current clip window pays off or clearly references one retrieved
 creator-memory thread.
@@ -280,6 +328,15 @@ def callback_judge_prompt(window_text: str, retrieved: list[dict]) -> str:
     return CALLBACK_JUDGE.format(schema=CALLBACK_JUDGE_SCHEMA,
                                  window_text=window_text,
                                  retrieved=json.dumps(retrieved, indent=2, default=str))
+
+
+def json_schema_format(name: str, schema: dict) -> dict:
+    return {
+        "type": "json_schema",
+        "name": name,
+        "schema": schema,
+        "strict": True,
+    }
 
 
 # ── shared JSON extraction ────────────────────────────────────────────────────

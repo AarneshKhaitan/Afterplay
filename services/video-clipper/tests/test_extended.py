@@ -57,6 +57,8 @@ class TestChannelMemory:
         hits = loaded.retrieve("that cursed sniper returned near the bridge", k=1)
         assert hits[0]["label"] == "cursed sniper on bridge"
         assert hits[0]["similarity"] > 0.9
+        assert "embedding" not in hits[0]
+        assert "updated" not in hits[0]
 
     def test_memory_reasoner_boosts_clear_callbacks_and_carries_signals(self):
         class Memory:
@@ -117,6 +119,77 @@ class TestChannelMemory:
         moments = MemoryReasoner(BrokenMemory()).rank(sents, target=20.0, n=1, tol=5.0)
         assert len(moments) == 1
         assert moments[0].why.startswith("cold-start")
+
+    def test_memory_reasoner_batches_embeddings_and_caps_judges(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory, StreamMention, ThreadRecord
+
+        calls = []
+
+        def embed(texts):
+            calls.append(len(texts))
+            return [[1.0, 0.0] if "target" in text else [0.0, 1.0] for text in texts]
+
+        memory = ChannelMemory("creator", root=tmp_path, embedder=embed)
+        memory.threads = [ThreadRecord(
+            id="thread_1",
+            kind="running_joke",
+            label="target thread",
+            summary="A callback target.",
+            first_seen=StreamMention("prior", 3.0, "target quote"),
+            mentions=[StreamMention("prior", 3.0, "target quote")],
+            embedding=[1.0, 0.0],
+        )]
+        judged = []
+
+        def judge(text, retrieved):
+            judged.append(text)
+            assert "embedding" not in retrieved[0]
+            return {"is_callback": False, "thread_id": None, "confidence": 0.0, "why": ""}
+
+        sents = [
+            Sentence(i * 10.0, i * 10.0 + 10.0,
+                     "target callback" if i in (4, 12, 20) else f"ordinary line {i}")
+            for i in range(30)
+        ]
+        MemoryReasoner(memory, judge=judge, judge_top_k=2).rank(
+            sents, target=10.0, n=3, min_gap=0.0, tol=1.0
+        )
+
+        assert calls == [30]
+        assert len(judged) == 2
+        assert all("target callback" in text for text in judged)
+
+    def test_memory_reasoner_rejects_hallucinated_thread_id(self):
+        class Memory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {0: [{"id": "real_thread", "label": "Real thread",
+                             "first_seen": {"stream_id": "prior", "t": 1.0,
+                                            "quote": "real quote"}}]}
+
+        def judge(text, retrieved):
+            return {"is_callback": True, "thread_id": "invented_thread",
+                    "confidence": 0.99, "why": "not grounded"}
+
+        moments = MemoryReasoner(Memory(), judge=judge).rank(
+            [Sentence(0.0, 10.0, "target callback")], target=10.0, n=1, tol=1.0
+        )
+        assert "callback" not in moments[0].signals
+
+    def test_memory_reasoner_rejects_low_confidence_callback(self):
+        class Memory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {0: [{"id": "thread_1", "label": "Thread",
+                             "first_seen": {"stream_id": "prior", "t": 1.0,
+                                            "quote": "quote"}}]}
+
+        def judge(text, retrieved):
+            return {"is_callback": True, "thread_id": "thread_1",
+                    "confidence": 0.1, "why": "weak"}
+
+        moments = MemoryReasoner(Memory(), judge=judge).rank(
+            [Sentence(0.0, 10.0, "target callback")], target=10.0, n=1, tol=1.0
+        )
+        assert "callback" not in moments[0].signals
 
     def test_clip_manifest_includes_signals(self):
         job = JobResult(job_id="job", source={},

@@ -306,17 +306,25 @@ class MemoryReasoner(Reasoner):
     """
 
     def __init__(self, channel_memory, judge=None, min_confidence: float = 0.55,
-                 boost: float = 3.0):
+                 boost: float = 3.0, judge_top_k: int = 10):
         self.channel_memory = channel_memory
         self.judge = judge
         self.min_confidence = min_confidence
         self.boost = boost
+        self.judge_top_k = judge_top_k
 
     def rank(self, sents, heatmap=None, *, target=30.0, n=5, min_gap=20.0,
              tol=10.0, **kw) -> list[Moment]:
         try:
             moments: list[Moment] = []
-            for start, end, text in candidates(sents, target, tol):
+            candidate_windows = candidates(sents, target, tol)
+            retrieved_by_idx = self._retrieve_candidates([text for _, _, text in candidate_windows])
+            judge = self.judge
+            if retrieved_by_idx and judge is None:
+                from .channel_memory import judge_callback_with_openai
+                judge = judge_callback_with_openai
+
+            for idx, (start, end, text) in enumerate(candidate_windows):
                 h = heat_avg(heatmap or [], start, end)
                 if h is not None:
                     score = h
@@ -329,12 +337,8 @@ class MemoryReasoner(Reasoner):
                     signals = {"events": cs.events, "turns": cs.turns,
                                "questions": cs.questions, "wpm": round(cs.wpm, 1)}
 
-                retrieved = self.channel_memory.retrieve(text, k=3)
-                if retrieved:
-                    judge = self.judge
-                    if judge is None:
-                        from .channel_memory import judge_callback_with_openai
-                        judge = judge_callback_with_openai
+                retrieved = retrieved_by_idx.get(idx, [])
+                if retrieved and judge:
                     verdict = judge(text, retrieved)
                     thread_ids = {str(item.get("id")) for item in retrieved}
                     thread_id = str(verdict.get("thread_id")) if verdict.get("thread_id") else ""
@@ -374,6 +378,20 @@ class MemoryReasoner(Reasoner):
             logging.getLogger("afterplay").warning("channel memory ranking unavailable "
                                                    "(%s); falling back to heuristic", e)
             return rank(sents, heatmap, target=target, n=n, min_gap=min_gap, tol=tol)
+
+    def _retrieve_candidates(self, texts: list[str]) -> dict[int, list[dict]]:
+        if not texts:
+            return {}
+        if hasattr(self.channel_memory, "retrieve_many"):
+            return self.channel_memory.retrieve_many(texts, k=3, top_windows=self.judge_top_k)
+
+        scored = []
+        for idx, text in enumerate(texts):
+            hits = self.channel_memory.retrieve(text, k=3)
+            if hits:
+                scored.append((idx, float(hits[0].get("similarity") or 0.0), hits))
+        scored.sort(key=lambda item: -item[1])
+        return {idx: hits for idx, _, hits in scored[:self.judge_top_k]}
 
 
 def snap(sents: list[Sentence], start: float, end: float) -> tuple[float, float]:

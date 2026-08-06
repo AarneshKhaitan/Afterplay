@@ -34,6 +34,8 @@ The active mode, provider, model, and sample-data status appear in the service r
 - Output: strict Structured Outputs parsed through the official JavaScript SDK and validated again at the domain boundary.
 - Safety identifier: stable privacy-preserving workspace identifier when a real end user is represented.
 - No beta multi-agent, programmatic tool calling, Pro mode, persisted cross-request reasoning, or explicit prompt caching in the baseline.
+- The Python clipper uses `AFTERPLAY_CLIPPER_MODEL` for callback extraction and judging;
+  the web app keeps `AFTERPLAY_OPENAI_MODEL` for the strategy director.
 
 Official references:
 
