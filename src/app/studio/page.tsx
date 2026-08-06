@@ -8,6 +8,13 @@ import { getExperiment } from "@/domain/experiment";
 
 export const dynamic = "force-dynamic";
 
+function timestamp(seconds?: number) {
+  if (seconds === undefined) return null;
+  const mm = Math.floor(seconds / 60);
+  const ss = Math.floor(seconds % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
 export default function StudioPage() {
   const experiment = getExperiment("exp_one_more_rule");
   const manifest = getLatestClipManifest();
@@ -29,11 +36,11 @@ export default function StudioPage() {
             </div>
             <div className="output-grid output-grid--manifest">
               {realClips.slice(0, 3).map((clip, index) => {
-                const callback = clip.signals?.callback === true;
+                const sourceTime = timestamp(clip.sourceT);
                 return (
                   <article className="output-card" key={clip.clip_id} aria-label={clip.clip_id}>
-                    <div className="output-preview manifest-preview"><span className="output-order">0{index + 1}</span><span className="duration">{Math.round(clip.duration)}s</span><strong>{clip.ok ? "QC passed" : "Needs review"}</strong></div>
-                    <div className="output-body"><h2>{clip.clip_id}</h2><div className="output-platform"><span>{callback ? "callback clip" : "service clip"}</span><strong>{clip.platform}</strong></div><blockquote>“{clip.why || "Manifest clip from the Python service."}”</blockquote><p>{clip.text_for_copy || clip.path || "No transcript excerpt was included in the manifest."}</p><div className="output-rationale"><span>{callback ? "Callback evidence" : "Manifest"}</span><strong>{callback ? `${String(clip.signals?.thread_label ?? "Thread")} · confidence ${String(clip.signals?.confidence ?? "?")}` : manifest.manifestPath}</strong></div><div className="provenance"><ShieldCheck /><span>Real clipper manifest</span></div></div>
+                    <div className="output-preview manifest-preview"><video controls preload="none" src={`/api/clips/${encodeURIComponent(clip.clip_id)}/media`} aria-label={`${clip.clip_id} preview`} /><span className="output-order">0{index + 1}</span><span className="duration">{Math.round(clip.duration)}s</span></div>
+                    <div className="output-body"><h2>{clip.clip_id}</h2><div className="output-platform"><span>{clip.callback ? "callback clip" : "service clip"}</span><strong>{clip.platform}</strong></div><blockquote>“{clip.why || "Manifest clip from the Python service."}”</blockquote><p>{clip.text_for_copy || clip.path || "No transcript excerpt was included in the manifest."}</p><div className="output-rationale"><span>{clip.callback ? "Callback evidence" : "Manifest"}</span><strong>{clip.callback ? `${clip.threadLabel ?? "Thread"} · confidence ${clip.callbackConfidence ?? "?"}` : manifest.manifestPath}</strong>{clip.callback ? <div className="callback-citation"><span>{clip.sourceStream ?? "Unknown source"}{sourceTime ? ` · ${sourceTime}` : ""}</span><q>{clip.sourceQuote ?? "No source quote recorded."}</q></div> : null}</div><div className="provenance"><ShieldCheck /><span>Real clipper manifest</span></div></div>
                   </article>
                 );
               })}

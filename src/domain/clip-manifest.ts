@@ -14,6 +14,12 @@ export type ClipperManifestClip = {
   error?: string | null;
   signals?: Record<string, unknown>;
   text_for_copy?: string;
+  callback?: boolean;
+  threadLabel?: string;
+  callbackConfidence?: number;
+  sourceStream?: string;
+  sourceT?: number;
+  sourceQuote?: string;
 };
 
 export type ClipperManifest = {
@@ -63,11 +69,32 @@ export function getLatestClipManifest(): ClipperManifest | null {
     >;
     return {
       ...data,
-      clips: Array.isArray(data.clips) ? data.clips : [],
+      clips: Array.isArray(data.clips) ? data.clips.map(normalizeClip) : [],
       manifestPath: files[0].path,
       updatedAt: new Date(files[0].mtimeMs).toISOString(),
     };
   } catch {
     return null;
   }
+}
+
+function normalizeClip(clip: ClipperManifestClip): ClipperManifestClip {
+  const signals = clip.signals ?? {};
+  return {
+    ...clip,
+    callback: signals.callback === true,
+    threadLabel: stringValue(signals.thread_label),
+    callbackConfidence: numberValue(signals.confidence),
+    sourceStream: stringValue(signals.source_stream),
+    sourceT: numberValue(signals.source_t),
+    sourceQuote: stringValue(signals.source_quote),
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
