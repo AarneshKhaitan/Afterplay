@@ -96,9 +96,9 @@ export const demoWorkspace: CreatorWorkspace = {
       currentRevision: 2,
     },
     movement: [
-      { label: "Returning viewers", value: "13.6%", delta: "+5.4 pt", direction: "up" },
-      { label: "Repeat commenters", value: "7", delta: "+5", direction: "up" },
-      { label: "Live-link visits", value: "9", delta: "+6", direction: "up" },
+      { label: "Returning viewers", value: "8.2%", delta: "baseline", direction: "flat" },
+      { label: "Repeat commenters", value: "2", delta: "baseline", direction: "flat" },
+      { label: "Live-link visits", value: "3", delta: "baseline", direction: "flat" },
     ],
     teamActivity: [
       { role: "Strategist", action: "Set the target: more returning viewers", state: "complete", time: "09:12" },
@@ -113,9 +113,9 @@ export const demoWorkspace: CreatorWorkspace = {
       risk: "Low · simulated external action",
     },
     learning: {
-      title: "The format name is worth testing again",
-      summary: "Repeat behavior improved more than reach in this sample. One run is not enough to say the format caused it.",
-      nextMove: "Test whether naming viewer-submitted constraints brings the same people back.",
+      title: "Awaiting the sample result",
+      summary: "Afterplay will compare the approved test against the baseline once labelled results are loaded.",
+      nextMove: "Do not change the strategy until the result is recorded.",
     },
   },
 };

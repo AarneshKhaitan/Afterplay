@@ -17,7 +17,7 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 
-import { getExperiment } from "@/domain/experiment";
+import { getExperiment, resultMovement } from "@/domain/experiment";
 import { getDemoWorkspace } from "@/domain/workspace";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +40,9 @@ const roleTone = {
 
 export default function GrowthHqPage() {
   const { meta, workspace } = getDemoWorkspace();
-  const { creator, diagnosis, activeExperiment, movement, teamActivity, decision, learning } = workspace;
+  const { creator, diagnosis, activeExperiment, teamActivity, decision, learning } = workspace;
   const experiment = getExperiment("exp_one_more_rule");
+  const movement = resultMovement(experiment.result);
   const learnedState = experiment.status === "learned" && experiment.learning && experiment.nextExperiment
     ? { learning: experiment.learning, nextExperiment: experiment.nextExperiment }
     : null;
@@ -134,14 +135,14 @@ export default function GrowthHqPage() {
             <section className="section-block" aria-labelledby="movement-title">
               <div className="section-heading">
                 <h2 id="movement-title">Early return signals</h2>
-                <span className="sample-note">Sample result · 1 run</span>
+                <span className="sample-note">{experiment.result ? "Sample result · 1 run" : "Baseline before result"}</span>
               </div>
               <div className="metric-grid">
                 {movement.map((metric) => (
                   <article className="metric" key={metric.label}>
                     <span>{metric.label}</span>
                     <div><strong>{metric.value}</strong><em><ChartLineUp /> {metric.delta}</em></div>
-                    <small>vs 28-day baseline</small>
+                    <small>{metric.delta === "baseline" ? "28-day baseline" : "vs 28-day baseline"}</small>
                   </article>
                 ))}
               </div>

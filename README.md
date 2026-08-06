@@ -66,7 +66,7 @@ Then set:
 ```text
 AFTERPLAY_ENABLE_LIVE_AI=true
 OPENAI_API_KEY=your_server_only_key
-AFTERPLAY_OPENAI_MODEL=gpt-5.6-sol
+AFTERPLAY_OPENAI_MODEL=gpt-4o-mini
 ```
 
 Live mode is exposed through `POST /api/strategy/plan` with `mode: "live"`. It uses the OpenAI Responses API, strict Structured Outputs, `store: false`, medium reasoning effort, a hashed safety identifier, and domain validation. If live mode is unavailable or fails, the API returns a visible error and does **not** substitute the demo proposal.
@@ -118,6 +118,7 @@ The prototype uses seeded in-process state. It is ideal for a deterministic sing
 - [Demo workspace](docs/product/DEMO_WORKSPACE.md)
 - [Design system](docs/design/DESIGN.md)
 - [Architecture](docs/architecture/ARCHITECTURE.md)
+- [Clipper integration](docs/architecture/CLIPPER_INTEGRATION.md)
 - [AI contract](docs/AI.md)
 - [Problem evidence and competitor boundary](docs/research/PROBLEM_EVIDENCE.md)
 - [Accepted public test seams](docs/testing/TEST-SEAMS.md)

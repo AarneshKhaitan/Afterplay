@@ -100,7 +100,7 @@ export type GrowthExperiment = {
   result?: ExperimentResult;
   learning?: ExperimentLearning;
   nextExperiment?: {
-    id: "exp_name_the_builder";
+    id: string;
     name: "Name the Builder";
     status: "proposed";
     hypothesis: string;
@@ -120,6 +120,30 @@ export class ExperimentError extends Error {
     super(message);
     this.name = "ExperimentError";
   }
+}
+
+export const BASELINE = {
+  views: 842,
+  returningViewerRate: 8.2,
+  repeatCommenters: 2,
+  trackedLiveVisits: 3,
+  nextStreamAverageConcurrency: 3.4,
+} as const;
+
+export function resultMovement(result?: ExperimentResult): Array<{
+  label: string;
+  value: string;
+  baseline: string;
+  delta: string;
+  direction: "up" | "flat";
+}> {
+  const metrics = result?.metrics;
+  return [
+    movementMetric("Returning viewers", metrics?.returningViewerRate, BASELINE.returningViewerRate, "%", "pt"),
+    movementMetric("Repeat commenters", metrics?.repeatCommenters, BASELINE.repeatCommenters),
+    movementMetric("Tracked live visits", metrics?.trackedLiveVisits, BASELINE.trackedLiveVisits),
+    movementMetric("Next-stream avg.", metrics?.nextStreamAverageConcurrency, BASELINE.nextStreamAverageConcurrency),
+  ];
 }
 
 const initialExperiment: GrowthExperiment = {
@@ -363,28 +387,81 @@ export function recordResults(input: { id: string; result: ExperimentResult }): 
     );
   }
 
-  experiment.result = structuredClone(input.result);
-  experiment.learning = {
-    conclusion: "The format name is worth testing again.",
-    confidence: 61,
-    evidence: [
-      "Returning-viewer rate moved from 8.2% to 13.6% in the sample window.",
-      "Repeat commenters moved from 2 to 7 while tracked live visits moved from 3 to 9.",
-      "Raw views improved, but less dramatically than the repeat-behavior indicators.",
-    ],
-    limitations: [
-      "One sample run cannot establish causality.",
-      "Topic, posting time, and packaging changed alongside the named format.",
-      "Cross-platform viewers cannot be joined at person level.",
-    ],
-    nextMove: "Name participating viewers in the next test and see whether they return.",
-  };
-  experiment.nextExperiment = {
-    id: "exp_name_the_builder",
-    name: "Name the Builder",
-    status: "proposed",
-    hypothesis: "Naming viewers whose constraints enter the build may increase repeat participation without needing more reach.",
-  };
+  const result = structuredClone(input.result);
+  const metrics = result.metrics;
+  const returningDelta = Number((metrics.returningViewerRate - BASELINE.returningViewerRate).toFixed(1));
+  const repeatDelta = metrics.repeatCommenters - BASELINE.repeatCommenters;
+  const liveDelta = metrics.trackedLiveVisits - BASELINE.trackedLiveVisits;
+  const viewsDelta = metrics.views - BASELINE.views;
+  const concurrencyDelta = Number((metrics.nextStreamAverageConcurrency - BASELINE.nextStreamAverageConcurrency).toFixed(1));
+
+  const returnSignalsUp =
+    returningDelta >= 1.5 &&
+    repeatDelta >= 2 &&
+    liveDelta >= 2;
+  const falsifierMet =
+    viewsDelta > 0 &&
+    returningDelta <= 0.3 &&
+    repeatDelta <= 0 &&
+    liveDelta <= 0;
+
+  const movementEvidence = [
+    `Returning-viewer rate moved from ${BASELINE.returningViewerRate}% to ${metrics.returningViewerRate}% (${formatDelta(returningDelta, "pt")}).`,
+    `Repeat commenters moved from ${BASELINE.repeatCommenters} to ${metrics.repeatCommenters} (${formatDelta(repeatDelta)}).`,
+    `Tracked live visits moved from ${BASELINE.trackedLiveVisits} to ${metrics.trackedLiveVisits} (${formatDelta(liveDelta)}).`,
+    `Views moved from ${BASELINE.views} to ${metrics.views} (${formatDelta(viewsDelta)}), while next-stream average concurrency moved from ${BASELINE.nextStreamAverageConcurrency} to ${metrics.nextStreamAverageConcurrency} (${formatDelta(concurrencyDelta)}).`,
+  ];
+
+  let learning: ExperimentLearning;
+  let nextExperiment: NonNullable<GrowthExperiment["nextExperiment"]>;
+
+  if (returnSignalsUp) {
+    learning = {
+      conclusion: "The named format earned a cautious second test.",
+      confidence: confidenceFromEffect([returningDelta / 5, repeatDelta / 5, liveDelta / 6], 64),
+      evidence: movementEvidence,
+      limitations: defaultLimitations(),
+      nextMove: "Name participating viewers in the next test and see whether they return again.",
+    };
+    nextExperiment = {
+      id: "exp_name_the_builder",
+      name: "Name the Builder",
+      status: "proposed",
+      hypothesis: "Naming viewers whose constraints enter the build may increase repeat participation without needing more reach.",
+    };
+  } else if (falsifierMet) {
+    learning = {
+      conclusion: "The result contradicted the return-cue hypothesis.",
+      confidence: confidenceFromEffect([Math.abs(returningDelta) / 3, Math.abs(repeatDelta), Math.abs(liveDelta)], 58),
+      evidence: movementEvidence,
+      limitations: defaultLimitations(),
+      nextMove: "Stop repeating this package as-is and test a clearer path from clip viewer to next live session.",
+    };
+    nextExperiment = {
+      id: "exp_fix_return_path",
+      name: "Name the Builder",
+      status: "proposed",
+      hypothesis: "A clip with an explicit next-session reason and schedule may convert reach into return behavior better than the named format alone.",
+    };
+  } else {
+    learning = {
+      conclusion: "The result is inconclusive.",
+      confidence: confidenceFromEffect([Math.abs(returningDelta) / 4, Math.abs(repeatDelta) / 3, Math.abs(liveDelta) / 3], 42),
+      evidence: movementEvidence,
+      limitations: defaultLimitations(),
+      nextMove: "Repeat a narrower version with fewer packaging changes before changing the creator strategy.",
+    };
+    nextExperiment = {
+      id: "exp_clean_repeat",
+      name: "Name the Builder",
+      status: "proposed",
+      hypothesis: "Repeating the named-format test with the same posting window and one changed variable may separate signal from noise.",
+    };
+  }
+
+  experiment.result = result;
+  experiment.learning = learning;
+  experiment.nextExperiment = nextExperiment;
   experiment.status = "learned";
   experiment.stage = "Learning recorded";
 
@@ -394,4 +471,41 @@ export function recordResults(input: { id: string; result: ExperimentResult }): 
     learning: structuredClone(experiment.learning),
     nextExperiment: structuredClone(experiment.nextExperiment),
   };
+}
+
+function formatDelta(delta: number, suffix = ""): string {
+  const rounded = Number(delta.toFixed(1));
+  const sign = rounded > 0 ? "+" : "";
+  return `${sign}${rounded}${suffix}`;
+}
+
+function movementMetric(
+  label: string,
+  value: number | undefined,
+  baseline: number,
+  valueSuffix = "",
+  deltaSuffix = "",
+) {
+  const displayValue = value ?? baseline;
+  const delta = value === undefined ? 0 : Number((value - baseline).toFixed(1));
+  return {
+    label,
+    value: `${displayValue}${valueSuffix}`,
+    baseline: `${baseline}${valueSuffix}`,
+    delta: value === undefined ? "baseline" : formatDelta(delta, deltaSuffix),
+    direction: delta > 0 ? "up" as const : "flat" as const,
+  };
+}
+
+function confidenceFromEffect(effects: number[], cap: number): number {
+  const mean = effects.reduce((sum, value) => sum + Math.min(1, Math.max(0, value)), 0) / effects.length;
+  return Math.max(28, Math.min(cap, Math.round(32 + mean * 38)));
+}
+
+function defaultLimitations(): string[] {
+  return [
+    "One sample run cannot establish causality.",
+    "Topic, posting time, and packaging may have changed alongside the tested format.",
+    "Cross-platform viewers cannot be joined at person level.",
+  ];
 }

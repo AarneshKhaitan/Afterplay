@@ -4,7 +4,7 @@ import { ArrowRight, ChartLineUp, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState } from "react";
 
-import type { GrowthExperiment } from "@/domain/experiment";
+import { resultMovement, type GrowthExperiment } from "@/domain/experiment";
 
 const sampleMetrics = {
   views: 1284,
@@ -50,12 +50,7 @@ export function AudienceResults({ initialExperiment }: { initialExperiment: Grow
   }
 
   const { result, learning, nextExperiment } = experiment;
-  const metrics = [
-    { label: "Returning viewers", value: `${result.metrics.returningViewerRate}%`, baseline: "8.2%", delta: "+5.4 pt" },
-    { label: "Repeat commenters", value: String(result.metrics.repeatCommenters), baseline: "2", delta: "+5" },
-    { label: "Tracked live visits", value: String(result.metrics.trackedLiveVisits), baseline: "3", delta: "+6" },
-    { label: "Next-stream avg.", value: String(result.metrics.nextStreamAverageConcurrency), baseline: "3.4", delta: "+1.2" },
-  ];
+  const metrics = resultMovement(result);
 
   return (
     <div className="results-loaded" aria-live="polite">
