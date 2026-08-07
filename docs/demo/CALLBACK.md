@@ -4,7 +4,7 @@ This file is the demo checklist for proving the clipping/creator-helper idea wit
 real creator-owned material. Do not mark the demo complete until a real callback clip
 has been selected and the cited source timestamp has been verified.
 
-## Inputs — validated 2026-08-07
+## Inputs — VALIDATED AND RENDERED 2026-08-07 (A5 / G6 closed)
 
 Creators: **KSI/Sidemen** (hero) and **iShowSpeed** (generalisation proof). Both are
 third-party YouTube content resolved with yt-dlp. Rights status is
@@ -22,7 +22,13 @@ label it otherwise in the UI.
 
 ### Verified callbacks (live OpenAI, real auto-captions)
 
-**Hero — "Frame Ethan to clear his name" (confidence 0.86)**
+**Hero — "Frame Ethan to clear his name" — RENDERED, confidence 0.93**
+
+Produced end to end by `run --memory` as job `hero_callback`:
+`clip01_shorts.mp4`, 1080x1920, 21.8s, real audio, first-pass QC. Studio serves it as
+the newest manifest. Full command and decoded verification in
+[EVIDENCE.md E-015](../prd/EVIDENCE.md#e-015-hero-callback-rendered).
+
 
 - Setup: `nxGlZX9GH5I` @ 2488.1s — *"okay I might shapeshift into Ethan and then kill
   Harry, I need to clear my name people"*
@@ -49,12 +55,13 @@ runs, and only 8–9 threads were considered per stream, so the top-K gate held.
 
 ### Known blockers before recording
 
-1. **YouTube bot-blocking is active.** After roughly eight resolves in quick succession,
-   yt-dlp returns *"Sign in to confirm you're not a bot"*. This currently blocks
-   re-resolving `nxGlZX9GH5I`, so **its artifacts are not yet cached**. Mitigate by
-   exporting cookies (`--cookies cookies.txt`, or `--cookies-from-browser chrome` **with
-   Chrome closed** — the cookie DB is locked while it runs, yt-dlp issue 7271), or simply
-   fetch well ahead of the recording and reuse the cache.
+1. **YouTube bot-blocking is intermittent.** After roughly eight resolves in quick
+   succession, yt-dlp returns *"Sign in to confirm you're not a bot"*. The throttle
+   later lifted and all three streams are now cached. Ingestion now supports
+   `--cookies` / `--cookies-from-browser` (browser must be CLOSED, yt-dlp issue 7271),
+   `--sleep-interval` and `--extractor-args` across every extraction path. Run
+   `afterplay predemo <ids>` in a warm-up window and confirm it reports **ready**
+   before recording.
 2. **Run the demo from the cache, not the network.** `resolve.from_info_json` replays a
    saved `info.json` + VTT offline, so the recording never depends on YouTube being
    cooperative. Cache every demo video first, then record.

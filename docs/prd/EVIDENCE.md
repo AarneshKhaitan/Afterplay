@@ -289,7 +289,7 @@ ingestion, stale/degraded/no-callback UI states, and the filesystem bridge into
   'C:\Users\HP'`; the escalated rerun passed. The shell also printed an unrelated Conda
   startup warning after the successful command.
 
-## e-011-real-creator-thread-extraction
+## e-017-real-creator-thread-extraction
 
 Claim: thread extraction works on real, messy, auto-captioned gaming VODs — not only on
 authored transcripts.
@@ -325,7 +325,7 @@ authored transcripts.
   (`unfinished_story` 8/18), which resolve inside one stream and are therefore weaker for
   cross-stream detection.
 
-## e-012-cross-video-callback-on-real-data
+## e-018-cross-video-callback-on-real-data
 
 Claim: the engine independently finds genuine cross-video callbacks in real creator VODs,
 with correct citations. **This is the claim the product rests on.**
@@ -359,7 +359,7 @@ with correct citations. **This is the claim the product rests on.**
   ~8 resolves in quick succession. Demo runs must be served from cached `info.json` + VTT
   via `resolve.from_info_json`, not live network calls.
 
-## e-013-live-vs-demo-latency
+## e-019-live-vs-demo-latency
 
 Claim: live strategy planning is slow enough to need visible in-flight status; demo mode
 is effectively instant.
@@ -415,3 +415,78 @@ independent of it.
   The only durable network-free path that also renders is local media via `--local`;
   `predemo` reports decide-phase readiness separately from render readiness for exactly
   this reason.
+
+## e-015-hero-callback-rendered
+
+Claim: the hero cross-video callback is a real, playable artifact — not only a decide-phase
+result. **This closes A5 / G6.**
+
+- Date: 2026-08-07
+- History: `probe_ksi` channel memory (12 threads from 2 prior Sidemen streams)
+- Command:
+  ```
+  python -m afterplay.cli run --memory --creator probe_ksi \
+    "https://www.youtube.com/watch?v=BW_MAa5L9lg" \
+    --clips 2 --platforms shorts --workers 2 --job-id hero_callback
+  ```
+- Captured output:
+  ```
+  job hero_callback: 2/2 clips ok in 412.4s  (encoder h264_qsv)
+  timings: {'resolve': 13.6, 'understand': 75.59, 'detector': 'transcript',
+            'stream_urls': 4.4, 'produce': 318.79, 'total': 412.39}
+    [ok ] clip01_shorts  2409.0s + 24.2s  attempts=1 repairs=-
+    [ok ] clip02_shorts  1775.1s + 24.7s  attempts=1 repairs=-
+  ```
+- Manifest evidence for `clip01_shorts`:
+  ```
+  memory: {enabled: true, degraded: false, threads_considered: 8, callback_found: true}
+  callback: true, confidence 0.93
+  thread  : Frame Ethan to clear his name
+  cites   : nxGlZX9GH5I @ 2488.1
+  quote   : "okay I might shapeshift into Ethan and then kill Harry, I need to clear my
+             name people"
+  why     : executes the open plan by saying he kills Harry and then declares "job done"
+  ```
+- Rendered files verified by decoding, not by trusting ffmpeg's exit code:
+  ```
+  clip01_shorts.mp4 -> 1080x1920 21.82s fps=30 audio=True peak=0.896 (11.7 MB)
+  clip02_shorts.mp4 -> 1080x1920 23.99s fps=30 audio=True peak=0.923 (12.3 MB)
+  ```
+- Three separate fixes proved themselves in this single run: `stream_urls.json` was
+  cached (video + audio) so a re-run inside the 4h TTL replays offline; `status.json`
+  went `started` -> `complete` with the manifest path; and the memory block reports
+  `degraded: false` next to `callback_found: true`, so a genuine no-callback run stays
+  distinguishable from a broken one.
+- Note the decision phase was 89s of the 412s total; the rest is rendering. The earlier
+  1907s Free Fire run was a 1080p60 source, which is the G16 reframe cost, not ingestion.
+
+## e-016-ranking-feedback-changes-a-later-run
+
+Claim: recording results changes the ranking of a subsequent run. **This is phase 2's B3
+acceptance criterion.**
+
+- Date: 2026-08-07
+- Method: real `insights.Analytics` path — `record_post` -> `record_metric` ->
+  `compute_priors` -> `apply_to_moments` — over an identical candidate set, so any
+  reordering comes from priors alone.
+- Captured output:
+  ```
+  BEFORE (no results):  ranking ['story', 'punchline', 'reaction']   priors ready: False
+
+  RECORDED 9 posts (punchline wins, story loses)
+    punchline  lift x1.681
+    story      lift x0.442
+    reaction   lift x0.877
+
+  AFTER:                ranking ['punchline', 'reaction', 'story']
+    punchline  score=6.085  llm[punchline]: the joke lands | prior[punchline] x1.68
+    reaction   score=4.943  llm[reaction]: he reacts       | prior[reaction] x0.88
+    story      score=4.303  llm[story]: a narrative beat   | prior[story] x0.44
+
+  RANKING CHANGED: YES
+  ```
+- The re-ranking reason is visible in each moment's `why`, so the learning is inspectable
+  rather than implicit.
+- **Limitation:** the outcomes here are synthetic, driven through the real code path.
+  The mechanism is proven; it has not run on actual published performance, because
+  nothing has been published (see G12).

@@ -106,15 +106,15 @@ demo. `P1` = required for the product claim. `P2` = production maturity.
 | # | Gap | Detail |
 |---|---|---|
 | **G1** | **Deck and demo video do not exist** | `docs/submission/REQUIREMENTS.md` has both unchecked. No PDF in the repo. **Two of three required deliverables.** |
-| **G2** | **`backfill` ASR path needs real caption-less proof** | Code now supports `--local`, ASR fallback, generated `asr.vtt`, and actionable `faster-whisper` errors. Still validation-gated by G6/A5 until a real caption-less gameplay VOD backfills useful threads — [E-012](./EVIDENCE.md#e-012-callback-status-contract). |
+| ~~G2~~ | **CLOSED** — backfill proven on real VODs | ASR fallback, `--local`, and actionable `faster-whisper` errors, validated by six real backfills across two creators with zero failures — [E-017](./EVIDENCE.md#e-017-real-creator-thread-extraction). |
 | **G5** | Documented judge path must stay live-first | README now leads with `backfill` → `run --memory` → Studio manifest review; keep this live path ahead of the fixture loop. |
-| **G6** | Real creator data never sourced | `docs/demo/CALLBACK.md` now records this as an explicit open input state instead of blank fields. Every run to date used authored transcripts — clean and unambiguous. Messy real VOD transcripts remain untested. |
+| ~~G6~~ | **CLOSED** — real creator data sourced, callbacks found and rendered | KSI/Sidemen and iShowSpeed backfilled from real auto-captions (no generic threads); 3 genuine cross-video callbacks found; the hero rendered end to end as a playable 1080x1920 clip with its citation — [E-017](./EVIDENCE.md#e-017-real-creator-thread-extraction), [E-018](./EVIDENCE.md#e-018-cross-video-callback-on-real-data), [E-015](./EVIDENCE.md#e-015-hero-callback-rendered). |
 
 ### P1 — open
 
 | # | Gap | Detail |
 |---|---|---|
-| **G7** | The loop closure needs behavioural proof | Code now projects real manifests into experiment outputs and records per-clip results into `AFTERPLAY_MEMORY`; remaining proof is showing recorded results change a later ranking — [E-013](./EVIDENCE.md#e-013-app-feedback-loop-typecheck). |
+| **G7** | Loop partially closed | Clip-level results and the ranking feedback bridge are live and demonstrated — recorded outcomes measurably re-rank a later run — and the Analyst cites a real `clip_id` ([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run)). **The manifest → approval-package projection was reverted**: it replaced the curated three-card Studio package with a single raw card and duplicated the manifest section. Closing this properly means an additional Studio section for pipeline clips, not overwriting `experiment.outputs`. |
 | **G8** | No creator upload | No file input, no multipart handler, no ingest route in `src/`. Media enters only via CLI on the operator's machine. |
 | **G9** | No channel connect | **No channel enumeration anywhere** — no playlist, no `/@handle`, no flat-playlist. `backfill` takes one video and a manually assigned `--stream-id`. "Point it at my channel" does not exist. |
 | **G10** | No OAuth | `src/app/integrations/page.tsx` states "OAuth is not configured". No YouTube Analytics, no real performance data. |
