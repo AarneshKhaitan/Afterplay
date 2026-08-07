@@ -104,7 +104,7 @@ history to an archive file if it has value.
 
 **Why:** the differentiator currently cannot be built on the content type being pitched.
 
-### 1.1 ASR fallback in `backfill` (G2, G23) — implemented, validation pending
+### 1.1 ASR fallback in `backfill` (G2, G23) — DONE, verified on real caption-less gameplay ([E-025](./EVIDENCE.md#e-025-asr-backfill-on-a-caption-less-source))
 
 `services/video-clipper/afterplay/cli.py`, `cmd_backfill`
 
@@ -119,7 +119,7 @@ this: fetch audio only, try `transcribe`, fall back to audio-energy. Reuse it.
 - Add `faster-whisper` guidance to the setup docs; keep it optional but document that
   memory on caption-less sources depends on it.
 
-### 1.2 Surface silent failures and no-callback state (G19) — implemented, fault validation pending
+### 1.2 Surface silent failures and no-callback state (G19) — DONE, fault-injected ([E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale))
 
 `MemoryReasoner.rank` catches everything and degrades to heuristic, so a dead model id or
 auth failure produces a successful-looking run containing zero callbacks.
@@ -136,7 +136,7 @@ Callbacks are additive and should never be treated as a gate for output.
 - Add a `doctor`-style preflight that makes one live model call and one embedding call and
   reports pass/fail before a long job starts.
 
-### 1.3 Fail loudly on incomplete runs (G20) — implemented, fault validation pending
+### 1.3 Fail loudly on incomplete runs (G20) — DONE, fault-injected ([E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale))
 
 A run that dies before writing `manifest.json` silently leaves the previous manifest
 served. Write a `status.json` at job start and mark completion; have
@@ -174,7 +174,7 @@ tests and clean checkouts.
 Extend result recording to accept per-clip metrics keyed by `clip_id`, so the Analyst
 reasons about *which clip* performed, not a single aggregate.
 
-### 2.3 Feed outcomes back into ranking — implemented, ranking-change proof pending
+### 2.3 Feed outcomes back into ranking — DONE, ranking change demonstrated ([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run))
 
 `insights.py` already has `Analytics`, `record_post`, `compute_priors`, `ranking_hints`,
 and applies priors to moments. Wire the app's recorded results into it so the next run's
