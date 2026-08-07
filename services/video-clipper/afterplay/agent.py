@@ -605,7 +605,9 @@ class Orchestrator:
         if src.is_local:
             src_ref = str(src.local_path)
         else:
-            src_ref = stream_urls(src.url, self.settings)
+            # Cache direct URLs in the job dir so a rehearsed demo can replay without
+            # a live extraction (and without risking a bot check mid-run).
+            src_ref = stream_urls(src.url, self.settings, cache_dir=job_dir)
         timings["stream_urls"] = round(time.time() - t0, 2)
 
         # ── stages 3-4: fan out one subagent per (moment x platform)

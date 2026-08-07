@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core import Settings, read_audio
+from .core import AfterplayError, Settings, is_bot_block, network_opts, read_audio
 from .understand import Moment
 
 log = logging.getLogger("afterplay")
@@ -34,12 +34,19 @@ def fetch_audio_only(url: str, settings: Settings, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     tmpl = str(out_dir / "audio.%(ext)s")
     t0 = time.time()
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True,
-                           "format": "ba/bestaudio/worst",
-                           "outtmpl": tmpl,
-                           "socket_timeout": settings.http_timeout,
-                           "retries": 3}) as ydl:
-        info = ydl.extract_info(url, download=True)
+    opts = {"quiet": True, "no_warnings": True,
+            "format": "ba/bestaudio/worst", "outtmpl": tmpl}
+    opts.update(network_opts(settings))
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except Exception as e:                                    # noqa: BLE001
+        if is_bot_block(e):
+            raise AfterplayError(
+                f"{url}: blocked by YouTube bot check while fetching audio. "
+                "Set AFTERPLAY_COOKIES or AFTERPLAY_COOKIES_FROM_BROWSER, "
+                "or run from local media with --local.") from e
+        raise
     got = sorted(out_dir.glob("audio.*"))
     if not got:
         raise FileNotFoundError("audio-only fetch produced no file")

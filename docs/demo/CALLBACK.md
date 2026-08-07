@@ -4,14 +4,62 @@ This file is the demo checklist for proving the clipping/creator-helper idea wit
 real creator-owned material. Do not mark the demo complete until a real callback clip
 has been selected and the cited source timestamp has been verified.
 
-## Inputs
+## Inputs — validated 2026-08-07
 
-- Creator id: `OPEN - select during G6/A5 real creator validation`
-- Prior stream id: `OPEN - record after creator-owned prior stream is chosen`
-- Current stream id: `OPEN - record after callback/no-callback current stream is chosen`
-- Prior transcript path: `OPEN - creator-owned transcript or ASR artifact path`
-- Current media path: `OPEN - creator-owned local media path`
-- Current transcript path: `OPEN - creator-owned transcript or ASR artifact path`
+Creators: **KSI/Sidemen** (hero) and **iShowSpeed** (generalisation proof). Both are
+third-party YouTube content resolved with yt-dlp. Rights status is
+`third_party_extracted`, not creator-owned — disclose in `docs/THIRD_PARTY.md` and never
+label it otherwise in the UI.
+
+- Creator id: `probe_ksi` (rename to the demo creator before recording)
+- **Prior (setup) stream:** `nxGlZX9GH5I` — *SIDEMEN AMONG US: KSI SHAPESHIFTER MASTERCLASS*
+- **Current (payoff) streams:**
+  - `X955SmTm1rY` — *AMONG US BUT EVERYONE'S NAME IS A PRONOUN* (2 callbacks)
+  - `BW_MAa5L9lg` — *AMONG US BUT KSI CHOOSES ALL THE ROLES* (1 callback, the hero)
+- Transcripts: YouTube auto-captions, resolved by `backfill` / `resolve`. Cached under
+  `services/video-clipper/.demo-cache/<video_id>/` (gitignored — third-party transcripts
+  must not be committed).
+
+### Verified callbacks (live OpenAI, real auto-captions)
+
+**Hero — "Frame Ethan to clear his name" (confidence 0.86)**
+
+- Setup: `nxGlZX9GH5I` @ 2488.1s — *"okay I might shapeshift into Ethan and then kill
+  Harry, I need to clear my name people"*
+- Payoff: `BW_MAa5L9lg` @ 2409–2433s — *"so I just kill Harry and cover the body and it's
+  fine"*
+- Why it is the hero: a plan stated in one stream, executed in another, ~40 minutes into a
+  41-minute video. Manual scrubbing does not find this.
+
+**"10 million subscriber Among Us promise" (confidence 0.98)**
+
+- Setup: `nxGlZX9GH5I` @ 4.2s — *"if we get 10 mil Subs we'll drop a 2-hour Among Us
+  video — not a compilation"*
+- Payoff: `X955SmTm1rY` @ 451–473s — *"we said a 2 hour Among Us episode when we reach 10
+  million but we've decided to change it"*
+
+**"Silent Toby" (confidence 0.86)**
+
+- Setup: `nxGlZX9GH5I` @ 577.2s — *"Toby last round he hasn't said a word"*
+- Payoff: `X955SmTm1rY` @ 547–571s — *"now he has to stay muted… well Toby can't talk"*
+
+The payoff windows do **not** repeat the setup wording ("stay muted" vs "hasn't said a
+word"), so this is semantic matching rather than keyword overlap. `degraded=False` on both
+runs, and only 8–9 threads were considered per stream, so the top-K gate held.
+
+### Known blockers before recording
+
+1. **YouTube bot-blocking is active.** After roughly eight resolves in quick succession,
+   yt-dlp returns *"Sign in to confirm you're not a bot"*. This currently blocks
+   re-resolving `nxGlZX9GH5I`, so **its artifacts are not yet cached**. Mitigate by
+   exporting cookies (`--cookies cookies.txt`, or `--cookies-from-browser chrome` **with
+   Chrome closed** — the cookie DB is locked while it runs, yt-dlp issue 7271), or simply
+   fetch well ahead of the recording and reuse the cache.
+2. **Run the demo from the cache, not the network.** `resolve.from_info_json` replays a
+   saved `info.json` + VTT offline, so the recording never depends on YouTube being
+   cooperative. Cache every demo video first, then record.
+3. All three callbacks trace back to the single prior stream `nxGlZX9GH5I`. Backfilling
+   more history would make the memory claim more convincing.
 
 ## Authored Smoke Artifact
 

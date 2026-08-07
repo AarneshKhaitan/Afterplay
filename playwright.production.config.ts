@@ -14,6 +14,11 @@ export default defineConfig({
     url: "http://127.0.0.1:3200/api/workspace",
     reuseExistingServer: false,
     timeout: 60_000,
-    env: { AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR },
+    env: {
+      AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
+      // Pinned off so the "unconfigured live mode fails visibly" assertion does not
+      // depend on whether the developer enabled live AI in their local .env.
+      AFTERPLAY_ENABLE_LIVE_AI: "false",
+    },
   },
 });

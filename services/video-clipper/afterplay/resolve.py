@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .core import ResolveError, Settings
+from .core import is_bot_block, network_opts, ResolveError, Settings
 
 log = logging.getLogger("afterplay")
 
@@ -53,10 +53,9 @@ def _ydl_opts(settings: Settings, workdir: Path, extra: dict | None = None) -> d
         "subtitlesformat": "vtt",
         "outtmpl": str(workdir / "source.%(ext)s"),
         "format": settings.format,
-        "socket_timeout": settings.http_timeout,
-        "retries": 3,
         "ignoreerrors": False,
     }
+    opts.update(network_opts(settings))   # cookies, pacing, retries
     if extra:
         opts.update(extra)
     return opts
@@ -76,6 +75,13 @@ def resolve(url: str, settings: Settings, job_id: str = "job") -> Source:
             # writeinfojson/subs only land on disk via process_info; do it explicitly
             ydl.process_info(dict(info))
     except Exception as e:                                   # noqa: BLE001
+        if is_bot_block(e):
+            raise ResolveError(
+                f"could not resolve {url}: blocked by YouTube bot check. "
+                "Set AFTERPLAY_COOKIES=<cookies.txt> or "
+                "AFTERPLAY_COOKIES_FROM_BROWSER=<browser> (browser must be closed), "
+                "raise AFTERPLAY_SLEEP_INTERVAL between batch resolves, "
+                "or replay a cached run with --info-json.") from e
         raise ResolveError(f"could not resolve {url}: {e}") from e
 
     vtt = _pick_vtt(workdir)
@@ -138,17 +144,60 @@ def _pick_vtt(workdir: Path) -> Path | None:
     return sorted(cands, key=key)[0]
 
 
-def stream_urls(url: str, settings: Settings) -> dict:
+STREAM_URL_TTL_S = 4 * 3600      # CDN URLs are short-lived; assume ~4h
+
+
+def cached_stream_urls(cache_dir: Path | None) -> dict | None:
+    """Replay direct URLs saved by a previous resolve, if still fresh.
+
+    Lets a rehearsed demo run without touching the network. Returns None when the
+    cache is absent, and raises when it exists but has expired, because silently
+    falling back to a live call is what gets a demo bot-blocked on stage."""
+    if not cache_dir:
+        return None
+    path = Path(cache_dir) / "stream_urls.json"
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    age = time.time() - float(payload.get("saved_at", 0))
+    if age > STREAM_URL_TTL_S:
+        raise ResolveError(
+            f"cached stream URLs expired ({age / 3600:.1f}h old, TTL "
+            f"{STREAM_URL_TTL_S / 3600:.0f}h): re-resolve required. Re-run the "
+            "pre-demo cache step, or use --local media for a network-free demo.")
+    urls = payload.get("urls") or {}
+    if not any(urls.values()):
+        return None
+    log.info("using cached stream URLs (%.0f min old)", age / 60)
+    return urls
+
+
+def stream_urls(url: str, settings: Settings, cache_dir: Path | None = None) -> dict:
     """Direct CDN URLs for the chosen format(s).
 
     These are short-lived and support HTTP range requests, which is what lets
     ffmpeg pull only the seconds a clip needs instead of the whole file.
+
+    Prefers a fresh cache when `cache_dir` is given so a rehearsed demo never
+    depends on live extraction.
     """
+    cached = cached_stream_urls(cache_dir)
+    if cached:
+        return cached
     import yt_dlp
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True,
-                           "format": settings.format,
-                           "socket_timeout": settings.http_timeout}) as ydl:
-        info = ydl.extract_info(url, download=False)
+    opts = {"quiet": True, "no_warnings": True, "format": settings.format}
+    opts.update(network_opts(settings))
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as e:                                   # noqa: BLE001
+        if is_bot_block(e):
+            raise ResolveError(
+                f"{url}: blocked by YouTube bot check while fetching stream URLs. "
+                "Set AFTERPLAY_COOKIES=<cookies.txt> or "
+                "AFTERPLAY_COOKIES_FROM_BROWSER=<browser> (browser must be closed), "
+                "or run from local media with --local.") from e
+        raise ResolveError(f"{url}: could not fetch stream URLs: {e}") from e
 
     fmts = info.get("requested_formats") or ([info] if info.get("url") else [])
     if not fmts:
@@ -165,4 +214,9 @@ def stream_urls(url: str, settings: Settings) -> dict:
             out["audio"] = f["url"]
     if not any(out.values()):
         raise ResolveError(f"{url}: resolved formats carry no URLs")
+    if cache_dir:
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        (Path(cache_dir) / "stream_urls.json").write_text(
+            json.dumps({"saved_at": time.time(), "url": url, "urls": out}, indent=2),
+            encoding="utf-8")
     return out

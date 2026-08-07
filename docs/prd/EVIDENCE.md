@@ -288,3 +288,130 @@ ingestion, stale/degraded/no-callback UI states, and the filesystem bridge into
 - Note: the first sandboxed run failed with `EPERM: operation not permitted, lstat
   'C:\Users\HP'`; the escalated rerun passed. The shell also printed an unrelated Conda
   startup warning after the successful command.
+
+## e-011-real-creator-thread-extraction
+
+Claim: thread extraction works on real, messy, auto-captioned gaming VODs — not only on
+authored transcripts.
+
+- Date: 2026-08-07
+- Sources: 3 KSI/Sidemen gaming videos and 3 iShowSpeed gaming videos (public YouTube,
+  auto-captions, resolved with yt-dlp). Scratch creator ids and a scratch
+  `AFTERPLAY_MEMORY` so the demo memory was untouched.
+- Command (per video):
+  ```
+  python -m afterplay.cli backfill --creator probe_<creator> --stream-id <video_id> <url>
+  ```
+- Captured output:
+  ```
+  probe_ksi:   12 threads across 2 streams
+               {recurring_bit: 6, rivalry: 2, running_joke: 2, unfinished_story: 2}
+  probe_speed: 18 threads across 3 streams
+               {unfinished_story: 8, recurring_bit: 7, rivalry: 1, person: 1, running_joke: 1}
+  0 failures
+  ```
+- Sample threads (all carry a verbatim quote and timestamp):
+  ```
+  [rivalry]          Tekken rivalry with Deji
+  [running_joke]     Silent Toby            "Toby last round he hasn't said a word"
+  [recurring_bit]    Vikk never votes on seven
+  [unfinished_story] 10 million subscriber Among Us promise
+  [unfinished_story] Speed's forbidden basement   "do not go into the basement"
+  ```
+- Decision rule outcome: **no generic threads** for either creator. Every thread is a named
+  entity or a specific promise, which is the pre-check's pass condition.
+- Note the creators differ in shape: KSI's threads are social and cross-stream (named
+  people, recurring bits); Speed's are dominated by within-video narrative arcs
+  (`unfinished_story` 8/18), which resolve inside one stream and are therefore weaker for
+  cross-stream detection.
+
+## e-012-cross-video-callback-on-real-data
+
+Claim: the engine independently finds genuine cross-video callbacks in real creator VODs,
+with correct citations. **This is the claim the product rests on.**
+
+- Date: 2026-08-07
+- History: `probe_ksi` memory (12 threads from 2 prior Sidemen streams).
+- Method: decide phase only — resolve + captions + `MemoryReasoner.rank`. No video bytes.
+- Captured output:
+  ```
+  RESULT: 3 cross-video callback(s) found across 4 candidates
+          (2 candidates unreadable: YouTube bot-blocking, see below)
+
+  X955SmTm1rY  degraded=False callback_found=True threads_considered=9
+    conf 0.98  "10 million subscriber Among Us promise"
+               cites nxGlZX9GH5I @ 4.2      payoff @ 451-473s
+    conf 0.86  "Silent Toby"
+               cites nxGlZX9GH5I @ 577.2    payoff @ 547-571s
+
+  BW_MAa5L9lg  degraded=False callback_found=True threads_considered=8
+    conf 0.86  "Frame Ethan to clear his name"
+               cites nxGlZX9GH5I @ 2488.1   payoff @ 2409-2433s
+  ```
+- Why this is semantic, not keyword matching: the payoff windows never repeat the setup
+  wording — *"now he has to stay muted / Toby can't talk"* pays off *"he hasn't said a
+  word"*, and *"so I just kill Harry and cover the body"* pays off *"I might shapeshift
+  into Ethan and then kill Harry"*.
+- Cost held: 8–9 threads considered per stream, so ~10 judge calls, not thousands.
+- **Limitation:** all three callbacks cite the same prior stream (`nxGlZX9GH5I`). Broader
+  history would strengthen the claim.
+- **Blocker:** 2 of 4 candidates failed with *"Sign in to confirm you're not a bot"* after
+  ~8 resolves in quick succession. Demo runs must be served from cached `info.json` + VTT
+  via `resolve.from_info_json`, not live network calls.
+
+## e-013-live-vs-demo-latency
+
+Claim: live strategy planning is slow enough to need visible in-flight status; demo mode
+is effectively instant.
+
+- Date: 2026-08-07, `gpt-5.6-sol`, reasoning effort medium
+- Command: `POST /api/strategy/plan` against the production build, timed with
+  `curl -w "%{time_total}"`
+- Captured output:
+  ```
+  live call 1: 21.99s (HTTP 200)
+  live call 2: 19.53s (HTTP 200)
+  live call 3: 14.18s (HTTP 200)
+  demo call:    0.01s (HTTP 200)
+  ```
+- Consequence: ~14-22s observed, so the panel counts up visibly and states the expected
+  range rather than showing a silent spinner. Demo mode is ~1800x faster, which is why the
+  deterministic path remains the repeatable judge walkthrough.
+
+## e-014-youtube-bot-block-and-offline-cache
+
+Claim: YouTube anti-bot throttling is a real ingestion risk, and the demo can be made
+independent of it.
+
+- Date: 2026-08-07
+- Incident: after roughly eight resolves in quick succession, extraction began failing:
+  ```
+  ERROR: [youtube] <id>: Sign in to confirm you're not a bot. Use --cookies-from-browser
+  or --cookies for the authentication.
+  ```
+  This blocked 2 of 4 candidates during the callback hunt, and later blocked re-resolving
+  `nxGlZX9GH5I` entirely. `--cookies-from-browser chrome` also failed while Chrome was
+  running — the browser locks its cookie database (yt-dlp issue 7271).
+- Mitigations implemented (not merely documented):
+  - `core.network_opts()` applies cookies, pacing and retries to **all three** extraction
+    paths — `resolve()`, `stream_urls()` and `audio.fetch_audio_only()`. Applying them to
+    only one produces the worst failure: metadata succeeds, then the run dies mid-way.
+  - `core.is_bot_block()` turns the generic message into a named, actionable error.
+  - CLI: `--cookies`, `--cookies-from-browser`, `--sleep-interval`, `--extractor-args`;
+    env equivalents `AFTERPLAY_COOKIES`, `AFTERPLAY_COOKIES_FROM_BROWSER`,
+    `AFTERPLAY_SLEEP_INTERVAL`, `AFTERPLAY_EXTRACTOR_ARGS`.
+  - `stream_urls(..., cache_dir=)` persists direct URLs and replays them within a 4h TTL,
+    raising a clear "cache expired / re-resolve required" error instead of silently making
+    a live call.
+  - `afterplay predemo <ids>` caches metadata + captions and reports readiness.
+- Captured output (after the throttle lifted, all three demo streams cached):
+  ```
+  [READY    ] X955SmTm1rY: metadata, captions
+  [READY    ] BW_MAa5L9lg: metadata, captions
+  [READY    ] nxGlZX9GH5I: metadata, captions
+  ready for an offline demo
+  ```
+- **Honest limit:** CDN URLs expire, so cached URLs are a rehearsal aid, not a guarantee.
+  The only durable network-free path that also renders is local media via `--local`;
+  `predemo` reports decide-phase readiness separately from render readiness for exactly
+  this reason.

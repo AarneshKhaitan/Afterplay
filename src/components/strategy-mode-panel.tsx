@@ -1,7 +1,7 @@
 "use client";
 
 import { Lightning, Sparkle, WarningCircle } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Proposal = {
   name: string;
@@ -29,10 +29,23 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
   const [meta, setMeta] = useState<Meta | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [lastMs, setLastMs] = useState<number | null>(null);
+
+  // Live reasoning runs 25-60s. A silent spinner for that long reads as a hang, so
+  // count up visibly and say what is expected.
+  useEffect(() => {
+    if (!pending) return;
+    const started = Date.now();
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 250);
+    return () => clearInterval(id);
+  }, [pending]);
 
   async function run(mode: "demo" | "live") {
+    setElapsed(0);           // reset here, not in the effect: setState-in-effect is a lint error
     setPending(mode);
     setError(null);
+    const started = Date.now();
     try {
       const response = await fetch("/api/strategy/plan", {
         method: "POST",
@@ -57,6 +70,7 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The strategy director failed.");
     } finally {
+      setLastMs(Date.now() - started);
       setPending(null);
     }
   }
@@ -73,7 +87,7 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
         </div>
         <div className="mode-actions">
           <button type="button" onClick={() => run("demo")} disabled={pending !== null}>
-            <Sparkle weight="fill" /> {pending === "demo" ? "Running…" : "Run demo plan"}
+            <Sparkle weight="fill" /> {pending === "demo" ? `Running… ${elapsed}s` : "Run demo plan"}
           </button>
           <button
             type="button"
@@ -81,10 +95,28 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
             onClick={() => run("live")}
             disabled={pending !== null}
           >
-            <Lightning weight="fill" /> {pending === "live" ? "Running…" : "Run live plan"}
+            <Lightning weight="fill" /> {pending === "live" ? `Running… ${elapsed}s` : "Run live plan"}
           </button>
         </div>
       </div>
+
+      {pending ? (
+        <div className="mode-inflight" role="status" aria-live="polite">
+          <span className="mode-spinner" aria-hidden="true" />
+          <div>
+            <strong>
+              {pending === "live"
+                ? `Calling the model… ${elapsed}s elapsed`
+                : `Running the deterministic director… ${elapsed}s`}
+            </strong>
+            <span>
+              {pending === "live"
+                ? "Live reasoning usually takes 25-60s. Nothing is cached and no demo output will be substituted."
+                : "Offline and deterministic; this returns immediately."}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="mode-alert" role="alert">
@@ -107,6 +139,7 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
             </span>
             <span>{meta.model ? `model ${meta.model}` : "no model call"}</span>
             <span>{proposal.confidence}% confidence</span>
+            {lastMs !== null ? <span>{(lastMs / 1000).toFixed(1)}s</span> : null}
           </div>
           <h3>{proposal.name}</h3>
           <p>{proposal.diagnosis}</p>

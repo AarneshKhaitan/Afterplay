@@ -19,7 +19,15 @@ export default defineConfig({
     timeout: 120_000,
     // Keep test fixtures out of the real clipper workdir so a test run never
     // becomes the manifest Studio serves. See tests/e2e/clipper-workdir.ts.
-    env: { AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR },
+    //
+    // Live AI is pinned off: `strategy-director.spec.ts` asserts that an unconfigured
+    // live mode fails visibly, and a developer with AFTERPLAY_ENABLE_LIVE_AI=true in
+    // their local .env would otherwise turn that assertion red. Tests must not depend
+    // on local machine configuration.
+    env: {
+      AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
+      AFTERPLAY_ENABLE_LIVE_AI: "false",
+    },
   },
   projects: [
     {

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -162,7 +163,10 @@ def cmd_backfill(a) -> int:
         vtt_path = from_info_json(a.info_json).vtt_path
         src = from_info_json(a.info_json)
     if not vtt_path and a.url:
-        src = resolve_url(a.url, Settings(), job_id="backfill")
+        # Per-stream job id: a fixed "backfill" made every run overwrite the previous
+        # one's info.json and captions, so nothing was inspectable or re-runnable and
+        # the resolved artifacts could not be cached for an offline demo.
+        src = resolve_url(a.url, Settings(), job_id=f"backfill_{a.stream_id}")
         vtt_path = src.vtt_path
     if not vtt_path and a.local:
         src = from_local(a.local, a.vtt)
@@ -201,6 +205,45 @@ def cmd_backfill(a) -> int:
            "threads_added": len(extracted), "path": str(memory.path)}
     print(json.dumps(out, indent=2))
     return 0
+
+
+def cmd_predemo(a) -> int:
+    """Warm-up step: cache every demo stream, then report offline readiness.
+
+    Exit codes: 0 ready, 3 partially ready (some streams cannot run offline)."""
+    from .predemo import cache_root, prepare
+
+    local = {}
+    for pair in a.local:
+        sid, _, path = pair.partition("=")
+        if sid and path:
+            local[sid] = path
+
+    report = prepare(a.streams, Settings(), local_media=local, refresh=a.refresh)
+
+    if a.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"cache: {cache_root()}")
+        for s in report.streams:
+            marks = []
+            marks.append("metadata" if s.cached_metadata else "NO metadata")
+            marks.append("captions" if s.cached_captions else "NO captions")
+            if s.local_media:
+                marks.append("local media")
+            elif s.stream_urls_age_h is not None:
+                marks.append(f"urls {s.stream_urls_age_h:.1f}h old")
+            state = "READY" if s.offline_ready else "NOT READY"
+            print(f"  [{state:9}] {s.stream_id}: {', '.join(marks)}")
+            if s.error:
+                print(f"                {s.error}")
+            if s.offline_ready and not s.render_ready:
+                print("                decide-phase only; rendering still needs a live "
+                      "resolve or --local media")
+        print()
+        print("ready for an offline demo" if report.ok else
+              "NOT ready: re-run the cache step, or supply --local media")
+    return 0 if report.ok else 3
 
 
 def cmd_doctor(a) -> int:
@@ -280,6 +323,20 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser("afterplay", description="autonomous short-form clipper")
     p.add_argument("--verbose", "-v", action="store_true")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+
+    # Ingestion auth and pacing. YouTube rate-limits anonymous extraction and then
+    # answers everything with "Sign in to confirm you're not a bot"; these restore a
+    # session or keep a batch under the threshold. Env equivalents:
+    # AFTERPLAY_COOKIES / AFTERPLAY_COOKIES_FROM_BROWSER / AFTERPLAY_SLEEP_INTERVAL.
+    p.add_argument("--cookies", help="path to a cookies.txt for extraction")
+    p.add_argument("--cookies-from-browser", dest="cookies_from_browser",
+                   help="read cookies from a browser (chrome/firefox/edge). "
+                        "The browser must be CLOSED: it locks its cookie DB.")
+    p.add_argument("--sleep-interval", dest="sleep_interval", type=float,
+                   help="seconds to wait between extractions (batch backfills)")
+    p.add_argument("--extractor-args", dest="extractor_args",
+                   help="yt-dlp extractor args, e.g. youtube:player_client=android")
+
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def common(sp):
@@ -332,8 +389,28 @@ def main(argv=None) -> int:
     sp.add_argument("--min-samples", type=int, default=3, help="minimum samples before priors are ready")
     sp.set_defaults(fn=cmd_results)
 
+    sp = sub.add_parser("predemo", help="cache demo streams and check offline readiness")
+    sp.add_argument("streams", nargs="+", help="video ids or URLs to cache")
+    sp.add_argument("--local", action="append", default=[], metavar="ID=PATH",
+                    help="map a stream id to local media (the only render-safe offline path)")
+    sp.add_argument("--no-refresh", dest="refresh", action="store_false",
+                    help="keep existing cache; do not re-resolve")
+    sp.set_defaults(fn=cmd_predemo)
+
     a = p.parse_args(argv)
     _log(a.verbose, a.json)
+
+    # Publish ingestion flags as env before anything constructs Settings(), so every
+    # extraction path picks them up without threading a Settings object through every
+    # call. Explicit flags win over the environment.
+    for flag, env in (("cookies", "AFTERPLAY_COOKIES"),
+                      ("cookies_from_browser", "AFTERPLAY_COOKIES_FROM_BROWSER"),
+                      ("sleep_interval", "AFTERPLAY_SLEEP_INTERVAL"),
+                      ("extractor_args", "AFTERPLAY_EXTRACTOR_ARGS")):
+        value = getattr(a, flag, None)
+        if value is not None:
+            os.environ[env] = str(value)
+
     try:
         return a.fn(a)
     except KeyboardInterrupt:

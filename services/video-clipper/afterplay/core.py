@@ -103,11 +103,69 @@ class Settings:
     # yt-dlp format preference: cap the source at 1080p to bound the fetch
     format: str = "bv*[height<=1080]+ba/b[height<=1080]/b"
 
+    # ── ingestion auth and pacing ────────────────────────────────────────────
+    # YouTube rate-limits unauthenticated extraction and then answers every
+    # request with "Sign in to confirm you're not a bot", which kills ingestion
+    # mid-run. Cookies restore an authenticated session; the sleep settings keep
+    # a batch of resolves under the threshold in the first place.
+    cookies_file: str | None = field(default_factory=lambda: os.environ.get(
+        "AFTERPLAY_COOKIES") or None)
+    # e.g. "chrome", "firefox", "edge". NOTE: browsers lock their cookie DB while
+    # running (yt-dlp issue 7271), so the browser must be closed for this to work.
+    cookies_from_browser: str | None = field(default_factory=lambda: os.environ.get(
+        "AFTERPLAY_COOKIES_FROM_BROWSER") or None)
+    # Seconds to wait between extractions. Cheap insurance for batch backfills.
+    sleep_interval: float = field(default_factory=lambda: float(
+        os.environ.get("AFTERPLAY_SLEEP_INTERVAL", "0") or 0))
+    max_sleep_interval: float = field(default_factory=lambda: float(
+        os.environ.get("AFTERPLAY_MAX_SLEEP_INTERVAL", "0") or 0))
+    # Passed straight through to yt-dlp, e.g. "youtube:player_client=android".
+    extractor_args: str | None = field(default_factory=lambda: os.environ.get(
+        "AFTERPLAY_EXTRACTOR_ARGS") or None)
+    retries: int = field(default_factory=lambda: int(
+        os.environ.get("AFTERPLAY_RETRIES", "3") or 3))
+
     def __post_init__(self):
         self.workdir = Path(self.workdir)
         self.outdir = Path(self.outdir)
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.outdir.mkdir(parents=True, exist_ok=True)
+
+
+def network_opts(settings: "Settings") -> dict:
+    """yt-dlp options shared by every extraction path.
+
+    Every call site must merge these. Applying cookies to `resolve` but not to
+    `stream_urls` or `fetch_audio_only` produces the worst failure mode: metadata
+    succeeds, then the run dies partway through on a bot check.
+    """
+    opts: dict = {
+        "socket_timeout": settings.http_timeout,
+        "retries": settings.retries,
+    }
+    if settings.cookies_file:
+        opts["cookiefile"] = settings.cookies_file
+    if settings.cookies_from_browser:
+        # yt-dlp expects a tuple: (browser, profile, keyring, container)
+        opts["cookiesfrombrowser"] = (settings.cookies_from_browser, None, None, None)
+    if settings.sleep_interval:
+        opts["sleep_interval"] = settings.sleep_interval
+    if settings.max_sleep_interval:
+        opts["max_sleep_interval"] = settings.max_sleep_interval
+    if settings.extractor_args:
+        key, _, value = settings.extractor_args.partition(":")
+        if value:
+            arg, _, val = value.partition("=")
+            opts["extractor_args"] = {key: {arg: val.split(",")}}
+    return opts
+
+
+def is_bot_block(error: BaseException | str) -> bool:
+    """True when an extraction failure is YouTube's anti-bot challenge.
+
+    Worth naming: the generic message sends people debugging the wrong thing."""
+    text = str(error).lower()
+    return "confirm you" in text and "bot" in text
 
 
 # ── ffmpeg ────────────────────────────────────────────────────────────────────
