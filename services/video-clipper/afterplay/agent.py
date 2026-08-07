@@ -311,6 +311,9 @@ class JobResult:
     timings: dict = field(default_factory=dict)
     encoder: str = ""
     heatmap_available: bool = False
+    memory: dict = field(default_factory=dict)
+    message: str | None = None
+    status: str = "complete"
     ok: bool = False
 
     def to_dict(self):
@@ -481,6 +484,41 @@ class Orchestrator:
         self.memory = CreatorMemory.load(creator) if creator else None
         self.brand = brand or (self.memory.effective_brand() if self.memory else Brand())
 
+    @staticmethod
+    def _write_status(job_dir: Path, state: str, *, message: str | None = None,
+                      manifest: Path | None = None) -> None:
+        payload = {"state": state, "updated": time.time()}
+        if message:
+            payload["message"] = message
+        if manifest:
+            payload["manifest"] = str(manifest)
+        jdump(payload, job_dir / "status.json")
+
+    @staticmethod
+    def _memory_manifest(reasoner: Reasoner) -> dict:
+        if not isinstance(reasoner, MemoryReasoner):
+            return {"enabled": False, "degraded": False,
+                    "reason": None, "threads_considered": 0,
+                    "callback_found": False}
+        return {
+            "enabled": True,
+            "degraded": bool(reasoner.memory_degraded),
+            "reason": reasoner.memory_degradation_reason,
+            "threads_considered": int(getattr(reasoner, "threads_considered", 0) or 0),
+            "callback_found": bool(reasoner.callback_found),
+        }
+
+    @staticmethod
+    def _job_message(memory: dict) -> str | None:
+        if not memory.get("enabled"):
+            return None
+        if memory.get("degraded"):
+            return f"Creator memory degraded: {memory.get('reason') or 'unknown reason'}"
+        if not memory.get("callback_found"):
+            return ("No memory-dependent callback found in this run. "
+                    "Showing highest-quality standalone clips.")
+        return None
+
     def run(self, url: str | None = None, *, local: str | None = None,
             info_json: str | None = None, vtt: str | None = None,
             platforms=("shorts",), n_clips=5, target=30.0, job_id=None,
@@ -491,6 +529,7 @@ class Orchestrator:
         timings, t_all = {}, time.time()
         log.info("=== job %s start (platforms=%s, n=%d) ===", job_id,
                  ",".join(platforms), n_clips)
+        self._write_status(job_dir, "started", message="Job started.")
 
         # ── stage 1: resolve (kilobytes)
         t0 = time.time()
@@ -510,10 +549,11 @@ class Orchestrator:
         words, sents, detector = [], [], "transcript"
         if src.vtt_path and Path(src.vtt_path).exists():
             words, sents = TOOLS.call("read_transcript", vtt_path=str(src.vtt_path))
+        reasoner = self.policy.reasoner()
         if sents:
             moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                  n=n_clips, target=target,
-                                 reasoner=self.policy.reasoner())
+                                 reasoner=reasoner)
         else:
             # No captions (gameplay, music, reaction content). The signal was never
             # words — fetch audio only (~5-15 MB, not ~200 MB) and score excitement
@@ -533,7 +573,7 @@ class Orchestrator:
                 detector = "asr:" + tr.model
                 moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                      n=n_clips, target=target,
-                                     reasoner=self.policy.reasoner())
+                                     reasoner=reasoner)
             except Exception as e:                            # noqa: BLE001
                 log.info("ASR unavailable (%s) -> audio-energy detection", e)
                 detector = "audio"
@@ -607,6 +647,7 @@ class Orchestrator:
                 except Exception as e:                        # noqa: BLE001
                     log.warning("copy for %s failed: %s", r.clip_id, e)
         results.sort(key=lambda r: (r.clip_id))
+        memory_state = self._memory_manifest(reasoner)
         job = JobResult(job_id=job_id,
                         source={"url": src.url, "title": src.title,
                                 "uploader": src.uploader, "duration": src.duration,
@@ -614,6 +655,8 @@ class Orchestrator:
                         clips=results, timings=timings,
                         encoder=detect_encoder(self.settings),
                         heatmap_available=src.has_heatmap,
+                        memory=memory_state,
+                        message=self._job_message(memory_state),
                         ok=any(r.ok for r in results))
 
         # write back to Creator Memory: corrections become learned defaults
@@ -628,6 +671,7 @@ class Orchestrator:
         # deliver: manifest next to the assets (PRD 13 job result shape)
         manifest = job_dir / "manifest.json"
         jdump(job.to_dict(), manifest)
+        self._write_status(job_dir, "complete", message=job.message, manifest=manifest)
         log.info("=== job %s done: %d/%d clips ok in %.1fs -> %s ===", job_id,
                  sum(1 for r in results if r.ok), len(results), timings["total"],
                  manifest)

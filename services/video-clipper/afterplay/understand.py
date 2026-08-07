@@ -312,13 +312,32 @@ class MemoryReasoner(Reasoner):
         self.min_confidence = min_confidence
         self.boost = boost
         self.judge_top_k = judge_top_k
+        self.memory_degraded = False
+        self.memory_degradation_reason = None
+        self.callback_found = False
+        self.threads_considered = 0
 
     def rank(self, sents, heatmap=None, *, target=30.0, n=5, min_gap=20.0,
              tol=10.0, **kw) -> list[Moment]:
+        self.memory_degraded = False
+        self.memory_degradation_reason = None
+        self.callback_found = False
+        self.threads_considered = 0
         try:
             moments: list[Moment] = []
             candidate_windows = candidates(sents, target, tol)
-            retrieved_by_idx = self._retrieve_candidates([text for _, _, text in candidate_windows])
+            try:
+                retrieved_by_idx = self._retrieve_candidates([text for _, _, text in candidate_windows])
+                self.threads_considered = len({
+                    str(item.get("id"))
+                    for hits in retrieved_by_idx.values()
+                    for item in hits
+                    if item.get("id")
+                })
+            except Exception as e:                                   # noqa: BLE001
+                self._set_memory_degradation(f"thread lookup failed ({type(e).__name__}: {e})")
+                return rank(sents, heatmap, target=target, n=n, min_gap=min_gap, tol=tol)
+
             judge = self.judge
             if retrieved_by_idx and judge is None:
                 from .channel_memory import judge_callback_with_openai
@@ -339,7 +358,11 @@ class MemoryReasoner(Reasoner):
 
                 retrieved = retrieved_by_idx.get(idx, [])
                 if retrieved and judge:
-                    verdict = judge(text, retrieved)
+                    try:
+                        verdict = judge(text, retrieved)
+                    except Exception as e:                           # noqa: BLE001
+                        self._set_memory_degradation(f"callback judge failed ({type(e).__name__}: {e})")
+                        verdict = {"is_callback": False}
                     thread_ids = {str(item.get("id")) for item in retrieved}
                     thread_id = str(verdict.get("thread_id")) if verdict.get("thread_id") else ""
                     confidence = float(verdict.get("confidence") or 0.0)
@@ -361,6 +384,7 @@ class MemoryReasoner(Reasoner):
                             "source_t": first.get("t"),
                             "source_quote": first.get("quote"),
                         })
+                        self.callback_found = True
 
                 moments.append(Moment(start, end, score, text, why, signals))
 
@@ -377,7 +401,13 @@ class MemoryReasoner(Reasoner):
             import logging
             logging.getLogger("afterplay").warning("channel memory ranking unavailable "
                                                    "(%s); falling back to heuristic", e)
+            self._set_memory_degradation(f"ranking failure ({type(e).__name__}: {e})")
             return rank(sents, heatmap, target=target, n=n, min_gap=min_gap, tol=tol)
+
+    def _set_memory_degradation(self, reason: str):
+        self.memory_degraded = True
+        if self.memory_degradation_reason is None:
+            self.memory_degradation_reason = reason
 
     def _retrieve_candidates(self, texts: list[str]) -> dict[int, list[dict]]:
         if not texts:

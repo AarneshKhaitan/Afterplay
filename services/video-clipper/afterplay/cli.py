@@ -13,6 +13,7 @@ import argparse
 import json
 import logging
 import sys
+import uuid
 from pathlib import Path
 
 from .core import Brand, PLATFORMS, Settings, detect_encoder
@@ -102,9 +103,15 @@ def cmd_run(a) -> int:
 
     orch = Orchestrator(settings=settings, brand=brand, policy=policy,
                         workers=a.workers, creator=a.creator)
-    job = orch.run(url=a.url, local=a.local, info_json=a.info_json, vtt=a.vtt,
-                   platforms=plats, n_clips=a.clips, target=a.target,
-                   job_id=a.job_id, webhook=a.webhook)
+    job_id = a.job_id or f"job_{uuid.uuid4().hex[:10]}"
+    try:
+        job = orch.run(url=a.url, local=a.local, info_json=a.info_json, vtt=a.vtt,
+                       platforms=plats, n_clips=a.clips, target=a.target,
+                       job_id=job_id, webhook=a.webhook)
+    except Exception as e:                                      # noqa: BLE001
+        Orchestrator._write_status(settings.workdir / job_id, "failed",
+                                   message=f"{type(e).__name__}: {e}")
+        raise
 
     if a.json:
         print(json.dumps(job.to_dict(), indent=2, default=str))
@@ -139,7 +146,7 @@ def cmd_memory(a) -> int:
 
 def cmd_backfill(a) -> int:
     from .channel_memory import ChannelMemory
-    from .resolve import from_info_json, resolve as resolve_url
+    from .resolve import from_info_json, from_local, resolve as resolve_url
     from .understand import parse_vtt, sentences
 
     if not a.creator:
@@ -150,18 +157,44 @@ def cmd_backfill(a) -> int:
         return 2
 
     vtt_path = Path(a.vtt) if a.vtt else None
+    src = None
     if not vtt_path and a.info_json:
         vtt_path = from_info_json(a.info_json).vtt_path
+        src = from_info_json(a.info_json)
     if not vtt_path and a.url:
         src = resolve_url(a.url, Settings(), job_id="backfill")
         vtt_path = src.vtt_path
-    if not vtt_path or not vtt_path.exists():
-        print("backfill requires captions via --vtt, --info-json, or a URL with captions",
+    if not vtt_path and a.local:
+        src = from_local(a.local, a.vtt)
+        vtt_path = src.vtt_path
+
+    if vtt_path:
+        words = parse_vtt(vtt_path.read_text(encoding="utf-8"))
+        sents = sentences(words)
+    elif src:
+        try:
+            from .audio import fetch_audio_only
+            from .asr import ASRUnavailable, to_vtt, transcribe
+            backfill_root = Settings().workdir / "backfill" / a.creator / a.stream_id
+            backfill_root.mkdir(parents=True, exist_ok=True)
+            audio_path = src.local_path if src.is_local else fetch_audio_only(src.url, Settings(), backfill_root / "audio")
+            tr = transcribe(audio_path)
+            to_vtt(tr.words, backfill_root / "asr.vtt")
+            sents = tr.sents
+        except ASRUnavailable as e:
+            print("backfill needs captions or ASR; faster-whisper could not transcribe "
+                  f"this source: {e}. Install faster-whisper and set "
+                  "AFTERPLAY_WHISPER_SIZE or AFTERPLAY_WHISPER_MODEL.",
+                  file=sys.stderr)
+            return 2
+        except Exception as e:
+            print(f"backfill needs captions or ASR; ASR failed: {e}", file=sys.stderr)
+            return 2
+    else:
+        print("backfill requires captions via --vtt, --info-json, a URL with captions, or --local source",
               file=sys.stderr)
         return 2
 
-    words = parse_vtt(vtt_path.read_text(encoding="utf-8"))
-    sents = sentences(words)
     memory = ChannelMemory(a.creator)
     extracted = memory.backfill(a.stream_id, sents)
     out = {"creator": a.creator, "stream_id": a.stream_id,
@@ -173,7 +206,9 @@ def cmd_backfill(a) -> int:
 def cmd_doctor(a) -> int:
     """Verify the environment before anyone waits on a job."""
     from .core import ffmpeg_bin
+    from .asr import available as asr_available
     rows = []
+    import os
     try:
         rows.append(("ffmpeg", ffmpeg_bin()))
         rows.append(("encoder", detect_encoder(Settings())))
@@ -188,12 +223,57 @@ def cmd_doctor(a) -> int:
     import os
     rows.append(("ANTHROPIC_API_KEY", "set" if os.environ.get("ANTHROPIC_API_KEY") else "unset"))
     rows.append(("OPENAI_API_KEY", "set" if os.environ.get("OPENAI_API_KEY") else "unset"))
+    rows.append(("faster_whisper", "ok" if asr_available() else "missing"))
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            from .channel_memory import clipper_model, embed_texts, openai_client
+            embed_texts(["afterplay doctor embedding preflight"])
+            openai_client().responses.create(
+                model=clipper_model(),
+                input="Return the word ok.",
+                max_output_tokens=8,
+                store=False,
+            )
+            rows.append(("openai_memory_preflight", "ok"))
+        except Exception as e:                                  # noqa: BLE001
+            rows.append(("openai_memory_preflight", f"FAIL: {type(e).__name__}: {e}"))
+    else:
+        rows.append(("openai_memory_preflight", "skipped: OPENAI_API_KEY unset"))
     s = Settings()
     rows.append(("workdir", str(s.workdir)))
     rows.append(("outdir", str(s.outdir)))
     for k, v in rows:
         print(f"{k:20s} {v}")
     return 0 if not any("FAIL" in str(v) or "MISSING" in str(v) for _, v in rows) else 2
+
+
+def cmd_results(a) -> int:
+    """Record result rows into the analytics store."""
+    from .insights import Analytics
+    path = Path(a.input)
+    if not path.exists():
+        print(f"results file not found: {a.input}", file=sys.stderr)
+        return 2
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:                                      # noqa: BLE001
+        print(f"results input is not valid JSON: {e}", file=sys.stderr)
+        return 2
+
+    analytics = Analytics(a.creator)
+    rows = payload if isinstance(payload, list) else [payload]
+    for row in rows:
+        if isinstance(row, dict):
+            analytics.record_metric(row)
+
+    priors = analytics.compute_priors(min_samples=a.min_samples)
+    out = {"creator": a.creator, "records": len(rows), "compute_priors": priors}
+    if a.json:
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"wrote {len(rows)} rows for {a.creator}")
+        print(f"priors: {priors}")
+    return 0
 
 
 def main(argv=None) -> int:
@@ -234,6 +314,7 @@ def main(argv=None) -> int:
     sp.add_argument("url", nargs="?")
     sp.add_argument("--info-json", dest="info_json", help="replay a saved info.json")
     sp.add_argument("--vtt", help="caption file to use")
+    sp.add_argument("--local", help="ingest a local file (creator-owned path)")
     sp.add_argument("--creator", required=True, help="creator id for local JSON memory")
     sp.add_argument("--stream-id", required=True, help="stable id for this source stream")
     sp.set_defaults(fn=cmd_backfill)
@@ -244,6 +325,12 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("doctor", help="check the environment")
     sp.set_defaults(fn=cmd_doctor)
+
+    sp = sub.add_parser("results", help="record per-post metrics into the analytics memory store")
+    sp.add_argument("--creator", required=True, help="creator id for analytics memory")
+    sp.add_argument("--input", required=True, help="path to a JSON payload for record_metric")
+    sp.add_argument("--min-samples", type=int, default=3, help="minimum samples before priors are ready")
+    sp.set_defaults(fn=cmd_results)
 
     a = p.parse_args(argv)
     _log(a.verbose, a.json)
