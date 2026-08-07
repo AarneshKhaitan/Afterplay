@@ -4,7 +4,10 @@ import { ArrowRight, ChartLineUp, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { resultMovement, type GrowthExperiment } from "@/domain/experiment";
+// Value import must come from the pure metrics module: `domain/experiment` reaches the
+// clipper manifest and therefore `node:fs`, which cannot be bundled for the browser.
+import { resultMovement } from "@/domain/experiment-metrics";
+import type { GrowthExperiment } from "@/domain/experiment";
 
 const sampleMetrics = {
   views: 1284,

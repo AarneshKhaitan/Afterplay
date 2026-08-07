@@ -1,11 +1,24 @@
 import { expect, test } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { TEST_CLIPPER_WORKDIR } from "./clipper-workdir";
 
+const JOB_DIR = join(TEST_CLIPPER_WORKDIR, "ui_callback");
+
+/** Remove the fixture manifest after this file finishes.
+ *
+ * The experiment's approval package is projected from the latest manifest when one
+ * exists, so leaving this fixture behind replaces the seeded outputs that
+ * `judge-loop.spec.ts` and `experiment-lifecycle.spec.ts` assert on, and they fail with
+ * "The machine gets one more rule" not found. Tests run with `workers: 1`, so cleaning
+ * up here makes the suite order-independent. */
+test.afterAll(() => {
+  rmSync(JOB_DIR, { recursive: true, force: true });
+});
+
 test.beforeAll(() => {
-  const jobDir = join(TEST_CLIPPER_WORKDIR, "ui_callback");
+  const jobDir = JOB_DIR;
   const clipPath = join(jobDir, "clip01_shorts.mp4");
   mkdirSync(jobDir, { recursive: true });
   writeFileSync(clipPath, Buffer.from("not-a-real-mp4"));

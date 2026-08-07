@@ -1,8 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+﻿import { type ClipperManifestClip, getLatestClipManifest } from "./clip-manifest";
+// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
+// node:fs imports into client bundles. The value-side call lives in the API route.
+import { BASELINE, formatDelta } from "./experiment-metrics";
+import type { PerClipResult } from "./results-bridge";
 
-import { type ClipperManifestClip, getLatestClipManifest } from "./clip-manifest";
+export { BASELINE, resultMovement } from "./experiment-metrics";
+
+export type { PerClipResult } from "./results-bridge";
 
 export type ExperimentStatus =
   | "awaiting_approval"
@@ -28,7 +32,10 @@ export type ExperimentOutput = {
   provenance: {
     media: "generated_fixture" | "pipeline_manifest";
     source: string;
-    rights: "project_owned" | "creator_owned";
+    /** Never assert ownership the system cannot substantiate. A clip produced from a
+     * platform URL was extracted from third-party content; only `--local` media is
+     * known to be creator-owned. */
+    rights: "project_owned" | "creator_owned" | "third_party_extracted";
   };
 };
 
@@ -53,20 +60,6 @@ export type ExperimentResult = {
     nextStreamAverageConcurrency: number;
   };
   perClip?: PerClipResult[];
-};
-
-export type PerClipResult = {
-  clip_id: string;
-  post_id?: string;
-  platform?: ExperimentOutput["platform"];
-  metrics: {
-    views: number;
-    likes?: number;
-    comments?: number;
-    shares?: number;
-    saves?: number;
-    avg_watch_pct?: number;
-  };
 };
 
 export type ExperimentLearning = {
@@ -141,30 +134,6 @@ export class ExperimentError extends Error {
     super(message);
     this.name = "ExperimentError";
   }
-}
-
-export const BASELINE = {
-  views: 842,
-  returningViewerRate: 8.2,
-  repeatCommenters: 2,
-  trackedLiveVisits: 3,
-  nextStreamAverageConcurrency: 3.4,
-} as const;
-
-export function resultMovement(result?: ExperimentResult): Array<{
-  label: string;
-  value: string;
-  baseline: string;
-  delta: string;
-  direction: "up" | "flat";
-}> {
-  const metrics = result?.metrics;
-  return [
-    movementMetric("Returning viewers", metrics?.returningViewerRate, BASELINE.returningViewerRate, "%", "pt"),
-    movementMetric("Repeat commenters", metrics?.repeatCommenters, BASELINE.repeatCommenters),
-    movementMetric("Tracked live visits", metrics?.trackedLiveVisits, BASELINE.trackedLiveVisits),
-    movementMetric("Next-stream avg.", metrics?.nextStreamAverageConcurrency, BASELINE.nextStreamAverageConcurrency),
-  ];
 }
 
 const initialExperiment: GrowthExperiment = {
@@ -490,7 +459,6 @@ export function recordResults(input: { id: string; result: ExperimentResult; per
   }
 
   experiment.result = result;
-  persistPerClipResults(result.perClip, experiment.outputs);
   experiment.learning = learning;
   experiment.nextExperiment = nextExperiment;
   experiment.status = "learned";
@@ -520,7 +488,12 @@ function currentOutputsFor(experiment: GrowthExperiment): ExperimentOutput[] {
       : experiment.status === "approved"
         ? "approved"
         : "ready";
-  return clips.map((clip, index) => projectManifestClip(clip, index, manifest.manifestPath, outputStatus));
+  // A platform URL means the media was extracted from third-party content; only local
+  // media is known to be creator-owned. Do not claim ownership the system cannot verify.
+  const rights: ExperimentOutput["provenance"]["rights"] =
+    manifest.source?.url ? "third_party_extracted" : "creator_owned";
+  return clips.map((clip, index) =>
+    projectManifestClip(clip, index, manifest.manifestPath, outputStatus, rights));
 }
 
 function projectManifestClip(
@@ -528,6 +501,7 @@ function projectManifestClip(
   index: number,
   manifestPath: string,
   status: OutputStatus,
+  rights: ExperimentOutput["provenance"]["rights"],
 ): ExperimentOutput {
   return {
     id: clip.clip_id,
@@ -540,9 +514,12 @@ function projectManifestClip(
     rationale: clip.callback
       ? `Callback boost from ${clip.threadLabel ?? "creator memory"} at confidence ${clip.callbackConfidence ?? "unknown"}.`
       : "Standalone clip selected without requiring callback evidence.",
-    thumbnailUrl: "/media/rivetfall-one-more-rule.png",
+    // Real clips must not borrow the synthetic Rivetfall fixture image — that reads as
+    // fabrication. Studio renders the actual <video> for manifest clips; an empty
+    // thumbnail keeps the fixture art off pipeline-produced output.
+    thumbnailUrl: "",
     status,
-    provenance: { media: "pipeline_manifest", source: manifestPath, rights: "creator_owned" },
+    provenance: { media: "pipeline_manifest", source: manifestPath, rights },
   };
 }
 
@@ -563,76 +540,6 @@ function strongestPerClip(perClip?: PerClipResult[]): PerClipResult | undefined 
   return perClip?.slice().sort((a, b) => b.metrics.views - a.metrics.views)[0];
 }
 
-function persistPerClipResults(perClip: PerClipResult[] | undefined, outputs: ExperimentOutput[]) {
-  if (!perClip?.length) return;
-  const creator = process.env.AFTERPLAY_CREATOR_ID ?? "creator_mika_rigged";
-  const root = process.env.AFTERPLAY_MEMORY ?? join(homedir(), ".afterplay", "memory");
-  const dir = join(root, creator);
-  mkdirSync(dir, { recursive: true });
-  const postsPath = join(dir, "posts.json");
-  const metricsPath = join(dir, "metrics.json");
-  const posts = readJsonArray(postsPath);
-  const metrics = readJsonArray(metricsPath);
-  const byId = new Map(outputs.map((output) => [output.id, output]));
-  const now = Date.now() / 1000;
-  for (const row of perClip) {
-    const output = byId.get(row.clip_id);
-    const postId = row.post_id || `app_${row.clip_id}`;
-    posts.push({
-      clip_id: row.clip_id,
-      platform: row.platform || output?.platform || "YouTube Shorts",
-      post_id: postId,
-      published_at: now,
-      features: { provenance: output?.provenance.media ?? "unknown" },
-    });
-    metrics.push({
-      post_id: postId,
-      views: row.metrics.views,
-      likes: row.metrics.likes ?? 0,
-      comments: row.metrics.comments ?? 0,
-      shares: row.metrics.shares ?? 0,
-      saves: row.metrics.saves ?? 0,
-      avg_watch_pct: row.metrics.avg_watch_pct ?? 0,
-      fetched_at: now,
-    });
-  }
-  writeFileSync(postsPath, JSON.stringify(posts.slice(-5000), null, 2), "utf-8");
-  writeFileSync(metricsPath, JSON.stringify(metrics.slice(-20000), null, 2), "utf-8");
-}
-
-function readJsonArray(path: string): unknown[] {
-  if (!existsSync(path)) return [];
-  try {
-    const data = JSON.parse(readFileSync(path, "utf-8"));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-function formatDelta(delta: number, suffix = ""): string {
-  const rounded = Number(delta.toFixed(1));
-  const sign = rounded > 0 ? "+" : "";
-  return `${sign}${rounded}${suffix}`;
-}
-
-function movementMetric(
-  label: string,
-  value: number | undefined,
-  baseline: number,
-  valueSuffix = "",
-  deltaSuffix = "",
-) {
-  const displayValue = value ?? baseline;
-  const delta = value === undefined ? 0 : Number((value - baseline).toFixed(1));
-  return {
-    label,
-    value: `${displayValue}${valueSuffix}`,
-    baseline: `${baseline}${valueSuffix}`,
-    delta: value === undefined ? "baseline" : formatDelta(delta, deltaSuffix),
-    direction: delta > 0 ? "up" as const : "flat" as const,
-  };
-}
 
 function confidenceFromEffect(effects: number[], cap: number): number {
   const mean = effects.reduce((sum, value) => sum + Math.min(1, Math.max(0, value)), 0) / effects.length;
