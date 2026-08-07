@@ -293,6 +293,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .manifest-heading span { color: var(--accent); font-size: var(--type-meta); font-weight: 760; text-transform: uppercase; }
 .manifest-heading h2 { margin: 5px 0 0; font-size: 18px; font-weight: 680; }
 .manifest-heading strong { color: var(--muted); font-size: var(--type-small); font-weight: 620; }
+.manifest-alert { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: rgba(255,255,255,.035); color: #c6cace; }
+.manifest-alert svg { flex: 0 0 auto; width: 15px; margin-top: 1px; color: var(--blue); }
+.manifest-alert div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.manifest-alert strong { color: #dfe2e4; font-size: var(--type-small); font-weight: 760; }
+.manifest-alert span { color: var(--muted); font-size: var(--type-small); line-height: 1.45; }
+.manifest-alert--warning { border-color: rgba(255,107,85,.28); background: rgba(255,107,85,.08); }
+.manifest-alert--warning svg { color: var(--accent); }
 .output-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-top: 28px; }
 .output-grid--manifest { margin-top: 14px; }
 .output-card { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--panel-soft); }

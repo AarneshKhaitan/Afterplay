@@ -1,3 +1,9 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { type ClipperManifestClip, getLatestClipManifest } from "./clip-manifest";
+
 export type ExperimentStatus =
   | "awaiting_approval"
   | "changes_requested"
@@ -20,9 +26,9 @@ export type ExperimentOutput = {
   thumbnailUrl: string;
   status: OutputStatus;
   provenance: {
-    media: "generated_fixture";
+    media: "generated_fixture" | "pipeline_manifest";
     source: string;
-    rights: "project_owned";
+    rights: "project_owned" | "creator_owned";
   };
 };
 
@@ -45,6 +51,21 @@ export type ExperimentResult = {
     repeatCommenters: number;
     trackedLiveVisits: number;
     nextStreamAverageConcurrency: number;
+  };
+  perClip?: PerClipResult[];
+};
+
+export type PerClipResult = {
+  clip_id: string;
+  post_id?: string;
+  platform?: ExperimentOutput["platform"];
+  metrics: {
+    views: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    saves?: number;
+    avg_watch_pct?: number;
   };
 };
 
@@ -283,7 +304,7 @@ export function resetExperimentStore(): GrowthExperiment {
 
 export function getExperiment(id: string): GrowthExperiment {
   assertExperimentId(id);
-  return structuredClone(store().experiment);
+  return withCurrentOutputs(store().experiment);
 }
 
 export function recordDecision(input: {
@@ -315,6 +336,7 @@ export function recordDecision(input: {
   if (input.action === "approve") {
     experiment.status = "approved";
     experiment.stage = "Ready for simulated distribution";
+    experiment.outputs = currentOutputsFor(experiment);
     experiment.outputs.forEach((output) => { output.status = "approved"; });
   } else if (input.action === "reject") {
     experiment.status = "rejected";
@@ -346,6 +368,7 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
     );
   }
 
+  experiment.outputs = currentOutputsFor(experiment);
   experiment.receipts = experiment.outputs.map((output, index) => ({
     id: `sim_receipt_${index + 1}`,
     experimentId: experiment.id,
@@ -362,7 +385,7 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
   return { experiment: structuredClone(experiment), receipts: structuredClone(experiment.receipts) };
 }
 
-export function recordResults(input: { id: string; result: ExperimentResult }): {
+export function recordResults(input: { id: string; result: ExperimentResult; perClip?: PerClipResult[] }): {
   experiment: GrowthExperiment;
   result: ExperimentResult;
   learning: ExperimentLearning;
@@ -388,6 +411,7 @@ export function recordResults(input: { id: string; result: ExperimentResult }): 
   }
 
   const result = structuredClone(input.result);
+  result.perClip = input.perClip ? structuredClone(input.perClip) : result.perClip;
   const metrics = result.metrics;
   const returningDelta = Number((metrics.returningViewerRate - BASELINE.returningViewerRate).toFixed(1));
   const repeatDelta = metrics.repeatCommenters - BASELINE.repeatCommenters;
@@ -411,6 +435,12 @@ export function recordResults(input: { id: string; result: ExperimentResult }): 
     `Tracked live visits moved from ${BASELINE.trackedLiveVisits} to ${metrics.trackedLiveVisits} (${formatDelta(liveDelta)}).`,
     `Views moved from ${BASELINE.views} to ${metrics.views} (${formatDelta(viewsDelta)}), while next-stream average concurrency moved from ${BASELINE.nextStreamAverageConcurrency} to ${metrics.nextStreamAverageConcurrency} (${formatDelta(concurrencyDelta)}).`,
   ];
+  const strongestClip = strongestPerClip(result.perClip);
+  if (strongestClip) {
+    movementEvidence.push(
+      `${strongestClip.clip_id} led the clip-level sample with ${strongestClip.metrics.views} views and ${strongestClip.metrics.avg_watch_pct ?? 0}% average watch.`,
+    );
+  }
 
   let learning: ExperimentLearning;
   let nextExperiment: NonNullable<GrowthExperiment["nextExperiment"]>;
@@ -460,6 +490,7 @@ export function recordResults(input: { id: string; result: ExperimentResult }): 
   }
 
   experiment.result = result;
+  persistPerClipResults(result.perClip, experiment.outputs);
   experiment.learning = learning;
   experiment.nextExperiment = nextExperiment;
   experiment.status = "learned";
@@ -471,6 +502,112 @@ export function recordResults(input: { id: string; result: ExperimentResult }): 
     learning: structuredClone(experiment.learning),
     nextExperiment: structuredClone(experiment.nextExperiment),
   };
+}
+
+function withCurrentOutputs(experiment: GrowthExperiment): GrowthExperiment {
+  const cloned = structuredClone(experiment);
+  cloned.outputs = currentOutputsFor(cloned);
+  return cloned;
+}
+
+function currentOutputsFor(experiment: GrowthExperiment): ExperimentOutput[] {
+  const manifest = getLatestClipManifest();
+  const clips = manifest?.clips.filter((clip) => clip.ok !== false).slice(0, 3) ?? [];
+  if (!manifest || clips.length === 0) return structuredClone(experiment.outputs);
+  const outputStatus: OutputStatus =
+    experiment.status === "distributed" || experiment.status === "learned"
+      ? "distributed"
+      : experiment.status === "approved"
+        ? "approved"
+        : "ready";
+  return clips.map((clip, index) => projectManifestClip(clip, index, manifest.manifestPath, outputStatus));
+}
+
+function projectManifestClip(
+  clip: ClipperManifestClip,
+  index: number,
+  manifestPath: string,
+  status: OutputStatus,
+): ExperimentOutput {
+  return {
+    id: clip.clip_id,
+    type: clip.callback ? "community_cut" : (index === 0 ? "premise_cut" : index === 1 ? "community_cut" : "return_prompt"),
+    title: clip.copy?.title || clip.clip_id,
+    platform: platformLabel(clip.platform),
+    duration: formatDuration(clip.duration),
+    hook: clip.copy?.hook_text_overlay || clip.why || "Selected by the live clipper pipeline.",
+    caption: clip.copy?.caption || clip.text_for_copy || "Pipeline-produced clip from the latest complete manifest.",
+    rationale: clip.callback
+      ? `Callback boost from ${clip.threadLabel ?? "creator memory"} at confidence ${clip.callbackConfidence ?? "unknown"}.`
+      : "Standalone clip selected without requiring callback evidence.",
+    thumbnailUrl: "/media/rivetfall-one-more-rule.png",
+    status,
+    provenance: { media: "pipeline_manifest", source: manifestPath, rights: "creator_owned" },
+  };
+}
+
+function platformLabel(platform: string): ExperimentOutput["platform"] {
+  if (platform === "tiktok") return "TikTok";
+  if (platform === "reels") return "Instagram Reels";
+  return "YouTube Shorts";
+}
+
+function formatDuration(seconds: number): string {
+  const safe = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  const mm = Math.floor(safe / 60);
+  const ss = safe % 60;
+  return `${mm.toString().padStart(2, "0")}:${ss.toString().padStart(2, "0")}`;
+}
+
+function strongestPerClip(perClip?: PerClipResult[]): PerClipResult | undefined {
+  return perClip?.slice().sort((a, b) => b.metrics.views - a.metrics.views)[0];
+}
+
+function persistPerClipResults(perClip: PerClipResult[] | undefined, outputs: ExperimentOutput[]) {
+  if (!perClip?.length) return;
+  const creator = process.env.AFTERPLAY_CREATOR_ID ?? "creator_mika_rigged";
+  const root = process.env.AFTERPLAY_MEMORY ?? join(homedir(), ".afterplay", "memory");
+  const dir = join(root, creator);
+  mkdirSync(dir, { recursive: true });
+  const postsPath = join(dir, "posts.json");
+  const metricsPath = join(dir, "metrics.json");
+  const posts = readJsonArray(postsPath);
+  const metrics = readJsonArray(metricsPath);
+  const byId = new Map(outputs.map((output) => [output.id, output]));
+  const now = Date.now() / 1000;
+  for (const row of perClip) {
+    const output = byId.get(row.clip_id);
+    const postId = row.post_id || `app_${row.clip_id}`;
+    posts.push({
+      clip_id: row.clip_id,
+      platform: row.platform || output?.platform || "YouTube Shorts",
+      post_id: postId,
+      published_at: now,
+      features: { provenance: output?.provenance.media ?? "unknown" },
+    });
+    metrics.push({
+      post_id: postId,
+      views: row.metrics.views,
+      likes: row.metrics.likes ?? 0,
+      comments: row.metrics.comments ?? 0,
+      shares: row.metrics.shares ?? 0,
+      saves: row.metrics.saves ?? 0,
+      avg_watch_pct: row.metrics.avg_watch_pct ?? 0,
+      fetched_at: now,
+    });
+  }
+  writeFileSync(postsPath, JSON.stringify(posts.slice(-5000), null, 2), "utf-8");
+  writeFileSync(metricsPath, JSON.stringify(metrics.slice(-20000), null, 2), "utf-8");
+}
+
+function readJsonArray(path: string): unknown[] {
+  if (!existsSync(path)) return [];
+  try {
+    const data = JSON.parse(readFileSync(path, "utf-8"));
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
 }
 
 function formatDelta(delta: number, suffix = ""): string {

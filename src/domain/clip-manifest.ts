@@ -14,12 +14,32 @@ export type ClipperManifestClip = {
   error?: string | null;
   signals?: Record<string, unknown>;
   text_for_copy?: string;
+  copy?: {
+    title?: string;
+    caption?: string;
+    hook_text_overlay?: string | null;
+  };
   callback?: boolean;
   threadLabel?: string;
   callbackConfidence?: number;
   sourceStream?: string;
   sourceT?: number;
   sourceQuote?: string;
+};
+
+export type ClipperMemoryState = {
+  enabled?: boolean;
+  degraded?: boolean;
+  reason?: string | null;
+  threads_considered?: number;
+  callback_found?: boolean;
+};
+
+export type ClipperJobStatus = {
+  state?: "started" | "complete" | "failed";
+  updated?: number;
+  message?: string;
+  manifest?: string;
 };
 
 export type ClipperManifest = {
@@ -34,6 +54,12 @@ export type ClipperManifest = {
   timings?: Record<string, number>;
   encoder?: string;
   heatmap_available?: boolean;
+  memory?: ClipperMemoryState;
+  message?: string | null;
+  status?: "complete";
+  stale?: boolean;
+  staleReason?: string;
+  latestJobStatus?: ClipperJobStatus;
   manifestPath: string;
   updatedAt: string;
 };
@@ -56,25 +82,68 @@ function manifestFiles(dir: string): string[] {
   return out;
 }
 
+function statusFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...statusFiles(path));
+    } else if (entry.isFile() && entry.name === "status.json") {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
 export function getLatestClipManifest(): ClipperManifest | null {
   try {
-    const files = manifestFiles(clipperWorkdir())
+    const workdir = clipperWorkdir();
+    const statusRows = statusFiles(workdir)
+      .map((path) => ({ path, mtimeMs: statSync(path).mtimeMs, status: readStatus(path) }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const files = manifestFiles(workdir)
       .map((path) => ({ path, mtimeMs: statSync(path).mtimeMs }))
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
-    if (!files[0]) return null;
+    const complete = files
+      .map((file) => loadManifest(file.path, file.mtimeMs))
+      .find((manifest) => manifest && manifest.status === "complete");
+    if (!complete) return null;
 
-    const data = JSON.parse(readFileSync(files[0].path, "utf-8")) as Omit<
-      ClipperManifest,
-      "manifestPath" | "updatedAt"
-    >;
-    return {
-      ...data,
-      clips: Array.isArray(data.clips) ? data.clips.map(normalizeClip) : [],
-      manifestPath: files[0].path,
-      updatedAt: new Date(files[0].mtimeMs).toISOString(),
-    };
+    const latestStatus = statusRows[0];
+    if (latestStatus && latestStatus.mtimeMs > Date.parse(complete.updatedAt) && latestStatus.status?.state !== "complete") {
+      complete.stale = true;
+      complete.staleReason = `A newer job is ${latestStatus.status?.state ?? "incomplete"}; showing the latest complete manifest.`;
+      complete.latestJobStatus = latestStatus.status;
+    }
+    return complete;
   } catch {
     return null;
+  }
+}
+
+function loadManifest(path: string, mtimeMs: number): ClipperManifest | null {
+  const data = JSON.parse(readFileSync(path, "utf-8")) as Omit<
+    ClipperManifest,
+    "manifestPath" | "updatedAt"
+  >;
+  const status = readStatus(join(path, "..", "status.json"));
+  const state = data.status ?? status?.state ?? "complete";
+  if (state !== "complete") return null;
+  return {
+    ...data,
+    status: "complete",
+    clips: Array.isArray(data.clips) ? data.clips.map(normalizeClip) : [],
+    manifestPath: path,
+    updatedAt: new Date(mtimeMs).toISOString(),
+  };
+}
+
+function readStatus(path: string): ClipperJobStatus | undefined {
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as ClipperJobStatus;
+  } catch {
+    return undefined;
   }
 }
 

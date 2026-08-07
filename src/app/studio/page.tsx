@@ -1,4 +1,4 @@
-import { Check, ShieldCheck } from "@phosphor-icons/react/dist/ssr";
+import { Check, ShieldCheck, WarningCircle } from "@phosphor-icons/react/dist/ssr";
 import Image from "next/image";
 
 import { StudioDecisionPanel } from "@/components/studio-decision-panel";
@@ -19,6 +19,14 @@ export default function StudioPage() {
   const experiment = getExperiment("exp_one_more_rule");
   const manifest = getLatestClipManifest();
   const realClips = manifest?.clips ?? [];
+  const memory = manifest?.memory;
+  const manifestAlert = manifest?.stale
+    ? { tone: "warning", title: "Showing latest complete run", body: manifest.staleReason ?? "A newer job has not completed yet." }
+    : memory?.degraded
+      ? { tone: "warning", title: "Creator memory degraded", body: memory.reason ?? "The memory pass failed; standalone clips are still shown." }
+      : manifest?.message
+        ? { tone: "neutral", title: "No callback found", body: manifest.message }
+        : null;
 
   return (
     <WorkspaceShell active="Studio" pageName="Studio">
@@ -34,6 +42,11 @@ export default function StudioPage() {
               </div>
               <strong>{realClips.length} clips · {manifest.encoder || "encoder unknown"}</strong>
             </div>
+            {manifestAlert ? (
+              <div className={`manifest-alert manifest-alert--${manifestAlert.tone}`} role={manifestAlert.tone === "warning" ? "alert" : "status"}>
+                <WarningCircle weight="fill" /><div><strong>{manifestAlert.title}</strong><span>{manifestAlert.body}</span></div>
+              </div>
+            ) : null}
             <div className="output-grid output-grid--manifest">
               {realClips.slice(0, 3).map((clip, index) => {
                 const sourceTime = timestamp(clip.sourceT);
