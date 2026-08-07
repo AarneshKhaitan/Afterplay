@@ -499,13 +499,16 @@ class Orchestrator:
         if not isinstance(reasoner, MemoryReasoner):
             return {"enabled": False, "degraded": False,
                     "reason": None, "threads_considered": 0,
-                    "callback_found": False}
+                    "callback_found": False, "callbacks_ranked_out": 0}
         return {
             "enabled": True,
             "degraded": bool(reasoner.memory_degraded),
             "reason": reasoner.memory_degradation_reason,
             "threads_considered": int(getattr(reasoner, "threads_considered", 0) or 0),
+            # True only when a CLIPPED moment carries the callback. A callback that lost
+            # the top-n cut is reported separately rather than silently claimed.
             "callback_found": bool(reasoner.callback_found),
+            "callbacks_ranked_out": int(getattr(reasoner, "callbacks_ranked_out", 0) or 0),
         }
 
     @staticmethod
@@ -515,6 +518,12 @@ class Orchestrator:
         if memory.get("degraded"):
             return f"Creator memory degraded: {memory.get('reason') or 'unknown reason'}"
         if not memory.get("callback_found"):
+            ranked_out = memory.get("callbacks_ranked_out") or 0
+            if ranked_out:
+                return (f"No memory-dependent callback made this cut. {ranked_out} "
+                        f"callback moment(s) scored below the clips returned - ask for "
+                        f"more clips to include them. Showing highest-quality "
+                        f"standalone clips.")
             return ("No memory-dependent callback found in this run. "
                     "Showing highest-quality standalone clips.")
         return None

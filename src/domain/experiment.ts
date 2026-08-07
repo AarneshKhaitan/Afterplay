@@ -1,5 +1,6 @@
 ﻿// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
 // node:fs imports into client bundles. The value-side call lives in the API route.
+import { getLatestClipManifest } from "./clip-manifest";
 import { BASELINE, formatDelta } from "./experiment-metrics";
 import type { PerClipResult } from "./results-bridge";
 
@@ -102,6 +103,9 @@ export type GrowthExperiment = {
     state: "complete" | "waiting";
   }>;
   outputs: ExperimentOutput[];
+  /** Real clipper clips, projected from the latest manifest. Additive: the
+   * curated `outputs` package is never replaced. Empty when no manifest exists. */
+  pipelineOutputs?: ExperimentOutput[];
   decision?: {
     id: string;
     action: "approve" | "reject" | "request_change";
@@ -270,9 +274,81 @@ export function resetExperimentStore(): GrowthExperiment {
   return getExperiment(initialExperiment.id);
 }
 
+/** Clone for return, with the pipeline projection attached.
+ *
+ * Every function that hands an experiment back must go through this. Attaching the
+ * projection in `getExperiment` alone meant a mutation response (approve, dispatch,
+ * results) carried no `pipelineOutputs`, so a client that replaced its state from that
+ * response made the pipeline-clips section disappear after approval. */
+function toResponse(experiment: GrowthExperiment): GrowthExperiment {
+  const clone = structuredClone(experiment);
+  clone.pipelineOutputs = projectPipelineOutputs(clone);
+  return clone;
+}
+
 export function getExperiment(id: string): GrowthExperiment {
   assertExperimentId(id);
-  return structuredClone(store().experiment);
+  return toResponse(store().experiment);
+}
+
+/** Real clipper output, presented as its own approvable set.
+ *
+ * Deliberately additive: an earlier attempt replaced `outputs` with manifest clips,
+ * which collapsed the curated three-card package to a single raw card and duplicated
+ * the manifest section. The curated package stays immutable; pipeline clips get their
+ * own section and carry the same approval status, so approving the experiment approves
+ * real clips too — which is what closes the loop (G7).
+ */
+function projectPipelineOutputs(experiment: GrowthExperiment): ExperimentOutput[] {
+  const manifest = getLatestClipManifest();
+  const clips = (manifest?.clips ?? []).filter((clip) => clip.ok !== false);
+  if (!manifest || clips.length === 0) return [];
+
+  // A platform URL means the media was extracted from third-party content; only local
+  // media is known to be creator-owned. Never assert ownership we cannot substantiate.
+  const rights: ExperimentOutput["provenance"]["rights"] =
+    manifest.source?.url ? "third_party_extracted" : "creator_owned";
+  const status: OutputStatus =
+    experiment.status === "distributed" || experiment.status === "learned"
+      ? "distributed"
+      : experiment.status === "approved"
+        ? "approved"
+        : "ready";
+
+  /** A short human label. Never the raw transcript: without an LLM the heuristic copy
+   * generator derives `copy.title` from speech, so it arrives as a sentence fragment.
+   * Falling back to `clip_id` printed the id twice in one row, since Studio already
+   * shows it as the identifier — so fall back to the platform name instead. */
+  const label = (clip: (typeof clips)[number]) => {
+    const generated = clip.copy?.title?.trim() ?? "";
+    const candidate = (generated.length > 0 && generated.length <= 60 ? generated : "")
+      || clip.threadLabel?.trim()
+      || "";
+    if (candidate) return candidate;
+    // A run returns several standalone clips; "Standalone clip" four times over tells the
+    // reviewer nothing about which is which. Their position in the stream does, and it is
+    // the one fact about them that is always true and never speculative.
+    const mm = Math.floor(clip.start / 60);
+    const ss = Math.floor(clip.start % 60).toString().padStart(2, "0");
+    return `${clip.callback ? "Callback clip" : "Standalone clip"} · ${mm}:${ss}`;
+  };
+
+  return clips.map((clip) => ({
+    id: clip.clip_id,
+    type: clip.callback ? "community_cut" : "premise_cut",
+    title: label(clip),
+    platform: clip.platform === "tiktok" ? "TikTok"
+      : clip.platform === "reels" ? "Instagram Reels" : "YouTube Shorts",
+    duration: `00:${Math.round(clip.duration).toString().padStart(2, "0")}`,
+    hook: clip.why ?? "Selected by the clipper pipeline.",
+    caption: clip.text_for_copy ?? "",
+    rationale: clip.callback
+      ? `Callback to ${clip.threadLabel ?? "creator memory"} at confidence ${clip.callbackConfidence ?? "?"}.`
+      : "Standalone clip; no history-dependent moment required.",
+    thumbnailUrl: "",
+    status,
+    provenance: { media: "pipeline_manifest", source: manifest.manifestPath, rights },
+  }));
 }
 
 export function recordDecision(input: {
@@ -287,7 +363,7 @@ export function recordDecision(input: {
 
   if (experiment.status !== "awaiting_approval") {
     if (experiment.decision?.action === input.action && experiment.decision.revision === input.revision) {
-      return { experiment: structuredClone(experiment), decision: structuredClone(experiment.decision) };
+      return { experiment: toResponse(experiment), decision: structuredClone(experiment.decision) };
     }
     throw new ExperimentError("decision_not_allowed", "This experiment is no longer awaiting a decision.", 409);
   }
@@ -313,7 +389,18 @@ export function recordDecision(input: {
     experiment.stage = "Creator changes requested";
   }
 
-  return { experiment: structuredClone(experiment), decision: structuredClone(decision) };
+  return { experiment: toResponse(experiment), decision: structuredClone(decision) };
+}
+
+/** Simulated publish slot for the nth dispatched output.
+ *
+ * Derived rather than looked up in a fixed three-entry array: once pipeline clips joined
+ * the dispatch, indices past the third produced `scheduledFor: undefined` — a value the
+ * `DistributionReceipt` type forbids but indexed access does not catch. One slot per day
+ * from the first, staggered so the receipts read as a schedule rather than a batch. */
+const DISPATCH_EPOCH = Date.parse("2026-08-05T12:00:00.000Z");
+function simulatedSlot(index: number): string {
+  return new Date(DISPATCH_EPOCH + index * (24 * 60 * 60 * 1000 - 30 * 60 * 1000)).toISOString();
 }
 
 export function dispatchExperiment(input: { id: string; revision: number }): {
@@ -325,7 +412,7 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
   assertCurrentRevision(experiment, input.revision);
 
   if (experiment.status === "distributed" || experiment.status === "learned") {
-    return { experiment: structuredClone(experiment), receipts: structuredClone(experiment.receipts) };
+    return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
   }
   if (experiment.status !== "approved") {
     throw new ExperimentError(
@@ -335,20 +422,23 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
     );
   }
 
-  experiment.receipts = experiment.outputs.map((output, index) => ({
+  // Receipts cover the curated package AND the pipeline clips: approving the
+  // experiment approves both, so distribution must account for both.
+  const dispatched = [...experiment.outputs, ...projectPipelineOutputs(experiment)];
+  experiment.receipts = dispatched.map((output, index) => ({
     id: `sim_receipt_${index + 1}`,
     experimentId: experiment.id,
     outputId: output.id,
     platform: output.platform,
     simulated: true,
     state: "accepted",
-    scheduledFor: ["2026-08-05T12:00:00.000Z", "2026-08-06T11:30:00.000Z", "2026-08-07T12:15:00.000Z"][index],
+    scheduledFor: simulatedSlot(index),
   }));
   experiment.outputs.forEach((output) => { output.status = "distributed"; });
   experiment.status = "distributed";
   experiment.stage = "Observing sample results";
 
-  return { experiment: structuredClone(experiment), receipts: structuredClone(experiment.receipts) };
+  return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
 }
 
 export function recordResults(input: { id: string; result: ExperimentResult; perClip?: PerClipResult[] }): {
@@ -362,7 +452,7 @@ export function recordResults(input: { id: string; result: ExperimentResult; per
 
   if (experiment.status === "learned" && experiment.result && experiment.learning && experiment.nextExperiment) {
     return {
-      experiment: structuredClone(experiment),
+      experiment: toResponse(experiment),
       result: structuredClone(experiment.result),
       learning: structuredClone(experiment.learning),
       nextExperiment: structuredClone(experiment.nextExperiment),
@@ -462,7 +552,7 @@ export function recordResults(input: { id: string; result: ExperimentResult; per
   experiment.stage = "Learning recorded";
 
   return {
-    experiment: structuredClone(experiment),
+    experiment: toResponse(experiment),
     result: structuredClone(experiment.result),
     learning: structuredClone(experiment.learning),
     nextExperiment: structuredClone(experiment.nextExperiment),

@@ -262,22 +262,32 @@ class Analytics:
         return len(rows)
 
     def ingest_csv(self, path) -> int:
+        """Bulk import a platform analytics export (e.g. YouTube Studio).
+
+        Parse every row before recording any of them: `record_metric` persists on each
+        call, so failing halfway through would leave a partial ingest behind while the
+        caller was told the import failed, and the retry would double-record the prefix.
+        """
         import csv
-        n = 0
+        parsed: list[dict] = []
         with open(path, newline="", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                self.record_metric({
-                    "post_id": row.get("post_id") or row.get("id") or "",
-                    "views": int(float(row.get("views") or 0)),
-                    "likes": int(float(row.get("likes") or 0)),
-                    "comments": int(float(row.get("comments") or 0)),
-                    "shares": int(float(row.get("shares") or 0)),
-                    "saves": int(float(row.get("saves") or 0)),
-                    "avg_watch_pct": float(row.get("avg_watch_pct") or 0),
-                })
-                n += 1
-        log.info("analytics: ingested %d CSV rows", n)
-        return n
+            for i, row in enumerate(csv.DictReader(f), 2):       # row 1 is the header
+                try:
+                    parsed.append({
+                        "post_id": row.get("post_id") or row.get("id") or "",
+                        "views": int(float(row.get("views") or 0)),
+                        "likes": int(float(row.get("likes") or 0)),
+                        "comments": int(float(row.get("comments") or 0)),
+                        "shares": int(float(row.get("shares") or 0)),
+                        "saves": int(float(row.get("saves") or 0)),
+                        "avg_watch_pct": float(row.get("avg_watch_pct") or 0),
+                    })
+                except (TypeError, ValueError) as e:
+                    raise ValueError(f"{Path(path).name} line {i}: {e}") from e
+        for m in parsed:
+            self.record_metric(m)
+        log.info("analytics: ingested %d CSV rows", len(parsed))
+        return len(parsed)
 
     # ── attribute + learn ────────────────────────────────────────────────────
     def attribute(self) -> list[dict]:

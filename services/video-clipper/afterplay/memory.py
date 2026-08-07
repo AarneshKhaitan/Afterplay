@@ -19,13 +19,17 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .core import Brand
+from .core import Brand, _configured_dir
 
 log = logging.getLogger("afterplay")
 
 
 def memory_root() -> Path:
-    return Path(os.environ.get("AFTERPLAY_MEMORY", Path.home() / ".afterplay" / "memory"))
+    """Where channel memory lives. Repo-relative like the workdir — see
+    `core._configured_dir`: cwd-relative resolution split the memory in two depending
+    on where the command was run from, so a backfill and the run that should have
+    used it wrote to different stores."""
+    return _configured_dir("AFTERPLAY_MEMORY", Path.home() / ".afterplay" / "memory")
 
 
 def _load(p: Path, default):

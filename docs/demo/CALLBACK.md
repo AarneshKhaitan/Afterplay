@@ -57,16 +57,30 @@ runs, and only 8–9 threads were considered per stream, so the top-K gate held.
 
 1. **YouTube bot-blocking is intermittent.** After roughly eight resolves in quick
    succession, yt-dlp returns *"Sign in to confirm you're not a bot"*. The throttle
-   later lifted and all three streams are now cached. Ingestion now supports
+   later lifted and all three streams are now cached. Ingestion supports
    `--cookies` / `--cookies-from-browser` (browser must be CLOSED, yt-dlp issue 7271),
-   `--sleep-interval` and `--extractor-args` across every extraction path. Run
-   `afterplay predemo <ids>` in a warm-up window and confirm it reports **ready**
-   before recording.
-2. **Run the demo from the cache, not the network.** `resolve.from_info_json` replays a
-   saved `info.json` + VTT offline, so the recording never depends on YouTube being
-   cooperative. Cache every demo video first, then record.
+   `--sleep-interval` and `--extractor-args` across every extraction path.
+2. **The recording no longer depends on YouTube.** This was previously a warm-up
+   dependency — `afterplay predemo <ids>` had to report **ready** in a window where
+   YouTube was cooperating, or there was no demo. It no longer is: with the media file
+   and its captions on disk, `run --memory --local … --vtt …` renders the callback clip
+   with **no yt-dlp call and no YouTube request at all**. Verified end to end —
+   [E-023](../prd/EVIDENCE.md#e-023-demo-without-youtube). `predemo` is now a convenience
+   for *building* that cache, not a gate on recording. Cache every demo video first,
+   then record.
+
+   **This is not fully offline, and must not be described as such.** The memory pass
+   still calls the OpenAI API for embeddings and callback judging — that is live mode
+   working as designed, and it is the one network dependency left at record time. The
+   difference that matters: OpenAI does not rate-limit the demo the way YouTube's
+   anti-bot throttle did.
 3. All three callbacks trace back to the single prior stream `nxGlZX9GH5I`. Backfilling
    more history would make the memory claim more convincing.
+4. **Run commands from the repo root or the service directory — either works now.**
+   `AFTERPLAY_WORKDIR` and `AFTERPLAY_MEMORY` are repo-root-relative in `.env` and were
+   previously resolved against the current directory, so running from
+   `services/video-clipper` wrote artifacts to a nested path Studio never reads. Fixed
+   and covered by `TestConfiguredDirs`.
 
 ## Authored Smoke Artifact
 
@@ -94,7 +108,8 @@ The clip manifest should include:
 - `memory.degraded`
 - `memory.reason`
 - `memory.threads_considered`
-- `memory.callback_found`
+- `memory.callback_found` — true only when a CLIPPED moment carries the callback
+- `memory.callbacks_ranked_out` — callbacks that scored below the clips returned
 - `message` for no-callback or degraded outcomes
 
 ### Callback outcome states
@@ -107,6 +122,12 @@ The clip manifest should include:
   `signals.callback: false`, `memory.degraded: false`, and `memory.callback_found: false`;
   UI message must be
   `"No memory-dependent callback found in this run. Showing highest-quality standalone clips."`
+- **Callback found but ranked out (valid, and distinct):** a callback was detected in a
+  window that scored below the clips returned. `memory.callback_found: false` with
+  `memory.callbacks_ranked_out > 0`, and the message says so and suggests asking for more
+  clips. `callback_found` previously described every candidate scored rather than the
+  clips shipped, so this case claimed a callback the manifest could not cite —
+  [E-024](../prd/EVIDENCE.md#e-024-callback-found-reflects-shipped-clips).
 - **Failure/degraded states (invalid):** `memory.degraded: true` with a reason; UI must still keep
   a visible error path (model id/key/IO/auth/network problems, parsing errors, etc.) instead of
   rendering an empty callback success. Distinguish this from the no-callback but valid fallback message:

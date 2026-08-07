@@ -291,30 +291,50 @@ def cmd_doctor(a) -> int:
 
 
 def cmd_results(a) -> int:
-    """Record result rows into the analytics store."""
+    """Record result rows into the analytics store.
+
+    Accepts JSON or CSV. CSV matters because it is the shape a creator actually has:
+    YouTube Studio exports analytics as CSV, so this is the route by which *real*
+    published performance — rather than hand-authored numbers — reaches the ranking
+    priors. `Analytics.ingest_csv` already existed but was unreachable from the CLI.
+    """
     from .insights import Analytics
     path = Path(a.input)
     if not path.exists():
         print(f"results file not found: {a.input}", file=sys.stderr)
         return 2
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as e:                                      # noqa: BLE001
-        print(f"results input is not valid JSON: {e}", file=sys.stderr)
-        return 2
 
     analytics = Analytics(a.creator)
-    rows = payload if isinstance(payload, list) else [payload]
-    for row in rows:
-        if isinstance(row, dict):
-            analytics.record_metric(row)
+    if path.suffix.lower() == ".csv":
+        try:
+            records = analytics.ingest_csv(path)
+        except Exception as e:                                  # noqa: BLE001
+            print(f"could not read CSV results: {e}", file=sys.stderr)
+            return 2
+    else:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:                                  # noqa: BLE001
+            print(f"results input is not valid JSON: {e}", file=sys.stderr)
+            return 2
+        rows = payload if isinstance(payload, list) else [payload]
+        records = 0
+        for row in rows:
+            if isinstance(row, dict):
+                analytics.record_metric(row)
+                records += 1
 
+    # Metrics only become priors once they join a recorded post, so report the join
+    # count too: "3 rows in, 0 attributed" is the difference between a bad file and
+    # metrics for posts this creator never published through the pipeline.
+    attributed = len(analytics.attribute())
     priors = analytics.compute_priors(min_samples=a.min_samples)
-    out = {"creator": a.creator, "records": len(rows), "compute_priors": priors}
+    out = {"creator": a.creator, "records": records, "attributed": attributed,
+           "compute_priors": priors}
     if a.json:
         print(json.dumps(out, indent=2))
     else:
-        print(f"wrote {len(rows)} rows for {a.creator}")
+        print(f"wrote {records} rows for {a.creator} ({attributed} attributed to posts)")
         print(f"priors: {priors}")
     return 0
 
@@ -385,7 +405,8 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("results", help="record per-post metrics into the analytics memory store")
     sp.add_argument("--creator", required=True, help="creator id for analytics memory")
-    sp.add_argument("--input", required=True, help="path to a JSON payload for record_metric")
+    sp.add_argument("--input", required=True,
+                help="JSON payload, or a .csv analytics export (e.g. from YouTube Studio)")
     sp.add_argument("--min-samples", type=int, default=3, help="minimum samples before priors are ready")
     sp.set_defaults(fn=cmd_results)
 

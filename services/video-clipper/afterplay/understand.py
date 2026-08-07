@@ -315,6 +315,7 @@ class MemoryReasoner(Reasoner):
         self.memory_degraded = False
         self.memory_degradation_reason = None
         self.callback_found = False
+        self.callbacks_ranked_out = 0
         self.threads_considered = 0
 
     def rank(self, sents, heatmap=None, *, target=30.0, n=5, min_gap=20.0,
@@ -322,6 +323,7 @@ class MemoryReasoner(Reasoner):
         self.memory_degraded = False
         self.memory_degradation_reason = None
         self.callback_found = False
+        self.callbacks_ranked_out = 0
         self.threads_considered = 0
         try:
             moments: list[Moment] = []
@@ -384,7 +386,6 @@ class MemoryReasoner(Reasoner):
                             "source_t": first.get("t"),
                             "source_quote": first.get("quote"),
                         })
-                        self.callback_found = True
 
                 moments.append(Moment(start, end, score, text, why, signals))
 
@@ -396,6 +397,17 @@ class MemoryReasoner(Reasoner):
                     picked.append(m)
                 if len(picked) >= n:
                     break
+
+            # Report the clips that SHIPPED, not every candidate considered. Setting this
+            # during scoring meant a callback in a window that lost the top-n cut still
+            # flipped the flag: the manifest advertised `callback_found: true`, the honest
+            # "no callback found" message was suppressed, and Studio had no citation to
+            # render. `callbacks_ranked_out` keeps the discarded information visible —
+            # the answer there is to ask for more clips, not to hide the state.
+            shipped = sum(1 for m in picked if m.signals.get("callback"))
+            self.callback_found = shipped > 0
+            self.callbacks_ranked_out = sum(
+                1 for m in moments if m.signals.get("callback")) - shipped
             return picked
         except Exception as e:                       # noqa: BLE001 - degrade, don't fail
             import logging

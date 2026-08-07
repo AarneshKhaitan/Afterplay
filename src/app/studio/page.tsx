@@ -43,6 +43,7 @@ export default function StudioPage() {
   const experiment = getExperiment("exp_one_more_rule");
   const manifest = getLatestClipManifest();
   const realClips = manifest?.clips ?? [];
+  const pipelineOutputs = experiment.pipelineOutputs ?? [];
   const memory = manifest?.memory;
   const manifestAlert = manifest?.stale
     ? { tone: "warning", title: "Showing latest complete run", body: manifest.staleReason ?? "A newer job has not completed yet." }
@@ -81,6 +82,34 @@ export default function StudioPage() {
                   </article>
                 );
               })}
+            </div>
+          </section>
+        ) : null}
+
+        {pipelineOutputs.length ? (
+          <section className="pipeline-approval" aria-label="Pipeline clips in this approval">
+            <div className="section-heading">
+              <h2>Also in this approval: pipeline clips</h2>
+              <span className="sample-note">
+                {plural(pipelineOutputs.length, "real clip", "real clips")} from the clipper — approving this experiment approves these too
+              </span>
+            </div>
+            <div className="pipeline-approval-list">
+              {pipelineOutputs.map((output) => (
+                <article key={output.id} className="pipeline-approval-row">
+                  <div>
+                    <strong>{output.title}</strong>
+                    <small className="clip-id">{output.id}</small>
+                  </div>
+                  <p>{output.rationale}</p>
+                  <div className="pipeline-approval-meta">
+                    <span>{output.platform}</span>
+                    <span>{output.duration}</span>
+                    <span className={`status-chip status-chip--${output.status}`}>{output.status}</span>
+                    <span className="provenance-tag">{output.provenance.rights.replaceAll("_", " ")}</span>
+                  </div>
+                </article>
+              ))}
             </div>
           </section>
         ) : null}

@@ -592,6 +592,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .mode-result-grid ul { margin: 0; padding-left: 16px; color: #aeb3b8; font-size: var(--type-small); line-height: 1.6; }
 .mode-result-grid strong { color: var(--text); }
 
+/* Pipeline clips carried by the same approval as the curated package (G7). */
+.pipeline-approval { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+.pipeline-approval-list { display: flex; flex-direction: column; gap: 8px; }
+.pipeline-approval-row { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1.4fr) auto; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel-soft); }
+.pipeline-approval-row > div:first-child { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pipeline-approval-row strong { font-size: var(--type-body); font-weight: 650; }
+.pipeline-approval-row p { margin: 0; color: var(--muted); font-size: var(--type-small); line-height: 1.5; }
+.pipeline-approval-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-2); font-size: var(--type-meta); }
+.provenance-tag { padding: 3px 7px; border: 1px solid var(--line-strong); border-radius: 6px; }
+.status-chip--ready { color: var(--muted); }
+.status-chip--approved { color: var(--positive); }
+.status-chip--distributed { color: var(--blue); }
+@media (max-width: 900px) { .pipeline-approval-row { grid-template-columns: 1fr; } }
+
 /* In-flight status. Live reasoning runs 25-60s; a silent spinner reads as a hang. */
 .mode-inflight { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; padding: 12px; border: 1px solid rgba(140,182,232,.25); border-radius: 10px; background: rgba(140,182,232,.06); }
 .mode-inflight div { display: flex; flex-direction: column; gap: 3px; }

@@ -490,3 +490,225 @@ acceptance criterion.**
 - **Limitation:** the outcomes here are synthetic, driven through the real code path.
   The mechanism is proven; it has not run on actual published performance, because
   nothing has been published (see G12).
+
+---
+
+## e-020-pipeline-clips-in-the-approval-loop
+
+Claim: real clipper clips are approved and dispatched with the curated package, without
+replacing it. **This is what closes G7 on the app side.**
+
+- Date: 2026-08-07
+- Method: production build (`npm run build` → `npm run start`), driven over HTTP against
+  the real routes. `AFTERPLAY_CLIPPER_WORKDIR` pointed at the real service workdir, so the
+  pipeline clips are the hero callback run, not a fixture.
+- Captured output:
+  ```
+  GET           : curated 3  pipeline 2
+     clip01_shorts   Frame Ethan to clear his name   status=ready  rights=third_party_extracted
+     clip02_shorts   ...                             status=ready  rights=third_party_extracted
+
+  after APPROVE : curated  approved, approved, approved
+                  pipeline clip01_shorts=approved, clip02_shorts=approved
+
+  after DISPATCH: receipts 5   pipeline still present: 2
+     sim_receipt_1    -> output_premise   2026-08-05T12:00:00.000Z
+     sim_receipt_2    -> output_community 2026-08-06T11:30:00.000Z
+     sim_receipt_3    -> output_return    2026-08-07T11:00:00.000Z
+     sim_receipt_4    -> clip01_shorts    2026-08-08T10:30:00.000Z
+     sim_receipt_5    -> clip02_shorts    2026-08-09T10:00:00.000Z
+  ```
+- **Additive by design.** An earlier attempt overwrote `experiment.outputs` with manifest
+  clips, collapsing Studio's three-card package into one raw card and duplicating the
+  manifest section. That was reverted; `pipelineOutputs` is a separate set with its own
+  Studio section.
+- **Rights are derived, never asserted.** `manifest.source.url` present → the media was
+  extracted from third-party content, so `third_party_extracted`. Only `--local` media is
+  labelled `creator_owned`.
+- Two defects were found and fixed while capturing this, each with a regression test in
+  `tests/e2e/pipeline-approval.spec.ts`:
+  1. Only `getExperiment` attached the projection, so **approve/dispatch/results responses
+     carried no `pipelineOutputs`** — a client replacing its state from a mutation response
+     lost the pipeline section the moment the creator approved. All returns now go through
+     `toResponse`.
+  2. `scheduledFor` came from a fixed three-entry array, so **receipts 4 and 5 carried
+     `undefined`** — a value `DistributionReceipt` forbids and indexed access does not
+     catch. Now derived per index.
+- Verification: `npx playwright test --config playwright.production.config.ts
+  tests/e2e/pipeline-approval.spec.ts` → **2 passed**.
+
+---
+
+## e-021-real-analytics-csv-into-the-ranking-priors
+
+Claim: a creator's real published performance can reach the ranking priors, in the format
+platforms actually export.
+
+- Date: 2026-08-07
+- Motivation: `Analytics.ingest_csv` existed but **no command reached it**, so the only way
+  in was hand-authored JSON. YouTube Studio exports CSV; without this the feedback loop
+  could only ever be fed by numbers someone typed.
+- Command:
+  ```
+  python -m afterplay.cli --json results --creator real_creator --input yt_export.csv
+  ```
+  ```
+  analytics: ingested 3 CSV rows
+  { "creator": "real_creator", "records": 3, "attributed": 0,
+    "compute_priors": { "n": 0, "ready": false, "note": "need >= 3 attributed posts" } }
+  ```
+- The `attributed` count is reported alongside `records` deliberately: *3 rows in, 0
+  attributed* is the difference between a malformed file and metrics for posts this
+  creator never published through the pipeline. Without it, a correct ingest and a useless
+  one print the same thing.
+- The full join — CSV rows → metrics → `attribute()` against recorded posts → priors — is
+  covered by `TestResultsCli::test_csv_export_reaches_priors`, which asserts the priors
+  agree with what the CSV said (`punchline` lift > `story` lift).
+- A defect found while writing it: `record_metric` persists on every call, so a bad row
+  halfway down a CSV left the earlier rows written **while the CLI reported failure**, and
+  the retry double-recorded them. `ingest_csv` now parses every row before recording any.
+  `test_failed_csv_ingest_records_nothing` fails without that fix (verified by reverting:
+  `1 failed, 4 passed`).
+- **Honest limit.** This makes real analytics *reachable*; it does not mean real analytics
+  have been ingested. Nothing has been published through the tool, because there are no
+  publishing connectors (G12). The B3 re-ranking demonstration in
+  [E-016](#e-016-ranking-feedback-changes-a-later-run) still uses synthetic outcomes driven
+  through the real code path.
+
+---
+
+## e-022-probe-does-not-decode-the-whole-file
+
+Claim: probing a real full-length VOD is a header read, not a full decode.
+
+- Date: 2026-08-07
+- Found by: the offline demo run (see [E-014](#e-014-youtube-bot-block-and-offline-cache))
+  dying before it cut a single clip:
+  ```
+  subprocess.TimeoutExpired: Command '[... ffmpeg ..., '-i',
+    'D:\tmp\afterplay-demo-media\BW_MAa5L9lg.webm', '-f', 'null', '-']'
+    timed out after 180 seconds
+  ```
+- Cause: `core.probe()` read header metadata (`Duration`, `Stream`, fps) by running
+  `ffmpeg -i <file> -f null -`, which decodes the entire file. Invisible on a 30s test
+  clip; fatal on a 41-minute 720p60 VP9 source.
+- Fix: `ffmpeg -i <file>` with no output prints the same header and exits without decoding
+  a frame. The decode remains as a bounded fallback for containers with no header duration.
+- Measured after the fix, same 260 MB / 41-minute source:
+  ```
+  probe took 4.44s
+  duration=2459.93  1280x720  fps=60.0  audio=True
+  ```
+- Regression test: `TestProbe::test_probe_does_not_decode_the_whole_file` spies on
+  `run_ffmpeg` and asserts the first probe command contains no `null` muxer.
+
+---
+
+## e-023-demo-without-youtube
+
+Claim: the demo can be recorded without YouTube being cooperative. **This removes the
+pre-demo warm-up dependency.**
+
+- Date: 2026-08-07
+- Previously: the recording depended on `afterplay predemo <ids>` reporting **ready** in a
+  window where YouTube's anti-bot throttle had lifted — see
+  [E-014](#e-014-youtube-bot-block-and-offline-cache). If it had not, there was no demo.
+- Method: media file and captions on disk, `--local` + `--vtt`, no URL anywhere in the
+  command:
+  ```
+  python -m afterplay.cli --json run --memory --creator probe_ksi \
+    --local D:\tmp\afterplay-demo-media\BW_MAa5L9lg.webm \
+    --vtt .demo-cache\BW_MAa5L9lg\source.en.vtt --clips 5 --platforms shorts \
+    --job-id offline_demo
+  ```
+- Result — **5/5 clips ok**, and the callback survived to the output:
+  ```
+  memory : {'enabled': True, 'degraded': False, 'reason': None,
+            'threads_considered': 7, 'callback_found': True, 'callbacks_ranked_out': 0}
+
+  clip04_shorts  ok=True  start=1632.9  dur=24.8  callback=True
+     thread : Clear Vic's name by framing Ethan          confidence 0.88
+     cites  : nxGlZX9GH5I @ 2488.1
+     quote  : "okay I might shap shift into Ethan and then kill Harry
+               I need to I need to clear my name"
+  ```
+- Every host contacted during the run, from the process's own HTTP logs:
+  ```
+  11 https://api.openai.com
+  ```
+  **Zero YouTube requests. Zero yt-dlp invocations.**
+- **This is not "fully offline" and must not be described that way.** The memory pass
+  still calls OpenAI for embeddings and callback judging — that is live mode working as
+  designed. What changed is that the demo no longer depends on the one service that was
+  actively rate-limiting it.
+- Wall-clock for this run is not a performance number: the machine was left idle
+  mid-render. Per-clip render times from the same log are the honest figures — e.g.
+  `rendered clip05_shorts.mp4 1080x1920 23.1s in 18.15s (h264_qsv)`.
+- Two prerequisites had to be fixed before this worked at all:
+  [E-022](#e-022-probe-does-not-decode-the-whole-file) (probe timed out on the 41-minute
+  source) and the repo-anchored config paths below.
+
+### Config paths were resolved against the wrong directory
+
+`.env` ships `AFTERPLAY_WORKDIR=services/video-clipper/.work` — relative to the **repo
+root**, the only place it means anything. It was resolved against the current directory,
+so running from `services/video-clipper` — exactly what `README` and `CALLBACK.md` tell
+you to do — wrote to `services/video-clipper/services/video-clipper/.work`. The job
+reported success, and Studio kept serving the previous run.
+
+`AFTERPLAY_MEMORY` had the same defect, which is worse: a `backfill` and the `run
+--memory` that should consume it could reach **different stores** depending on the shell's
+directory.
+
+Both now resolve relative values against the repo root. Absolute values are untouched.
+Covered by `TestConfiguredDirs`; the first test fails against cwd-relative resolution
+(verified by reverting: `1 failed, 2 passed`).
+
+**Cost of this bug, recorded honestly:** cleaning up the stray nested directory deleted
+the `probe_ksi` channel memory. It was rebuilt by re-running `backfill` against the cached
+transcript — `threads_added: 14`, ~3 minutes, no YouTube — which is itself evidence that
+the cached-transcript path makes the memory reproducible.
+
+---
+
+## e-024-callback-found-reflects-shipped-clips
+
+Claim: the manifest reports the callback state of the clips it actually returned.
+
+- Date: 2026-08-07
+- Found by: a real run of the command in [E-023](#e-023-demo-without-youtube) at
+  `--clips 3`, whose manifest was self-contradictory:
+  ```
+  memory : {'threads_considered': 7, 'callback_found': True}
+  message: None
+  clip01_shorts  start=539.8   callback=None
+  clip02_shorts  start=1410.9  callback=None
+  clip03_shorts  start=1028.7  callback=None
+  ```
+  `callback_found: true`, no clip carrying a callback, and **no message** — because the
+  honest no-callback message is suppressed when the flag is set. Studio would have shown a
+  callback claim with nothing to cite.
+- Cause: `MemoryReasoner.rank` set `self.callback_found = True` while scoring candidate
+  windows, before the top-n selection. A callback in a window that lost the cut still
+  flipped the flag.
+- Fix: the flag is computed from the moments actually picked. The discarded information is
+  not thrown away — `callbacks_ranked_out` reports how many callbacks scored below the
+  clips returned, and the message says so:
+  ```
+  memory : {'callback_found': False, 'callbacks_ranked_out': 2}
+  message: No memory-dependent callback made this cut. 2 callback moment(s) scored below
+           the clips returned - ask for more clips to include them. Showing
+           highest-quality standalone clips.
+  ```
+- **The advice was then tested rather than assumed.** Same source, same memory, `--clips 5`:
+  `callback_found: True`, `callbacks_ranked_out: 0`, and `clip04_shorts` carries the
+  citation (see [E-023](#e-023-demo-without-youtube)).
+- Regression test: `TestCallbackFoundReflectsShippedClips`. It constructs a case where the
+  callback genuinely loses the cut — loud standalone windows, a flat callback window,
+  `boost=0.0`, `n=1` — and fails against the old behaviour (verified by reverting:
+  `1 failed, 1 passed`).
+- **Ranking on real data is not deterministic.** A prior run of the same source put the
+  callback at rank 1 ([E-015](#e-015-hero-callback-rendered), 2409.0s, confidence 0.93);
+  this one placed a different window of the same thread at rank 4, confidence 0.88, from a
+  freshly extracted 14-thread memory. Both cite the same setup line at
+  `nxGlZX9GH5I @ 2488.1`. Nothing was tuned to make either happen.

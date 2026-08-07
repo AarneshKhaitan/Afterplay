@@ -693,3 +693,189 @@ class TestResultsCli:
         assert rc == 0
         metrics = _json.loads((tmp_path / "mem" / "c_res" / "metrics.json").read_text())
         assert len(metrics) == 4
+
+    def test_csv_export_reaches_priors(self, tmp_path, monkeypatch):
+        """A creator's real analytics arrive as a CSV export, not hand-written JSON.
+
+        `Analytics.ingest_csv` existed but no command reached it, so real published
+        performance had no route into the ranking priors. This drives the whole join:
+        CSV rows -> metrics -> attribute() against recorded posts -> priors.
+        """
+        import argparse, json as _json
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        from afterplay.insights import Analytics
+
+        # posts first: metrics with no matching post cannot be attributed
+        a = Analytics("c_csv")
+        for i, mtype in enumerate(("punchline", "punchline", "story", "story"), 1):
+            a.record_post({"clip_id": f"clip0{i}_shorts", "duration": 22.0, "start": 900.0,
+                           "source_duration": 2400.0, "signals": {"moment_type": mtype}},
+                          platform="shorts", post_id=f"yt_{i}")
+
+        csv_path = tmp_path / "yt_studio_export.csv"
+        csv_path.write_text(
+            "post_id,views,likes,comments,shares,saves,avg_watch_pct\n"
+            "yt_1,4210,120,18,9,4,62\n"
+            "yt_2,3980,110,15,7,3,59\n"
+            "yt_3,880,20,3,1,0,31\n"
+            "yt_4,910,22,4,1,0,29\n", encoding="utf-8")
+
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_csv", input=str(csv_path), min_samples=3, json=True))
+        assert rc == 0
+
+        metrics = _json.loads((tmp_path / "mem" / "c_csv" / "metrics.json").read_text())
+        assert len(metrics) == 4, "every CSV row should land as a metric"
+
+        priors = _json.loads((tmp_path / "mem" / "c_csv" / "priors.json").read_text())
+        assert priors["ready"] is True and priors["n"] == 4
+        by_type = priors["by"]["moment_type"]
+        assert by_type["punchline"]["lift"] > by_type["story"]["lift"], (
+            "the CSV said punchlines outperformed; the priors must say so too")
+
+    def test_csv_rows_without_matching_posts_are_reported_unattributed(self, tmp_path, monkeypatch, capsys):
+        """Unattributed rows must be visible, not silently absent from the priors."""
+        import argparse, json as _json
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        csv_path = tmp_path / "orphans.csv"
+        csv_path.write_text("post_id,views,avg_watch_pct\nunknown_1,500,40\n"
+                            "unknown_2,600,44\nunknown_3,700,48\n", encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_orphan", input=str(csv_path), min_samples=3, json=True))
+        assert rc == 0
+        out = _json.loads(capsys.readouterr().out)
+        assert out["records"] == 3 and out["attributed"] == 0
+        assert out["compute_priors"]["ready"] is False
+
+    def test_unreadable_csv_fails_loudly(self, tmp_path, monkeypatch):
+        import argparse
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        bad = tmp_path / "bad.csv"
+        bad.write_text("post_id,views\nyt_1,not_a_number\n", encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_bad", input=str(bad), min_samples=3, json=True))
+        assert rc == 2, "a malformed export must not look like a successful ingest"
+
+    def test_failed_csv_ingest_records_nothing(self, tmp_path, monkeypatch):
+        """A rejected import must not leave a partial prefix behind.
+
+        record_metric persists per call, so a bad row halfway down once left the earlier
+        rows written while the CLI reported failure — and the retry double-recorded them.
+        """
+        import argparse
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        bad = tmp_path / "half_bad.csv"
+        bad.write_text("post_id,views,avg_watch_pct\nyt_1,100,40\nyt_2,200,45\n"
+                       "yt_3,GARBAGE,50\n", encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_partial", input=str(bad), min_samples=3, json=True))
+        assert rc == 2
+        assert not (tmp_path / "mem" / "c_partial" / "metrics.json").exists(), \
+            "the two good rows before the bad one must not have been persisted"
+
+
+class TestConfiguredDirs:
+    """Config paths must not depend on which directory the command was run from."""
+
+    def test_relative_workdir_is_repo_anchored_not_cwd_anchored(self, tmp_path, monkeypatch):
+        """REGRESSION: `.env` ships AFTERPLAY_WORKDIR=services/video-clipper/.work.
+
+        Resolved against the cwd, running from the service directory — which is exactly
+        what the README says to do — produced
+        `services/video-clipper/services/video-clipper/.work`. The job succeeded, wrote a
+        manifest nobody reads, and Studio kept serving the previous run.
+        """
+        from afterplay.core import REPO_ROOT, Settings
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", "services/video-clipper/.work")
+        monkeypatch.setenv("AFTERPLAY_OUTDIR", "services/video-clipper/.out")
+        monkeypatch.chdir(REPO_ROOT / "services" / "video-clipper")
+        s = Settings()
+        assert s.workdir == REPO_ROOT / "services" / "video-clipper" / ".work"
+        assert s.outdir == REPO_ROOT / "services" / "video-clipper" / ".out"
+
+    def test_absolute_paths_are_left_alone(self, tmp_path, monkeypatch):
+        from afterplay.core import Settings
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+        monkeypatch.setenv("AFTERPLAY_OUTDIR", str(tmp_path / "o"))
+        s = Settings()
+        assert s.workdir == tmp_path / "w" and s.outdir == tmp_path / "o"
+
+    def test_memory_root_follows_the_same_rule(self, tmp_path, monkeypatch):
+        """A backfill and the run that consumes it must reach the same store."""
+        from afterplay.core import REPO_ROOT
+        from afterplay.memory import memory_root
+        monkeypatch.setenv("AFTERPLAY_MEMORY", "services/video-clipper/.memory")
+        monkeypatch.chdir(REPO_ROOT / "services" / "video-clipper")
+        from_service_dir = memory_root()
+        monkeypatch.chdir(REPO_ROOT)
+        assert memory_root() == from_service_dir
+
+
+class TestCallbackFoundReflectsShippedClips:
+    """REGRESSION: `callback_found` described candidates, not output.
+
+    A callback detected in a window that lost the top-n cut still set the flag, so the
+    manifest claimed a callback, the honest no-callback message was suppressed, and the
+    UI had no citation to render — the silent state the status contract exists to stop.
+    """
+
+    @staticmethod
+    def _reasoner(boost: float):
+        class Memory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {i: [{"id": "thread_1", "label": "the thread",
+                             "first_seen": {"stream_id": "prior", "t": 1.0,
+                                            "quote": "the setup"}}]
+                        for i in range(len(texts))}
+
+        def judge(text, retrieved):
+            hit = "callback line" in text
+            return {"is_callback": hit, "thread_id": "thread_1" if hit else None,
+                    "confidence": 0.6 if hit else 0.0, "why": "pays off the thread"}
+
+        return MemoryReasoner(Memory(), judge=judge, judge_top_k=50, boost=boost)
+
+    @staticmethod
+    def _sents():
+        """Loud standalone windows first, a flat callback window last.
+
+        The callback is real but scores below the excitable windows, so with n=1 it is
+        found during scoring and then dropped by the cut — exactly the case the old flag
+        misreported.
+        """
+        return [Sentence(i * 10.0, i * 10.0 + 10.0,
+                         "callback line here" if i >= 10
+                         else f"wow what?! did you see that?! how?! amazing!! {i}")
+                for i in range(12)]
+
+    def test_callback_ranked_out_is_not_reported_as_found(self):
+        from afterplay.agent import Orchestrator
+        reasoner = self._reasoner(boost=0.0)
+        picked = reasoner.rank(self._sents(), target=10.0, n=1, min_gap=0.0, tol=1.0)
+
+        assert not any(m.signals.get("callback") for m in picked),             "fixture precondition: the callback must lose the cut here"
+        assert reasoner.callback_found is False,             "the flag must describe the clips returned, not every window scored"
+        assert reasoner.callbacks_ranked_out > 0,             "the discarded callback must stay visible, not vanish"
+
+        memory = Orchestrator._memory_manifest(reasoner)
+        assert memory["callback_found"] is False
+        assert memory["callbacks_ranked_out"] == reasoner.callbacks_ranked_out
+        message = Orchestrator._job_message(memory)
+        assert message and "scored below" in message,             "a callback that ranked out must be reported, not silently dropped"
+
+    def test_callback_that_ships_is_reported_and_has_a_citation(self):
+        from afterplay.agent import Orchestrator
+        reasoner = self._reasoner(boost=3.0)
+        picked = reasoner.rank(self._sents(), target=10.0, n=6, min_gap=0.0, tol=1.0)
+        assert any(m.signals.get("callback") for m in picked)
+        memory = Orchestrator._memory_manifest(reasoner)
+        assert memory["callback_found"] is True
+        assert Orchestrator._job_message(memory) is None
+        # Every claimed callback must carry the evidence trail.
+        for m in picked:
+            if m.signals.get("callback"):
+                assert m.signals["source_stream"] and m.signals["source_quote"]

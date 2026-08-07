@@ -62,6 +62,27 @@ class TestProbe:
         with pytest.raises(Exception):
             probe(bad)
 
+    def test_probe_does_not_decode_the_whole_file(self, source, monkeypatch):
+        """REGRESSION: probe() read header metadata via a full `-f null -` decode.
+
+        Harmless on a 30s test clip, fatal on a real source: a 41-minute VP9 VOD blew
+        the 180s timeout and the run died before cutting anything. Header lines are
+        printed on open, so no decode is needed.
+        """
+        from afterplay import core
+        calls: list[list[str]] = []
+        real = core.run_ffmpeg
+
+        def spy(args, *a, **kw):
+            calls.append([str(x) for x in args])
+            return real(args, *a, **kw)
+
+        monkeypatch.setattr(core, "run_ffmpeg", spy)
+        mi = core.probe(source)
+        assert mi.duration == pytest.approx(24, abs=1.0) and mi.has_audio is True
+        assert calls and "null" not in calls[0], (
+            "a file whose header carries a duration must not be decoded to probe it")
+
 
 class TestExtract:
     def test_extract_window_and_keep_audio(self, source, tmp_path):

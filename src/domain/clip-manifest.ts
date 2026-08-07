@@ -32,7 +32,11 @@ export type ClipperMemoryState = {
   degraded?: boolean;
   reason?: string | null;
   threads_considered?: number;
+  /** True only when a clip that was actually returned carries the callback. */
   callback_found?: boolean;
+  /** Callbacks detected in windows that scored below the clips returned. Non-zero here
+   * with `callback_found: false` is a valid state, distinct from "no callback exists". */
+  callbacks_ranked_out?: number;
 };
 
 export type ClipperJobStatus = {

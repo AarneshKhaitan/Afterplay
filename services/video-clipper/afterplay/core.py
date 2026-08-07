@@ -89,12 +89,31 @@ class Brand:
     watermark_margin: float = 0.04
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _configured_dir(var: str, fallback: Path) -> Path:
+    """Resolve a directory from the environment, anchored to the repo.
+
+    `.env` ships `AFTERPLAY_WORKDIR=services/video-clipper/.work` — relative to the repo
+    root, which is the only place it means anything. Left cwd-relative it silently became
+    `services/video-clipper/services/video-clipper/.work` when run from the service
+    directory, which is exactly what the README tells you to do: the job succeeded, wrote
+    a manifest nobody reads, and Studio showed the previous run.
+    """
+    raw = os.environ.get(var)
+    if not raw:
+        return fallback
+    p = Path(raw)
+    return p if p.is_absolute() else (REPO_ROOT / p)
+
+
 @dataclass
 class Settings:
-    workdir: Path = field(default_factory=lambda: Path(os.environ.get(
-        "AFTERPLAY_WORKDIR", Path.home() / ".afterplay" / "work")))
-    outdir: Path = field(default_factory=lambda: Path(os.environ.get(
-        "AFTERPLAY_OUTDIR", Path.home() / ".afterplay" / "out")))
+    workdir: Path = field(default_factory=lambda: _configured_dir(
+        "AFTERPLAY_WORKDIR", Path.home() / ".afterplay" / "work"))
+    outdir: Path = field(default_factory=lambda: _configured_dir(
+        "AFTERPLAY_OUTDIR", Path.home() / ".afterplay" / "out"))
     encoder: str | None = None          # None -> auto-detect
     crf: int = 20
     audio_bitrate: str = "128k"
@@ -280,9 +299,19 @@ def probe(path) -> MediaInfo:
     """
     path = str(path)
     info = MediaInfo(path=path)
-    p = run_ffmpeg(["-i", path, "-f", "null", "-"], check=False, timeout=180,
-                   loglevel="info")          # stream lines require info level
+
+    # `-i` with no output: ffmpeg prints the header (Duration, Stream lines, fps) and
+    # exits 1 without decoding a single frame. The previous `-f null -` decoded the whole
+    # file to read metadata it already had — invisible on a 30s clip, but a 41-minute VP9
+    # source blew the 180s timeout and the run died before any clip was cut.
+    p = run_ffmpeg(["-i", path], check=False, timeout=60, loglevel="info")
     err = (p.stderr or "") + (p.stdout or "")
+    if not _DUR.search(err):
+        # Containers that carry no header duration (raw/streamed input) still need the
+        # decode. Bounded, and only reached when the cheap path came up empty.
+        p = run_ffmpeg(["-i", path, "-f", "null", "-"], check=False, timeout=180,
+                       loglevel="info")
+        err = (p.stderr or "") + (p.stdout or "")
     if m := _DUR.search(err):
         info.duration = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     if m := _STREAM_V.search(err):

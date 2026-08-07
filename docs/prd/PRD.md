@@ -68,14 +68,25 @@ Timings are hardware-dependent; the evidence log states the machine.
 ### The honest framing
 
 **A real engine with a fixture-driven shell.** The clipper and callback memory genuinely
-run; the strategy loop does not. They are joined one-directionally — the clipper writes a
-manifest, Studio reads it. Nothing flows back.
+run; the strategy loop does not.
+
+The two halves are now joined **in both directions**: the clipper writes a manifest, Studio
+reads it and carries those clips through approval and dispatch, and recorded results are
+written back into the Python memory dir where they re-rank the next run
+([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run),
+[E-020](./EVIDENCE.md#e-020-pipeline-clips-in-the-approval-loop)). What is still missing at
+the end of that loop is **publication**: nothing reaches a platform, so the outcomes fed
+back are synthetic by necessity. Real analytics can enter through
+`results --input <csv>` ([E-021](./EVIDENCE.md#e-021-real-analytics-csv-into-the-ranking-priors)),
+but there is nothing real to enter until G12 exists.
 
 When history matters, Afterplay is uniquely strong because the memory pass can add callback context and confidence evidence as a ranking boost.
 When history is absent or unresolved, it is still a strong clipper. Callbacks are therefore
 **not a precondition** for output. A stream with no history-dependent callback match must still
 surface clearly: **No memory-dependent callback found in this run. Showing highest-quality
-standalone clips.** not a silent empty state.
+standalone clips.** not a silent empty state — and a callback that was found but scored
+below the clips returned is reported as its own state rather than claimed as a success
+([E-024](./EVIDENCE.md#e-024-callback-found-reflects-shipped-clips)).
 
 ---
 
@@ -114,7 +125,7 @@ demo. `P1` = required for the product claim. `P2` = production maturity.
 
 | # | Gap | Detail |
 |---|---|---|
-| **G7** | Loop partially closed | Clip-level results and the ranking feedback bridge are live and demonstrated — recorded outcomes measurably re-rank a later run — and the Analyst cites a real `clip_id` ([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run)). **The manifest → approval-package projection was reverted**: it replaced the curated three-card Studio package with a single raw card and duplicated the manifest section. Closing this properly means an additional Studio section for pipeline clips, not overwriting `experiment.outputs`. |
+| ~~G7~~ | **CLOSED** — the loop is closed in both directions | Recorded outcomes measurably re-rank a later run and the Analyst cites a real `clip_id` ([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run)); real clipper clips now ride the approval loop as an **additive** `pipelineOutputs` set — the curated three-card package is never overwritten — and are approved and dispatched with it ([E-020](./EVIDENCE.md#e-020-pipeline-clips-in-the-approval-loop)). Real published analytics reach the priors through `results --input <csv>` ([E-021](./EVIDENCE.md#e-021-real-analytics-csv-into-the-ranking-priors)); actual publishing is still G12. |
 | **G8** | No creator upload | No file input, no multipart handler, no ingest route in `src/`. Media enters only via CLI on the operator's machine. |
 | **G9** | No channel connect | **No channel enumeration anywhere** — no playlist, no `/@handle`, no flat-playlist. `backfill` takes one video and a manually assigned `--stream-id`. "Point it at my channel" does not exist. |
 | **G10** | No OAuth | `src/app/integrations/page.tsx` states "OAuth is not configured". No YouTube Analytics, no real performance data. |
