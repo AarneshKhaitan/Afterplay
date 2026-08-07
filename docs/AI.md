@@ -18,10 +18,13 @@ Code owns identity, permissions, revisions, approval, action dispatch, receipts,
 
 ## Runtime modes
 
-| Mode | Director | Purpose |
-| --- | --- | --- |
-| `demo` | deterministic fixture director | Reliable offline judge flow and automated tests. |
-| `live` | OpenAI Responses API | Optional real semantic planning and result analysis. |
+| Mode | What runs | What it needs | What is guaranteed |
+| --- | --- | --- | --- |
+| `demo` | deterministic fixture director | none | Deterministic output; no external runtime calls |
+| `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true`, `OPENAI_API_KEY` | Real strategy output or visible failure; never synthetic fallback |
+| `clipper` | real callback-aware clipper service | `OPENAI_API_KEY`, `AFTERPLAY_CLIPPER_MODEL`, Python deps | Per-input computed clips and evidence trail |
+
+Callback output is a ranking boost, not a gate: when no callback is found, strongest standalone clips are still valid output. A healthy no-callback outcome is distinct from `memory.degraded: true`, which must remain a visible failure state with a reason.
 
 The active mode, provider, model, and sample-data status appear in the service response and interface. Live failure remains failure. The application never replaces it with undisclosed fixture output.
 

@@ -22,11 +22,24 @@ This repository is a working end-to-end prototype for the Garena AI Build Challe
 
 ## Quick start
 
-Requirements: Node.js `>=20.9.0` and npm.
+Requirements: Node.js `>=20.9.0`, npm, Python `>=3.10`, and `ffmpeg` in PATH.
+
+For real clipper runs, install Deno so yt-dlp can avoid extraction warnings:
+
+```bash
+deno --version
+```
 
 ```bash
 npm install
 npm run dev
+```
+
+```powershell
+cd services\video-clipper
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m afterplay.cli doctor
 ```
 
 Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
@@ -35,6 +48,34 @@ For callback clip review, run the Python clipper from `services/video-clipper` f
 then refresh Studio. The web app intentionally reads the latest local manifest; it does
 not launch long-running media jobs from the browser.
 
+### Preferred live callback path
+
+```powershell
+cd services\video-clipper
+$env:PYTHONPATH='.'
+$env:AFTERPLAY_MEMORY="$PWD\.memory"
+$env:OPENAI_API_KEY="<set outside git>"
+
+# Seed memory from a source stream
+python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
+
+# Generate callback-aware clips from a current stream
+python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
+```
+
+If memory is healthy but no callback is found, this is a valid outcome:
+`No memory-dependent callback found in this run. Showing highest-quality standalone clips.`
+
+If memory fails (`memory_degraded: true`), the result must show an explicit failure reason and must not appear as this valid no-callback fallback message.
+
+### Fixture path (offline)
+
+The repository still includes the deterministic fixture loop for interviews and test stability when external keys/services are unavailable.
+
+- No credentials are required for fixture mode.
+- `AFTERPLAY_OPENAI_MODEL` drives the live strategy director.
+- `AFTERPLAY_CLIPPER_MODEL` drives clip extraction/selection in the Python service.
+
 For a production-shaped local run:
 
 ```bash
@@ -42,16 +83,26 @@ npm run build
 npm run start
 ```
 
+## Modes and guarantees
+
+| Mode | What runs | What it needs | What is guaranteed |
+|---|---|---|---|
+| `demo` | deterministic fixture director; simulated distribution | none | repeatable, offline, no external calls |
+| `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true` + `OPENAI_API_KEY` | real strategy output or visible error — never fixture output |
+| `clipper` | real ingestion, memory, callback scoring, render | `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL` | genuine per-input computed clips |
+
+State plainly that demo-mode strategy is a fixture while clipper output is real.
+
 ## Judge path
 
-1. Start on **Growth HQ** and read “New viewers watch, but few come back.”
-2. Open **One More Rule** and inspect evidence, confidence, alternatives, uncertainty, falsifier, plan, and success signal.
-3. Select **Review 3 outputs** to enter Studio.
-4. Review the premise cut, community cut, return prompt, rationale, and media provenance.
+1. From `services/video-clipper`, run `backfill` on a prior creator-owned stream.
+2. Run `afterplay.cli --json run --memory --creator <id>` on the current stream.
+3. Open **Studio** and review the latest service manifest, callback citation, or explicit no-callback/degraded state.
+4. Review the projected approval package. When a complete manifest exists, these outputs are pipeline-produced; otherwise the deterministic fixture package is shown.
 5. Select **Approve current revision**. The UI confirms that nothing has been posted.
 6. Select **Run simulated distribution**. Three receipts appear, each labelled `SIMULATED`.
 7. Open **View sample results**, then select **Load labelled sample results**.
-8. Read the Analyst's evidence, limitations, and proposed **Name the Builder** experiment.
+8. Read the Analyst's evidence, limitations, per-clip result note when present, and proposed **Name the Builder** experiment.
 9. Return to Afterplay home. HQ now shows **Experiment 04 learned** and carries the next experiment forward.
 
 To replay, open **Integrations → Reset demo workspace**.
@@ -126,6 +177,8 @@ The prototype uses seeded in-process state. It is ideal for a deterministic sing
 
 ## Documentation map
 
+- [Product requirements](docs/prd/PRD.md) — verified current state, full gap register, requirements
+- [Implementation phases](docs/prd/IMPLEMENTATION-PHASES.md) — what gets built when, with acceptance criteria
 - [Product contract](docs/product/PRODUCT.md)
 - [Demo workspace](docs/product/DEMO_WORKSPACE.md)
 - [Design system](docs/design/DESIGN.md)

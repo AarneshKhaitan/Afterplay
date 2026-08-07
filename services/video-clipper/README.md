@@ -5,14 +5,22 @@ clips. It decides what to clip from **text and audio alone**, fetches only the s
 it needs, re-encodes only those seconds, then **looks at the rendered frames** and
 repairs the clip if they measure wrong.
 
-Verified on real sources, end to end:
+Measured on real sources, end to end. **Timings are hardware-dependent** — these were
+captured on one Windows laptop (Intel QSV hardware encoder, `h264_qsv`) and are dominated
+by the reframe/encode stage, not by ingestion. Re-measure on your own machine before
+quoting them.
 
-| Source | Length | Signal used | Result |
-|---|---|---|---|
-| KSI+ quiz show (captions, no heatmap) | 14:23 | cold-start text signals | **5/5 clips, 65s**, all first-pass QC |
-| PUBG Mobile gameplay (**no captions at all**) | 17:37 | audio excitement + onsets | **3/3 clips, 130s**, all first-pass QC |
+| Source | Length | Signal used | Result | Wall clock |
+|---|---|---|---|---|
+| Free Fire gameplay (**no captions, no heatmap**) | 17:14 | audio excitement + onsets | 3/3 clips, all first-pass QC | 1907s |
+| Local 68s source with captions, memory enabled | 1:08 | transcript + callback memory | 1/1 clip, first-pass QC, callback cited | 89s |
 
-**93 tests** pass (unit + hermetic integration; no network, model weights or GPU required).
+The decision phase is genuinely cheap — resolve + understand was **43s of that 1907s** run;
+the remaining time is frame decoding and encoding. See [reframe performance](../../docs/prd/PRD.md)
+(gap G16) for the known bottleneck and the planned fix.
+
+**100 tests pass, 1 skipped** (unit + hermetic integration; no network, model weights or
+GPU required). Reproduce with `python -m pytest tests -q`.
 
 ---
 
@@ -39,8 +47,7 @@ latency argument. Stages 1–2 never touch a video byte.
 **Linux / macOS**
 
 ```bash
-git clone https://github.com/aryanjain285/video-clipper-service-.git
-cd video-clipper-service-
+cd services/video-clipper
 ./setup.sh --test          # venv, deps, doctor, full test suite
 source .venv/bin/activate
 ```
@@ -78,6 +85,44 @@ afterplay memory ksi      # what the agent learned about this creator
 ```
 
 Exit codes: `0` all clips ok · `3` partial · `4` none produced · `2` usage/fatal.
+
+## Channel memory and callbacks
+
+Channel memory is the callback layer: it stores running jokes, rivalries, recurring people,
+and unfinished stories from earlier streams, then lets a later run boost moments that pay
+those threads off. It is a scoring boost, not a gate. If no callback is found, the run still
+returns the best standalone clips and emits:
+
+```text
+No memory-dependent callback found in this run. Showing highest-quality standalone clips.
+```
+
+Seed memory from a captioned prior stream:
+
+```bash
+afterplay backfill --creator ksi --stream-id prior_001 --vtt prior.en.vtt
+```
+
+For a creator-owned local file without captions, `backfill` can use ASR and writes the
+generated transcript under the workdir for inspection:
+
+```bash
+afterplay backfill --creator ksi --stream-id prior_002 --local prior.mp4
+```
+
+That ASR path requires `faster-whisper` and local/downloadable Whisper weights. If weights
+are unavailable, `backfill` fails with an actionable error naming `AFTERPLAY_WHISPER_SIZE`
+or `AFTERPLAY_WHISPER_MODEL`; it does not silently behave like a no-callback stream.
+
+Run the current stream with memory enabled:
+
+```bash
+afterplay run --memory --creator ksi --local current.mp4 --vtt current.en.vtt --clips 3 --platforms shorts
+```
+
+The manifest includes `memory: { degraded, reason, threads_considered, callback_found }`.
+Studio treats `memory.degraded: true` as a visible failure state and treats no-callback with
+healthy memory as a normal fallback outcome.
 
 With `ANTHROPIC_API_KEY` set, `--llm` swaps in LLM moment ranking and **vision QC**
 (the model reviews sampled frames). Without it everything still runs — the heuristic
