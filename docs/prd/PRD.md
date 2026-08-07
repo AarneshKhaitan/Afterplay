@@ -1,6 +1,6 @@
 # Afterplay — Product Requirements
 
-Status: living document. Last verified against the codebase on 7 August 2026.
+Status: living document. Last verified against the codebase on 8 August 2026.
 
 Companion: [Implementation phases](./IMPLEMENTATION-PHASES.md) — what gets built when.
 
@@ -42,7 +42,7 @@ Everything below was **executed**, not inferred. Re-run anything you doubt.
 | Capability | Evidence |
 |---|---|
 | Single-video clipping on a real VOD | Real 1034s Free Fire VOD: resolved 5.4s, 14MB audio (not ~860MB video), audio-energy fallback (no captions/heatmap), 3 range-fetched windows, **3/3 clips 1080×1920, all first-pass QC** — [E-001](./EVIDENCE.md#e-001-single-video-live-run) |
-| Channel memory backfill | Live OpenAI: extracted the running joke with correct `t=17.0` and verbatim quote — [E-002](./EVIDENCE.md#e-002-callback-detection-live) |
+| Channel memory backfill | Live OpenAI: extracted the running joke with correct `t=17.0` and verbatim quote — [E-002](./EVIDENCE.md#e-002-callback-detection-live). Works with **no captions at all**: 15 min of gameplay audio → ASR → 5 named threads — [E-025](./EVIDENCE.md#e-025-asr-backfill-on-a-caption-less-source) |
 | Callback scoring | Live OpenAI, **conf 0.96**, citing `prior_001 @ 17.0`. The payoff window never repeats the key phrase — genuine semantic reasoning, not keyword matching; callback adds a ranking boost and is not a precondition — [E-002](./EVIDENCE.md#e-002-callback-detection-live), [E-006](./EVIDENCE.md#e-006-callback-is-additive-not-a-gate) |
 | Negative control | Unrelated stream → **0 false positives** — [E-003](./EVIDENCE.md#e-003-negative-control-and-adversarial) |
 | Adversarial robustness | Hallucinated `thread_id` rejected against retrieved set; confidence 0.10 gated below 0.55; judge exception degrades to heuristic; cold-start memory makes **0** judge calls — [E-003](./EVIDENCE.md#e-003-negative-control-and-adversarial) |
@@ -51,7 +51,7 @@ Everything below was **executed**, not inferred. Re-run anything you doubt.
 | Honest Analyst | Three payloads → inconclusive (42) / contradicted (32) / cautious second test (64), each citing submitted numbers — [E-007](./EVIDENCE.md#e-007-honest-analyst) |
 | Authority model | dispatch-before-approval 409, stale revision 409, reject-without-feedback 400, results-without-disclosure literal 400, live-AI-without-key 503 (no silent fallback), double dispatch → still 3 receipts — [E-008](./EVIDENCE.md#e-008-authority-model) |
 | Clip playback | Byte-range serving (206 / 416, byte-identical slices); real mouse click plays through to `0:24 / 0:24` — [E-009](./EVIDENCE.md#e-009-clip-media-and-playback) |
-| Test suites | Python **100 passed, 1 skipped**; Playwright production **22 passed**; build/typecheck/lint clean — [E-005](./EVIDENCE.md#e-005-test-suites) |
+| Test suites | Python **116 passed, 1 skipped**; Playwright production **26 passed**; build/typecheck/lint clean — [E-005](./EVIDENCE.md#e-005-test-suites) |
 
 Evidence links resolve to dated command/output snapshots in [EVIDENCE.md](./EVIDENCE.md).
 Each entry records the command that **produced** the result, not a grep of this document.
@@ -142,11 +142,11 @@ demo. `P1` = required for the product claim. `P2` = production maturity.
 | **G16** | Reframe is slow | `track_subject_best` measured **142s for one 41.7s 1080p60 clip** with zero contention. `vision.py` and `produce.py` each decode every frame and discard all but every Nth — two full decodes. Fix: downscale before energy scoring, share one decode. |
 | **G17** | Systematic duration drift | Planned 30.0s, rendered 26.4–27.0s on every clip; flagged only as `warn` |
 | **G18** | yt-dlp deprecation warning | "No supported JavaScript runtime… some formats may be missing." Install `deno` on any machine that ingests. |
-| **G19** | Silent-failure surface | Implemented: `memory.degraded`, `memory.reason`, and explicit no-callback `message` are surfaced separately in Studio. Remaining proof is a revoked-key run showing the degraded path — [E-012](./EVIDENCE.md#e-012-callback-status-contract), [E-013](./EVIDENCE.md#e-013-app-feedback-loop-typecheck). |
-| **G20** | Failed run leaves stale manifest | Implemented: jobs write `status.json`; the app prefers complete manifests and warns when a newer job is incomplete/failed. Remaining proof is killing a render mid-run and observing the stale banner — [E-012](./EVIDENCE.md#e-012-callback-status-contract), [E-013](./EVIDENCE.md#e-013-app-feedback-loop-typecheck). |
+| ~~G19~~ | **CLOSED** — silent failures fail loudly | Verified by fault injection, not by inspection: a revoked key produces `degraded: true` with the 401 text, rendered in Studio as an assertive `role="alert"` warning and never as "no callback found" — [E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale). A callback that ranked out is also its own reported state — [E-024](./EVIDENCE.md#e-024-callback-found-reflects-shipped-clips). |
+| ~~G20~~ | **CLOSED** — a dead run cannot masquerade as current | A render killed mid-run leaves `status: started` and no manifest; the app serves the last complete run and says so. Fault-injected, and it exposed a real defect: stale and degraded were chained, so one hid the other — [E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale). |
 | **G21** | Not durable | Seeded in-process state; not multi-instance or multi-tenant |
 | **G22** | Media route has no caching semantics | `no-store`, no ETag/Last-Modified |
-| **G23** | Gameplay captions need real ASR proof | Code now tries ASR before audio-energy and backfill can generate `asr.vtt`; still validation-gated by G6/A5 until proven on real caption-less gameplay. |
+| ~~G23~~ | **CLOSED** — ASR proven on real caption-less gameplay | 15 minutes of KSI gameplay audio with captions withheld: 2427 words at lang confidence 0.97, yielding **5 concrete named threads**, not generic ones. The missing-dependency path names the fix rather than falling through to "requires captions" — [E-025](./EVIDENCE.md#e-025-asr-backfill-on-a-caption-less-source). |
 
 ### Corrections to prior assessments
 

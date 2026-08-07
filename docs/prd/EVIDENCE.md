@@ -712,3 +712,114 @@ Claim: the manifest reports the callback state of the clips it actually returned
   this one placed a different window of the same thread at rank 4, confidence 0.88, from a
   freshly extracted 14-thread memory. Both cite the same setup line at
   `nxGlZX9GH5I @ 2488.1`. Nothing was tuned to make either happen.
+
+---
+
+## e-025-asr-backfill-on-a-caption-less-source
+
+Claim: channel memory works on a source with no captions. **This is A1's success path and
+closes G23.**
+
+- Date: 2026-08-08
+- Previously unproven: `faster-whisper` was not installed on this machine, so only the
+  failure path had been exercised. Both are now verified.
+- **Failure path first** — the error must name the fix, not fall through to the generic
+  "requires captions", which is the silent-failure pattern G19 warns about:
+  ```
+  $ python -m afterplay.cli backfill --creator scratch --stream-id s1 --local <mp4>
+  backfill needs captions or ASR; faster-whisper could not transcribe this source:
+  faster-whisper is not installed (pip install faster-whisper). Install faster-whisper
+  and set AFTERPLAY_WHISPER_SIZE or AFTERPLAY_WHISPER_MODEL.
+  exit=2
+  ```
+- **Success path** — 15 minutes of real KSI gameplay audio, captions deliberately withheld
+  (`--local` only, no `--vtt`):
+  ```
+  ASR model 'tiny' ready in 2.4s (cpu/int8)
+  Processing audio with duration 15:00.011
+  VAD filter removed 00:38.192 of audio
+  Detected language 'en' with probability 0.97
+  ASR: 2427 words, 405 sentences, lang=en (0.97), 162 wpm in 113.7s
+  { "creator": "asr_probe", "stream_id": "asr_long", "threads_added": 5 }
+  ```
+- The threads are concrete and referenceable — the A5 decision rule for whether a creator
+  is demoable — not generic descriptions of play style:
+  ```
+  [recurring_bit]      Lawyer and client bit          t=3.2   "When I am your lawyer"
+  [unfinished_story]   Interrupted card-thing story   t=177.1 "So I was doing a card thing."
+  [recurring_bit]      Simon is Harry's lawyer        t=459.3 "Harry is my client."
+  [running_joke]       JJ always kills Deji           t=590.9 "And JJ wants to kill Deadgey every time."
+  [running_joke]       Harry just doesn't like a man  t=657.5 "Harry's reason is always, I just don't like a man."
+  ```
+- A 90-second sample of the same source returned `threads_added: 0`. That is correct, not a
+  failure — a 90-second window has no durable channel threads in it — and it is why the
+  proof needed a realistic span.
+- `whisper tiny` on CPU/int8 transcribed 15 minutes in 113.7s. Larger models are available
+  via `AFTERPLAY_WHISPER_SIZE`; `tiny` was enough for thread extraction to work.
+
+---
+
+## e-026-fault-injection-degraded-and-stale
+
+Claim: the two silent-failure modes fail loudly. **These were the last fault-injection
+gates on phases 1–2 (G19, G20).**
+
+- Date: 2026-08-08
+
+### Revoked API key (G19)
+
+A dead key must not produce a successful-looking run with zero callbacks, which is
+indistinguishable from a stream that genuinely has none.
+
+```
+$ OPENAI_API_KEY=sk-revoked-... python -m afterplay.cli --json run --memory ...
+memory : {'enabled': True, 'degraded': True,
+          'reason': "thread lookup failed (AuthenticationError: Error code: 401 -
+                     {'error': {'message': 'Incorrect API key provided: sk-revok****work',
+                     'code': 'invalid_api_key'}, 'status': 401})",
+          'threads_considered': 0, 'callback_found': False, 'callbacks_ranked_out': 0}
+```
+
+The clip still rendered (`ok: true`) — this is degradation, not failure. Studio's rendered
+HTML for that manifest:
+
+```
+alert tone : warning
+alert title: Creator memory degraded
+role       : alert          (assertive, not a passive status)
+reason     : the 401 is shown to the operator
+```
+
+### Killed render (G20)
+
+A run that dies before writing `manifest.json` must not leave the previous manifest served
+as if it were current.
+
+```
+(kill -9 mid-render)
+status.json     : {"state": "started", ...}
+manifest.json   : absent
+
+served job      : degraded_probe          <- the last COMPLETE run, not the dead one
+stale           : True
+staleReason     : A newer job is started; showing the latest complete manifest.
+banner          : Showing latest complete run
+```
+
+### A defect this fault injection exposed
+
+The two states were chained with `? :`, so a manifest that was **both** stale and degraded
+showed only the stale banner — the operator saw that a newer job had not finished, but not
+that the run in front of them had a broken memory pass. A panel whose entire purpose is to
+stop states being hidden was hiding one behind another.
+
+Both now render:
+
+```
+banner: Showing latest complete run
+banner: Creator memory degraded
+```
+
+Regression test `tests/e2e/manifest-states.spec.ts` seeds exactly this combination and
+fails against the chained version (verified by reverting: `1 failed, 1 passed`). It also
+asserts the degraded run is never presented as the valid no-callback outcome.

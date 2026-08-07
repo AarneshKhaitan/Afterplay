@@ -45,13 +45,24 @@ export default function StudioPage() {
   const realClips = manifest?.clips ?? [];
   const pipelineOutputs = experiment.pipelineOutputs ?? [];
   const memory = manifest?.memory;
-  const manifestAlert = manifest?.stale
-    ? { tone: "warning", title: "Showing latest complete run", body: manifest.staleReason ?? "A newer job has not completed yet." }
-    : memory?.degraded
-      ? { tone: "warning", title: "Creator memory degraded", body: memory.reason ?? "The memory pass failed; standalone clips are still shown." }
-      : manifest?.message
-        ? { tone: "neutral", title: "No callback found", body: manifest.message }
-        : null;
+  /** Every applicable state, not just the first one.
+   *
+   * These were chained with `? :`, so a run that was both stale AND degraded showed only
+   * the stale banner: the operator saw that a newer job had not finished, but not that
+   * the run they were looking at had a broken memory pass. A panel whose purpose is to
+   * stop states being hidden must not hide one behind another.
+   *
+   * `message` is skipped when degraded because it carries the degradation text already;
+   * the no-callback message is the only thing it adds on its own. */
+  const manifestAlerts: Array<{ tone: string; title: string; body: string }> = [];
+  if (manifest?.stale) {
+    manifestAlerts.push({ tone: "warning", title: "Showing latest complete run", body: manifest.staleReason ?? "A newer job has not completed yet." });
+  }
+  if (memory?.degraded) {
+    manifestAlerts.push({ tone: "warning", title: "Creator memory degraded", body: memory.reason ?? "The memory pass failed; standalone clips are still shown." });
+  } else if (manifest?.message) {
+    manifestAlerts.push({ tone: "neutral", title: "No callback found", body: manifest.message });
+  }
 
   return (
     <WorkspaceShell active="Studio" pageName="Studio">
@@ -67,11 +78,11 @@ export default function StudioPage() {
               </div>
               <strong>{plural(realClips.length, "clip", "clips")} · {manifest.encoder || "encoder unknown"}</strong>
             </div>
-            {manifestAlert ? (
-              <div className={`manifest-alert manifest-alert--${manifestAlert.tone}`} role={manifestAlert.tone === "warning" ? "alert" : "status"}>
-                <WarningCircle weight="fill" /><div><strong>{manifestAlert.title}</strong><span>{manifestAlert.body}</span></div>
+            {manifestAlerts.map((alert) => (
+              <div key={alert.title} className={`manifest-alert manifest-alert--${alert.tone}`} role={alert.tone === "warning" ? "alert" : "status"}>
+                <WarningCircle weight="fill" /><div><strong>{alert.title}</strong><span>{alert.body}</span></div>
               </div>
-            ) : null}
+            ))}
             <div className="output-grid output-grid--manifest">
               {realClips.slice(0, 3).map((clip, index) => {
                 const sourceTime = timestamp(clip.sourceT);

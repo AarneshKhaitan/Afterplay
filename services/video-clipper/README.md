@@ -296,10 +296,13 @@ Kept here because they are the reason the tests and skills look the way they do:
 Everything below is implemented and unit-tested against its degradation path, but could
 not be verified end-to-end from this machine:
 
-- **Whisper weights** could not be downloaded here (Hugging Face's CDN closed the
-  connection), so the ASR path is tested via its `ASRUnavailable` fallback and a
-  VTT round-trip, not a live transcription. Set `AFTERPLAY_WHISPER_SIZE` on a box with
-  network access and it will run.
+- ~~**Whisper weights** could not be downloaded here~~ — **resolved.** The weights now
+  download and the ASR path is verified end to end on real caption-less gameplay:
+  15 minutes of audio, 2427 words at language confidence 0.97, transcribed in 113.7s with
+  `tiny` on CPU/int8, producing 5 named channel-memory threads. See
+  [EVIDENCE E-025](../../docs/prd/EVIDENCE.md#e-025-asr-backfill-on-a-caption-less-source).
+  `faster-whisper` stays an optional dependency: without it `backfill` fails with an
+  actionable error naming the install command, never a silent no-callback run.
 - **The LLM policy** (`--llm`: ranking + vision QC + copy) needs `ANTHROPIC_API_KEY`.
   Tested with fake clients covering success, malformed JSON and API failure.
 - **Platform metric APIs.** `Analytics` ingests CSV/JSON exports today and takes
