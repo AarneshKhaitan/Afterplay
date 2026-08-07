@@ -555,3 +555,141 @@ class TestCopyWiring:
         assert c.copy, "no copy attached to a delivered clip"
         assert c.copy["title"] and c.copy["source"] == "heuristic"
         assert ">>" not in c.copy["title"] and "[laughter]" not in c.copy["title"]
+
+
+# ── phase 1: memory lifecycle (A1-A4) ─────────────────────────────────────────
+
+class TestBackfillASRFallback:
+    """A1: backfill must work on sources with no captions.
+
+    Without this, channel memory cannot be built for gameplay VODs at all, which is
+    exactly the content the product targets."""
+
+    def _args(self, tmp_path, **kw):
+        import argparse
+        base = dict(url=None, info_json=None, vtt=None, local=None,
+                    creator="c_asr", stream_id="s1")
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_local_source_without_captions_uses_asr(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+        from afterplay import cli
+        from afterplay.core import synth_source
+        from afterplay.understand import Word
+
+        src = synth_source(tmp_path / "nocap.mp4", seconds=12, size=(320, 180), tone=True)
+
+        from afterplay.understand import sentences
+        _words = [Word(i * 0.5, w) for i, w in enumerate(
+            "Ravi missed the shot again so he is now the cursed sniper.".split())]
+
+        class FakeTranscript:
+            model = "fake-whisper"
+            words = _words
+            sents = sentences(_words)
+
+        monkeypatch.setattr("afterplay.asr.transcribe", lambda *a, **k: FakeTranscript())
+        captured = {}
+        monkeypatch.setattr("afterplay.channel_memory.ChannelMemory.backfill",
+                            lambda self, sid, sents, **k: captured.setdefault("sents", sents) or [])
+
+        rc = cli.cmd_backfill(self._args(tmp_path, local=str(src)))
+        assert rc == 0, "backfill failed on a caption-less local source"
+        assert captured.get("sents"), "ASR transcript never reached thread extraction"
+
+    def test_missing_asr_reports_an_actionable_error(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+        from afterplay import cli
+        from afterplay.asr import ASRUnavailable
+        from afterplay.core import synth_source
+
+        src = synth_source(tmp_path / "nocap2.mp4", seconds=8, size=(320, 180), tone=True)
+
+        def boom(*a, **k):
+            raise ASRUnavailable("faster-whisper is not installed")
+
+        monkeypatch.setattr("afterplay.asr.transcribe", boom)
+        rc = cli.cmd_backfill(self._args(tmp_path, local=str(src)))
+        err = capsys.readouterr().err.lower()
+        assert rc != 0
+        # must name the real cause, not fall back to the generic "needs captions" message
+        assert "whisper" in err or "asr" in err, err
+
+
+class TestMemoryDegradationSignal:
+    """A2: a dead key must be distinguishable from a stream with no callback."""
+
+    def _sents(self):
+        from afterplay.understand import Sentence
+        return [Sentence(i * 4.0, i * 4.0 + 3.5, f"line number {i} about the squad")
+                for i in range(14)]
+
+    def test_judge_failure_marks_memory_degraded(self):
+        from afterplay.understand import MemoryReasoner
+
+        class Mem:
+            threads = [object()]
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                raise RuntimeError("401 unauthorized")
+
+        r = MemoryReasoner(Mem(), judge=lambda *a: {})
+        picked = r.rank(self._sents(), None, target=20.0, n=3)
+        assert picked, "degradation must still return heuristic moments"
+        assert r.memory_degraded is True
+        assert r.memory_degradation_reason
+
+    def test_clean_run_with_no_callback_is_not_degraded(self):
+        from afterplay.understand import MemoryReasoner
+
+        class Mem:
+            threads = []
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {}
+
+        r = MemoryReasoner(Mem(), judge=lambda *a: {"is_callback": False})
+        picked = r.rank(self._sents(), None, target=20.0, n=3)
+        assert picked
+        assert r.memory_degraded is False, "no-callback must not look like a failure"
+        assert r.callback_found is False
+
+
+class TestJobStatus:
+    """A3: a run that dies before writing a manifest must not look complete."""
+
+    def test_completed_run_writes_status_complete(self, tmp_path):
+        import json as _json
+        from afterplay import Orchestrator, Settings
+        from afterplay.core import synth_source
+        src = synth_source(tmp_path / "st.mp4", seconds=14, size=(320, 180), tone=True)
+        vtt = tmp_path / "st.vtt"
+        vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:12.000\n"
+                       "A complete thought that ends cleanly. Another one here.\n",
+                       encoding="utf-8")
+        s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=0)
+        Orchestrator(settings=s, workers=1).run(
+            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+            target=8.0, job_id="statusok")
+        status = _json.loads((tmp_path / "w" / "statusok" / "status.json").read_text())
+        assert status["state"] == "complete"
+        assert status.get("manifest")
+
+
+class TestResultsCli:
+    """A4: recorded outcomes must land where Analytics reads them."""
+
+    def test_results_command_records_metrics_and_computes_priors(self, tmp_path, monkeypatch):
+        import argparse, json as _json
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        payload = [{"post_id": f"p{i}", "views": 100 * i, "avg_watch_pct": 40 + i}
+                   for i in range(1, 5)]
+        f = tmp_path / "rows.json"
+        f.write_text(_json.dumps(payload), encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_res", input=str(f), min_samples=3, json=True))
+        assert rc == 0
+        metrics = _json.loads((tmp_path / "mem" / "c_res" / "metrics.json").read_text())
+        assert len(metrics) == 4

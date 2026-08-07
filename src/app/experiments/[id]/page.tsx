@@ -2,6 +2,7 @@ import { ArrowRight, Check, WarningCircle } from "@phosphor-icons/react/dist/ssr
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { StrategyModePanel } from "@/components/strategy-mode-panel";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { getExperiment } from "@/domain/experiment";
 
@@ -62,11 +63,13 @@ export default async function ExperimentPage({ params }: { params: Promise<{ id:
               <div className="alternative-list">{experiment.alternatives.map((alternative) => <article key={alternative.title}><h3>{alternative.title}</h3><p>{alternative.reasonNotChosen}</p></article>)}</div>
             </section>
             <section className="review-card">
-              <h2>Review 3 outputs</h2><p>The premise cut, community cut, and return prompt are ready. Revision {experiment.revision} stays inside Afterplay until Mika approves it.</p>
-              <Link className="primary-action" href="/studio">Review 3 outputs <ArrowRight weight="bold" /></Link>
+              <h2>Review {experiment.outputs.length} outputs</h2><p>The premise cut, community cut, and return prompt are ready. Revision {experiment.revision} stays inside Afterplay until Mika approves it.</p>
+              <Link className="primary-action" href="/studio">Review {experiment.outputs.length} outputs <ArrowRight weight="bold" /></Link>
             </section>
           </aside>
         </div>
+
+        <StrategyModePanel evidenceRefs={experiment.evidence.map((item) => item.id)} />
       </div>
     </WorkspaceShell>
   );

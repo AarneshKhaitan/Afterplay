@@ -1,5 +1,4 @@
-﻿import { type ClipperManifestClip, getLatestClipManifest } from "./clip-manifest";
-// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
+﻿// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
 // node:fs imports into client bundles. The value-side call lives in the API route.
 import { BASELINE, formatDelta } from "./experiment-metrics";
 import type { PerClipResult } from "./results-bridge";
@@ -273,7 +272,7 @@ export function resetExperimentStore(): GrowthExperiment {
 
 export function getExperiment(id: string): GrowthExperiment {
   assertExperimentId(id);
-  return withCurrentOutputs(store().experiment);
+  return structuredClone(store().experiment);
 }
 
 export function recordDecision(input: {
@@ -305,7 +304,6 @@ export function recordDecision(input: {
   if (input.action === "approve") {
     experiment.status = "approved";
     experiment.stage = "Ready for simulated distribution";
-    experiment.outputs = currentOutputsFor(experiment);
     experiment.outputs.forEach((output) => { output.status = "approved"; });
   } else if (input.action === "reject") {
     experiment.status = "rejected";
@@ -337,7 +335,6 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
     );
   }
 
-  experiment.outputs = currentOutputsFor(experiment);
   experiment.receipts = experiment.outputs.map((output, index) => ({
     id: `sim_receipt_${index + 1}`,
     experimentId: experiment.id,
@@ -470,70 +467,6 @@ export function recordResults(input: { id: string; result: ExperimentResult; per
     learning: structuredClone(experiment.learning),
     nextExperiment: structuredClone(experiment.nextExperiment),
   };
-}
-
-function withCurrentOutputs(experiment: GrowthExperiment): GrowthExperiment {
-  const cloned = structuredClone(experiment);
-  cloned.outputs = currentOutputsFor(cloned);
-  return cloned;
-}
-
-function currentOutputsFor(experiment: GrowthExperiment): ExperimentOutput[] {
-  const manifest = getLatestClipManifest();
-  const clips = manifest?.clips.filter((clip) => clip.ok !== false).slice(0, 3) ?? [];
-  if (!manifest || clips.length === 0) return structuredClone(experiment.outputs);
-  const outputStatus: OutputStatus =
-    experiment.status === "distributed" || experiment.status === "learned"
-      ? "distributed"
-      : experiment.status === "approved"
-        ? "approved"
-        : "ready";
-  // A platform URL means the media was extracted from third-party content; only local
-  // media is known to be creator-owned. Do not claim ownership the system cannot verify.
-  const rights: ExperimentOutput["provenance"]["rights"] =
-    manifest.source?.url ? "third_party_extracted" : "creator_owned";
-  return clips.map((clip, index) =>
-    projectManifestClip(clip, index, manifest.manifestPath, outputStatus, rights));
-}
-
-function projectManifestClip(
-  clip: ClipperManifestClip,
-  index: number,
-  manifestPath: string,
-  status: OutputStatus,
-  rights: ExperimentOutput["provenance"]["rights"],
-): ExperimentOutput {
-  return {
-    id: clip.clip_id,
-    type: clip.callback ? "community_cut" : (index === 0 ? "premise_cut" : index === 1 ? "community_cut" : "return_prompt"),
-    title: clip.copy?.title || clip.clip_id,
-    platform: platformLabel(clip.platform),
-    duration: formatDuration(clip.duration),
-    hook: clip.copy?.hook_text_overlay || clip.why || "Selected by the live clipper pipeline.",
-    caption: clip.copy?.caption || clip.text_for_copy || "Pipeline-produced clip from the latest complete manifest.",
-    rationale: clip.callback
-      ? `Callback boost from ${clip.threadLabel ?? "creator memory"} at confidence ${clip.callbackConfidence ?? "unknown"}.`
-      : "Standalone clip selected without requiring callback evidence.",
-    // Real clips must not borrow the synthetic Rivetfall fixture image — that reads as
-    // fabrication. Studio renders the actual <video> for manifest clips; an empty
-    // thumbnail keeps the fixture art off pipeline-produced output.
-    thumbnailUrl: "",
-    status,
-    provenance: { media: "pipeline_manifest", source: manifestPath, rights },
-  };
-}
-
-function platformLabel(platform: string): ExperimentOutput["platform"] {
-  if (platform === "tiktok") return "TikTok";
-  if (platform === "reels") return "Instagram Reels";
-  return "YouTube Shorts";
-}
-
-function formatDuration(seconds: number): string {
-  const safe = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
-  const mm = Math.floor(safe / 60);
-  const ss = safe % 60;
-  return `${mm.toString().padStart(2, "0")}:${ss.toString().padStart(2, "0")}`;
 }
 
 function strongestPerClip(perClip?: PerClipResult[]): PerClipResult | undefined {

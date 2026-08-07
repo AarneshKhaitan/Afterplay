@@ -327,6 +327,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .output-platform span { color: var(--accent); font-size: var(--type-meta); font-weight: 760; text-transform: capitalize; }
 .output-platform strong { color: var(--muted-2); font-size: var(--type-meta); }
 .output-body h2 { margin: 0 0 6px; font-size: 15px; font-weight: 650; letter-spacing: -.025em; }
+.clip-id { display: block; margin: -3px 0 7px; color: var(--muted-2); font: var(--type-meta) ui-monospace, monospace; }
 .output-body blockquote { margin: 0; color: #d6d9db; font-size: var(--type-small); font-weight: 620; line-height: 1.5; }
 .output-body > p { min-height: 42px; margin: 8px 0 13px; color: var(--muted); font-size: var(--type-small); line-height: 1.55; }
 .output-rationale { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 8px; background: rgba(255,255,255,.03); }
@@ -558,3 +559,35 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Strategy mode panel: demo vs live, run per request. */
+.mode-panel { margin: 26px auto 0; padding: 20px; max-width: 1320px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-soft); }
+.mode-panel-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.mode-panel-head h2 { margin: 0 0 6px; font-size: 17px; font-weight: 650; letter-spacing: -.025em; }
+.mode-panel-head p { max-width: 620px; margin: 0; color: var(--muted); font-size: var(--type-small); line-height: 1.55; }
+.mode-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mode-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 9px; background: #171a1e; color: var(--text); font-size: var(--type-small); font-weight: 650; cursor: pointer; }
+.mode-actions button:hover:not(:disabled) { background: #1c2024; }
+.mode-actions button:disabled { opacity: .55; cursor: default; }
+.mode-actions button svg { width: 13px; }
+.mode-button--live { border-color: rgba(255,107,85,.35); color: var(--accent); }
+
+.mode-alert { display: flex; align-items: flex-start; gap: 9px; margin-top: 16px; padding: 12px; border: 1px solid rgba(228,187,126,.28); border-radius: 10px; background: rgba(228,187,126,.07); }
+.mode-alert svg { flex: 0 0 auto; width: 14px; margin-top: 2px; color: #e4bb7e; }
+.mode-alert div { display: flex; flex-direction: column; gap: 3px; }
+.mode-alert strong { font-size: var(--type-small); font-weight: 700; }
+.mode-alert span { color: var(--muted); font-size: var(--type-small); line-height: 1.5; }
+.mode-alert-note { color: var(--muted-2); font-size: var(--type-meta); }
+
+.mode-result { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.mode-result-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--muted-2); font-size: var(--type-meta); }
+.mode-chip { padding: 4px 8px; border-radius: 6px; font-weight: 700; }
+.mode-chip--demo { background: rgba(140,182,232,.12); color: var(--blue); }
+.mode-chip--live { background: var(--accent-soft); color: var(--accent); }
+.mode-result h3 { margin: 0 0 7px; font-size: 16px; font-weight: 650; letter-spacing: -.025em; }
+.mode-result p { margin: 0 0 9px; color: #aeb3b8; font-size: var(--type-small); line-height: 1.6; }
+.mode-hypothesis { color: var(--text) !important; font-weight: 600; }
+.mode-result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 12px; }
+.mode-result-grid span { display: block; margin-bottom: 5px; color: var(--muted-2); font-size: var(--type-meta); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.mode-result-grid ul { margin: 0; padding-left: 16px; color: #aeb3b8; font-size: var(--type-small); line-height: 1.6; }
+.mode-result-grid strong { color: var(--text); }
