@@ -4,6 +4,13 @@ import Image from "next/image";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { demoWorkspace } from "@/domain/workspace";
 
+
+/* Runtime-dependent: the shell reports the ACTIVE creator and the real live-AI
+ * state, both read from the environment. Statically prerendered, this page would
+ * bake in whatever was true at build time and then report it forever — the exact
+ * stale-state failure this panel exists to prevent. */
+export const dynamic = "force-dynamic";
+
 const beliefs = [
   {
     belief: "Viewer ingenuity beats creator perfection",

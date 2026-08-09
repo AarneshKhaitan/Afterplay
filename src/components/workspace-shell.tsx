@@ -6,22 +6,55 @@ import {
   House,
   LinkSimple,
   Crosshair,
+  Scissors,
   Stack,
   UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
 import Image from "next/image";
 import Link from "next/link";
 
+import { activeCreator, liveAiState } from "@/domain/identity";
 import { demoWorkspace } from "@/domain/workspace";
 
-const navigation = [
-  { label: "HQ", href: "/", icon: House },
-  { label: "Intel", href: "/intel", icon: Crosshair },
-  { label: "Experiments", href: "/experiments", icon: Flask },
-  { label: "Studio", href: "/studio", icon: Stack },
-  { label: "Audience", href: "/audience", icon: UsersThree },
-  { label: "Memory", href: "/memory", icon: Database },
-  { label: "Integrations", href: "/integrations", icon: LinkSimple },
+/** Navigation follows the actual workflow, not an alphabet of features.
+ *
+ * The pages existed as seven peers with no implied order, so nothing told a first-time
+ * viewer where to start or what follows what. Grouping them into the loop the product
+ * actually performs — research, make, learn — is what makes the demo read as one
+ * system rather than a menu. */
+const navigation: Array<{
+  section: string;
+  items: Array<{ label: string; href: string; icon: typeof House; hint?: string }>;
+}> = [
+  {
+    section: "Overview",
+    items: [{ label: "HQ", href: "/", icon: House, hint: "Where things stand" }],
+  },
+  {
+    section: "1 · Decide",
+    items: [
+      { label: "Intel", href: "/intel", icon: Crosshair, hint: "What to make next" },
+      { label: "Experiments", href: "/experiments", icon: Flask, hint: "The growth test" },
+    ],
+  },
+  {
+    section: "2 · Make",
+    items: [
+      { label: "Ingest", href: "/ingest", icon: Scissors, hint: "Clip a stream" },
+      { label: "Studio", href: "/studio", icon: Stack, hint: "Review and approve" },
+    ],
+  },
+  {
+    section: "3 · Learn",
+    items: [
+      { label: "Audience", href: "/audience", icon: UsersThree, hint: "What happened" },
+      { label: "Memory", href: "/memory", icon: Database, hint: "What it remembers" },
+    ],
+  },
+  {
+    section: "Setup",
+    items: [{ label: "Integrations", href: "/integrations", icon: LinkSimple, hint: "Keys and permissions" }],
+  },
 ];
 
 export function WorkspaceShell({
@@ -43,6 +76,8 @@ export function WorkspaceShell({
   badge?: string;
 }>) {
   const { creator } = demoWorkspace.workspace;
+  const identity = activeCreator();
+  const live = liveAiState();
 
   return (
     <div className="app-shell">
@@ -55,41 +90,69 @@ export function WorkspaceShell({
         <details className="creator-menu">
           <summary className="creator-switcher" aria-label="Creator workspace">
             <Image src={creator.avatarUrl} alt="" width={38} height={38} priority />
-            <span className="creator-copy"><strong>{creator.displayName}</strong><small>@{creator.handle}</small></span>
+            <span className="creator-copy">
+              <strong>{identity.displayName}</strong>
+              <small>{identity.clipperCreatorId}</small>
+            </span>
             <CaretDown aria-hidden="true" />
           </summary>
           <div className="creator-popover">
-            <p>Creator workspaces</p>
-            <div className="account-row account-row--active"><span className="account-avatar account-avatar--mika">MR</span><span><strong>Mika Rao</strong><small>Active demo</small></span></div>
-            <div className="account-row"><span className="account-avatar">NL</span><span><strong>Nova Lee</strong><small>Example account · not loaded</small></span></div>
-            <div className="account-row"><span className="account-avatar">RO</span><span><strong>Rae Okafor</strong><small>Example account · not loaded</small></span></div>
+            <p>Creator workspace</p>
+            <div className="account-row account-row--active">
+              <span className="account-avatar account-avatar--mika">{identity.initials}</span>
+              <span><strong>{identity.displayName}</strong><small>Active · {identity.source}</small></span>
+            </div>
+            <p className="creator-popover-note">
+              Set <code>AFTERPLAY_CREATOR_ID</code> to point the workspace at a different
+              channel memory. Switching accounts in the UI is not built yet.
+            </p>
           </div>
         </details>
 
         <nav className="product-nav" aria-label="Product">
-          <p className="nav-label">Workspace</p>
-          {navigation.map(({ label, href, icon: Icon }) => (
-            <Link key={label} href={href} className={label === active ? "nav-link nav-link--active" : "nav-link"}>
-              <Icon aria-hidden="true" />
-              <span>{label}</span>
-              {label === "Studio" && <span className="nav-count" aria-hidden="true">3</span>}
-            </Link>
+          {navigation.map(({ section, items }) => (
+            <div key={section} className="nav-group">
+              <p className="nav-label">{section}</p>
+              {items.map(({ label, href, icon: Icon, hint }) => (
+                <Link key={label} href={href}
+                  className={label === active ? "nav-link nav-link--active" : "nav-link"}>
+                  <Icon aria-hidden="true" />
+                  <span className="nav-text"><span>{label}</span>{hint ? <small>{hint}</small> : null}</span>
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 
         <div className="sidebar-foot">
-          <div className="mode-block"><span className="mode-dot" aria-hidden="true" /><span><strong>Demo mode</strong><small>No live actions</small></span></div>
+          <div className={`mode-block mode-block--${live.enabled ? "live" : "demo"}`}>
+            <span className="mode-dot" aria-hidden="true" />
+            <span>
+              <strong>{live.enabled ? "Live AI enabled" : "Demo mode"}</strong>
+              <small>{live.enabled ? live.model : "No live actions"}</small>
+            </span>
+          </div>
           <details className="team-menu">
             <summary className="team-button"><Database weight="bold" /> Team notes</summary>
-            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs Mika’s approval.</p><Link href="/memory">Open memory</Link></div>
+            <div className="team-popover">
+              <strong>Notes shared by all four roles</strong>
+              <p>See what the team knows, what changed, and what still needs approval.</p>
+              <Link href="/memory">Open memory</Link>
+            </div>
           </details>
         </div>
       </aside>
 
       <main className="main-shell">
         <header className="topbar">
-          <div><span className="topbar-kicker">{pageName}</span><span className="topbar-date">Mika Rao · One More Rule</span></div>
-          <div className="topbar-actions"><span className="sample-badge"><span /> {badge ?? "Sample workspace"}</span><span className="updated">Demo snapshot · 09:40</span></div>
+          <div>
+            <span className="topbar-kicker">{pageName}</span>
+            <span className="topbar-date">{identity.displayName}</span>
+          </div>
+          <div className="topbar-actions">
+            <span className="sample-badge"><span /> {badge ?? "Sample workspace"}</span>
+            <span className="updated">{live.enabled ? `Live · ${live.model}` : "Demo snapshot"}</span>
+          </div>
         </header>
         {children}
         <footer className="truth-footer">
