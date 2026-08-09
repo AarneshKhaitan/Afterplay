@@ -24,6 +24,7 @@ export const dynamic = "force-dynamic";
 
 const navigation = [
   { label: "HQ", href: "/", icon: House },
+  { label: "Riff live", href: "/live", icon: Broadcast },
   { label: "Experiments", href: "/experiments", icon: Flask },
   { label: "Studio", href: "/studio", icon: Stack },
   { label: "Audience", href: "/audience", icon: UsersThree },
@@ -83,6 +84,7 @@ export default function GrowthHqPage() {
             <Link key={label} href={href} className={index === 0 ? "nav-link nav-link--active" : "nav-link"}>
               <Icon aria-hidden="true" />
               <span>{label}</span>
+              {label === "Riff live" && <span className="nav-count" aria-hidden="true">Live</span>}
               {label === "Studio" && <span className="nav-count" aria-hidden="true">3</span>}
             </Link>
           ))}
@@ -95,7 +97,7 @@ export default function GrowthHqPage() {
           </div>
           <details className="team-menu">
             <summary className="team-button"><Database weight="bold" /> Team notes</summary>
-            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs Mika’s approval.</p><Link href="/memory">Open memory</Link></div>
+            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs your approval.</p><Link href="/memory">Open memory</Link></div>
           </details>
         </div>
       </aside>
@@ -202,7 +204,7 @@ export default function GrowthHqPage() {
                 </div>
                 <p>{decision.summary}</p>
                 <div className="decision-meta"><span>{decision.outputCount} outputs</span><span>{decision.risk}</span></div>
-                <Link className="primary-action" href="/studio">Review package <ArrowRight weight="bold" /></Link>
+                <Link className="primary-action" href="/studio">Review 3 drafts <ArrowRight weight="bold" /></Link>
               </article>
             )}
 

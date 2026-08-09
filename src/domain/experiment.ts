@@ -129,10 +129,10 @@ const initialExperiment: GrowthExperiment = {
   status: "awaiting_approval",
   owner: "Strategist",
   stage: "Creator review",
-  diagnosis: "New viewers watch, but few come back",
+  diagnosis: "8.2% of viewers returned",
   hypothesis:
-    "If Mika turns each live session into a named, participatory format, first-time viewers will have a clearer reason to recognize the show and return.",
-  targetBehavior: "Return to another Mika upload or live session within the next audience window.",
+    "A named, participatory format may give first-time viewers a clearer reason to recognize the show and return.",
+  targetBehavior: "Return to another upload or live session within the next audience window.",
   successSignal: "Returning-viewer rate and repeat commenters rise together; raw views are secondary.",
   timebox: "One stream, then a seven-day sample window",
   confidence: 72,
@@ -154,7 +154,7 @@ const initialExperiment: GrowthExperiment = {
     {
       id: "evidence_chat",
       title: "Chat is busiest when viewers add rules",
-      detail: "Messages cluster when viewers suggest a constraint or watch Mika adapt to one.",
+      detail: "Messages cluster when viewers suggest a constraint or watch you adapt to one.",
       source: "8 sample streams · chat-event summary",
       strength: "directional",
     },
@@ -175,7 +175,7 @@ const initialExperiment: GrowthExperiment = {
     "The idea fails if views rise while returning viewers, repeat commenters, and tracked live visits stay flat.",
   plan: [
     { step: 1, role: "Strategist", action: "Set the return target and success signal", state: "complete" },
-    { step: 2, role: "Scout", action: "Check recurring formats against Mika's style", state: "complete" },
+    { step: 2, role: "Scout", action: "Check recurring formats against your style", state: "complete" },
     { step: 3, role: "Producer", action: "Draft the premise, participation, and return pieces", state: "complete" },
     { step: 4, role: "Analyst", action: "Compare the result with the failure condition", state: "waiting" },
   ],

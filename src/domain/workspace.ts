@@ -73,9 +73,9 @@ export const demoWorkspace: CreatorWorkspace = {
       accent: "#ff6b55",
     },
     diagnosis: {
-      title: "New viewers watch, but few come back",
+      title: "8.2% of viewers returned",
       summary:
-        "Mika's clips get watched, then disappear into the feed. The payoff lands, but there is no repeatable format telling a new viewer what comes next.",
+        "Your clips are getting watched, but most new viewers do not come back. There is no repeatable format yet that tells them what to expect next.",
       confidence: 72,
       evidence: [
         { label: "Shorts median", value: "842 views" },

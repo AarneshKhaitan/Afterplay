@@ -20,7 +20,7 @@ test("the public workspace contract exposes an honest current briefing", async (
         handle: "mika_rigged",
       },
       diagnosis: {
-        title: "New viewers watch, but few come back",
+        title: "8.2% of viewers returned",
       },
       activeExperiment: {
         id: "exp_one_more_rule",
@@ -34,7 +34,8 @@ test("the public workspace contract exposes an honest current briefing", async (
 test("a judge can understand the product from Growth HQ", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { level: 1, name: "New viewers watch, but few come back" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "8.2% of viewers returned" })).toBeVisible();
+  await expect(page.getByText("Your clips are getting watched, but most new viewers do not come back. There is no repeatable format yet that tells them what to expect next.", { exact: true })).toBeVisible();
   await expect(page.getByText("One More Rule", { exact: true })).toBeVisible();
   await expect(page.getByText("Approval needed", { exact: true })).toBeVisible();
   await expect(page.getByText("Sample workspace", { exact: true })).toBeVisible();
@@ -42,7 +43,7 @@ test("a judge can understand the product from Growth HQ", async ({ page }) => {
   await expect(page.getByLabel("Creator workspace")).toContainText("Mika Rao");
 
   const navigation = page.getByRole("navigation", { name: "Product" });
-  for (const label of ["HQ", "Experiments", "Studio", "Audience", "Memory", "Integrations"]) {
+  for (const label of ["HQ", "Riff live", "Experiments", "Studio", "Audience", "Memory", "Integrations"]) {
     await expect(navigation.getByRole("link", { name: label, exact: true })).toBeVisible();
   }
 });

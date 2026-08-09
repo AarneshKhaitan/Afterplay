@@ -1,4 +1,5 @@
 import {
+  Broadcast,
   CaretDown,
   CirclesThreePlus,
   Database,
@@ -15,6 +16,7 @@ import { demoWorkspace } from "@/domain/workspace";
 
 const navigation = [
   { label: "HQ", href: "/", icon: House },
+  { label: "Riff live", href: "/live", icon: Broadcast },
   { label: "Experiments", href: "/experiments", icon: Flask },
   { label: "Studio", href: "/studio", icon: Stack },
   { label: "Audience", href: "/audience", icon: UsersThree },
@@ -61,6 +63,7 @@ export function WorkspaceShell({
             <Link key={label} href={href} className={label === active ? "nav-link nav-link--active" : "nav-link"}>
               <Icon aria-hidden="true" />
               <span>{label}</span>
+              {label === "Riff live" && <span className="nav-count" aria-hidden="true">Live</span>}
               {label === "Studio" && <span className="nav-count" aria-hidden="true">3</span>}
             </Link>
           ))}
@@ -70,14 +73,14 @@ export function WorkspaceShell({
           <div className="mode-block"><span className="mode-dot" aria-hidden="true" /><span><strong>Demo mode</strong><small>No live actions</small></span></div>
           <details className="team-menu">
             <summary className="team-button"><Database weight="bold" /> Team notes</summary>
-            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs Mika’s approval.</p><Link href="/memory">Open memory</Link></div>
+            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs your approval.</p><Link href="/memory">Open memory</Link></div>
           </details>
         </div>
       </aside>
 
       <main className="main-shell">
         <header className="topbar">
-          <div><span className="topbar-kicker">{pageName}</span><span className="topbar-date">Mika Rao · One More Rule</span></div>
+          <div><span className="topbar-kicker">{pageName}</span><span className="topbar-date">Experiment 04 · One More Rule</span></div>
           <div className="topbar-actions"><span className="sample-badge"><span /> Sample workspace</span><span className="updated">Demo snapshot · 09:40</span></div>
         </header>
         {children}

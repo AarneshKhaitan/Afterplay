@@ -13,7 +13,7 @@ export default function StudioPage() {
   return (
     <WorkspaceShell active="Studio" pageName="Studio">
       <div className="surface studio-surface">
-        <section className="page-hero studio-hero"><div><h1>Review the package</h1><p>Review the three cuts as one test. Together they name the series, show how chat participates, and point to the next stream.</p><div className="hero-meta"><span className="status-chip status-chip--review">Needs approval</span><span>Revision {experiment.revision}</span><span>3 outputs</span></div></div><div className="studio-summary"><span><Check weight="bold" /> Matches Experiment 04</span><span><ShieldCheck weight="fill" /> Synthetic project-owned media</span></div></section>
+        <section className="page-hero studio-hero"><div><h1>Review 3 drafts</h1><p>These three cuts make up one test: introduce the format, invite chat to shape it, and give viewers a reason to return.</p><div className="hero-meta"><span className="status-chip status-chip--review">Needs approval</span><span>Revision {experiment.revision}</span><span>3 outputs</span></div></div><div className="studio-summary"><span><Check weight="bold" /> Matches Experiment 04</span><span><ShieldCheck weight="fill" /> Synthetic project-owned media</span></div></section>
 
         <section className="output-grid" aria-label="Experiment outputs">
           {experiment.outputs.map((output, index) => (

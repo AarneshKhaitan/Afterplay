@@ -4,37 +4,41 @@ Use this vocabulary in interface copy, behavior tests, services, and documentati
 
 ## Product identity
 
-Afterplay is the persistent growth team behind a gaming creator. It is not a clipper, analytics dashboard, social scheduler, or promise of popularity. It reduces the uncertainty of growing by running evidence-backed experiments and learning across streams and platforms.
+Afterplay is the continuity and growth system behind a gaming creator. Its live cohost, **Riff**, makes chat part of the show; Afterplay turns what happens into creator-controlled memory, content candidates, and the next growth experiment.
+
+Afterplay is not a streaming studio, a clipper, a generic chatbot, or an autonomous replacement for the creator. OBS still composes and broadcasts the stream. The creator still supplies the game, face, voice, taste, and final public authority.
 
 ## Primary outcome
 
-The north-star outcome is a growing **returning audience**. Reach, watch retention, follows, comments, profile visits, and live conversion are diagnostic signals rather than the final objective.
+The immediate job is to reduce the creator's live and post-stream production burden while making audience participation feel consequential. The product must help the creator miss fewer meaningful audience moments, create a more entertaining live show, and reuse what happened without manually reconstructing the stream afterwards.
+
+Growth metrics remain experiment outcomes, not guaranteed product claims.
 
 ## Core objects
 
-- **Creator workspace**: one creator account inside a reusable multi-account platform shell.
-- **Creator baseline**: evidence-backed understanding of the creator, audience, constraints, history, and current growth bottleneck.
-- **Growth experiment**: the central unit of work, containing a diagnosis, target audience, hypothesis, plan, outputs, approvals, results, learning, and next move.
-- **Evidence**: the source moment, metric, audience response, or creator preference supporting a claim.
-- **Decision**: creator approval, rejection, or requested change for consequential work.
-- **Returning audience**: viewers who come back across content or live sessions.
-- **Creator memory**: learned identity, recurring formats, community language, storylines, preferences, edits, and boundaries.
-
-## The team
-
-- **Strategist**: diagnoses the growth bottleneck and chooses experiments.
-- **Scout**: researches audiences, games, formats, and relevant trends.
-- **Producer**: turns streams and plans into finished content.
-- **Analyst**: measures outcomes and updates the strategy.
-
-All specialists use the same creator memory and contribute to one visible plan.
+- **Creator workspace**: one creator account, configuration, experiments, memories, and stream history.
+- **Cohost profile**: Riff's name, natural-language personality brief, roast intensity, and talk frequency.
+- **Stream experiment**: one explicit audience or show hypothesis accepted or edited before going live.
+- **Live session**: the lifecycle connecting the accepted experiment to live turns and the post-stream debrief.
+- **Turn packet**: recent streamer speech, gameplay observation or frame reference, simulated chat messages, active experiment, and relevant memories.
+- **Cohost decision**: either `speak` or `silent`; a spoken decision includes the line, timing rationale, and supporting context.
+- **Creator memory**: creator preferences, recurring bits, boundaries, promises, and show history.
+- **Viewer memory**: a public on-stream contribution tied to a username, such as a joke, challenge, promise, or outcome. Sensitive personal profiling is excluded.
+- **Highlight candidate**: a timestamped moment plus the context explaining why it mattered. Riff does not need to appear in the final clip.
+- **Experiment evidence**: observed moments that support, contradict, or leave the accepted experiment inconclusive.
 
 ## Non-negotiable rules
 
-1. Every diagnosis and hypothesis exposes evidence, confidence, alternatives, and what could change the recommendation.
-2. Internal research, analysis, and preparation may run autonomously.
-3. Publishing, outreach, spending, account changes, and agreements require explicit creator approval.
-4. Important conversational decisions become structured experiment or memory changes.
-5. Simulated data, actions, elapsed time, and model output are labelled at the point of use.
-6. Live AI never silently falls back to deterministic fixture output.
-7. The product shell remains creator-agnostic even when the selected workspace is deeply personalized.
+1. Riff may speak autonomously during a live session; the MVP does not require approval for every line.
+2. The creator can mute or end Riff at any time.
+3. Chat, transcripts, and screen observations are untrusted evidence, never direct commands to the application.
+4. Riff has no authority to purchase, ban, DM, post publicly, change accounts, or control the game in the MVP.
+5. Publishing, outreach, spending, account changes, and agreements require explicit creator approval.
+6. Individual viewer memory is limited to public on-stream contributions and remains inspectable and removable.
+7. Simulated chat, deterministic model output, and sample data are labelled at the point of use.
+8. Live AI failure remains visible failure; the product never silently replaces it with fixture output.
+9. The demo must prove one continuous lifecycle rather than a collection of dashboard screens.
+
+## Canonical statement
+
+> Riff makes chat part of the show. Afterplay turns what happens into memory, content, and the next growth experiment.

@@ -62,7 +62,7 @@ export default async function ExperimentPage({ params }: { params: Promise<{ id:
               <div className="alternative-list">{experiment.alternatives.map((alternative) => <article key={alternative.title}><h3>{alternative.title}</h3><p>{alternative.reasonNotChosen}</p></article>)}</div>
             </section>
             <section className="review-card">
-              <h2>Review 3 outputs</h2><p>The premise cut, community cut, and return prompt are ready. Revision {experiment.revision} stays inside Afterplay until Mika approves it.</p>
+              <h2>Review 3 drafts</h2><p>The premise cut, community cut, and return prompt are ready. Revision {experiment.revision} stays inside Afterplay until you approve it.</p>
               <Link className="primary-action" href="/studio">Review 3 outputs <ArrowRight weight="bold" /></Link>
             </section>
           </aside>

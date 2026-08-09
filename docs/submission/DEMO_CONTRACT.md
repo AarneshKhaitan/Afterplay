@@ -2,80 +2,66 @@
 
 Target runtime: **4 minutes 40 seconds**, leaving 20 seconds of safety.
 
-This is the proof order, not the final spoken script. Every segment must show working product behavior.
+This is the proof order, not the final spoken script. Every segment must show working behavior.
 
-## 0:00-0:25 - Problem and promise
+## 0:00-0:30 — Set the stakes
 
-Open directly in the selected creator's Growth HQ.
+Open the Afterplay check-in beside the prepared OBS scene.
 
-The judge must understand:
+Say the problem plainly: a streamer cannot play, perform, follow every chat thread, remember the community, run a deliberate growth experiment, and package the result at the same time.
 
-- this creator sometimes gets views but does not build a returning audience;
-- Afterplay is an autonomous growth team, not a clipper;
-- one creator decision currently needs attention.
+Show the truth strip: **live gameplay · simulated chat · live AI cohost**.
 
-## 0:25-1:10 - Diagnosis and AI contribution
+## 0:30-1:05 — Give Riff a job
 
-Open the active experiment. Show:
+Show one Afterplay-proposed stream experiment. The creator accepts or edits it, then confirms Riff's compact cohost configuration:
 
-- evidence behind the reach-without-return diagnosis;
-- confidence and uncertainty;
-- rejected alternatives;
-- the testable hypothesis;
-- Strategist and Scout contributions.
+- funny, sharp personality brief;
+- roast intensity;
+- talk frequency.
 
-State the removal test: without semantic judgment across creator history, the system becomes dashboards and templates rather than a creator-specific growth team.
+Start the live session. This must feel like a check-in, not dashboard administration.
 
-## 1:10-2:05 - Plan and finished work
+## 1:05-3:15 — The live proof
 
-Move into Studio through the experiment, not through disconnected navigation. Show:
+Switch attention to the OBS-composed stream:
 
-- the experiment's stream premise;
-- prepared content variants;
-- target audience and intended job of each output;
-- Producer rationale and provenance;
-- the available reject, change-request, and approve controls;
-- why the recorded revision matters at the action boundary.
+- live Roblox obby gameplay;
+- small facecam;
+- normal scrolling simulated chat;
+- Riff audible to the creator and audience;
+- sparse Riff captions, with no animated avatar and no special chat callouts.
 
-## 2:05-2:55 - Human authority and external action
+The scripted-but-reactive sequence should create two genuine AI moments:
 
-Approve the current revision. Show:
+1. A viewer roasts the creator after a mistake. Riff recognizes the setup and pushes the creator to answer.
+2. Several viewers ask for the same thing in different language. Riff synthesizes the request and challenges the creator to respond.
 
-- the UI explicitly says nothing has been posted after approval;
-- current-revision approval creates one action;
-- the simulated publisher is visibly labelled;
-- an idempotent sample receipt returns;
-- three transparently simulated, idempotent receipts.
+At least one moment must show experiment relevance, and one visible highlight marker must appear. If live AI fails, show the failure; do not silently switch modes.
 
-## 2:55-3:55 - Results and learning
+## 3:15-4:25 — The stream becomes leverage
 
-Open Audience from the experiment result. Show:
+End the session and open the continuity debrief. Show:
 
-- labelled sample performance;
-- movement in returning audience, not only reach;
-- the Analyst's evidence-backed interpretation;
-- uncertainty from the small sample;
-- the limits that prevent a causal claim;
-- the materially changed next experiment.
+- a newly captured public viewer contribution or creator promise;
+- one or more timestamped highlight candidates with semantic context;
+- evidence that supports, contradicts, or leaves the accepted experiment inconclusive;
+- a proposed next experiment or callback that uses what actually happened.
 
-## 3:55-4:40 - The loop closes
+The final clip need not contain Riff. The product value is that Riff helped create, notice, and explain the moment.
 
-Return to Growth HQ. Show:
+## 4:25-4:40 — Close
 
-- the completed experiment;
-- what Afterplay learned;
-- a materially changed next experiment;
-- the team continuing autonomous internal work;
-- the next creator decision, if any.
+Close on:
 
-If the workspace is not at its initial state, use **Integrations → Reset demo workspace** before recording. The reset is visible and backed by the public service.
-
-Close on the product contract: the creator plays; Afterplay decides what to test, prepares the work, learns from results, and asks before acting in public.
+> Riff makes chat part of the show. Afterplay turns what happens into memory, content, and the next growth experiment.
 
 ## Demo truth rules
 
-- Demo AI mode is visible.
-- Sample platform data and receipts are labelled where shown.
-- No claim implies real public posting or proven creator growth.
-- No static slide substitutes for a required workflow step.
-- The app remains fully usable without network access or external credentials.
+- Simulated chat is labelled at the point of use.
+- Live versus deterministic Riff mode is visible.
+- Roblox, facecam, microphone, audio routing, and final composition happen in OBS and are not represented as Afterplay-owned streaming infrastructure.
+- The desktop companion sends periodic selected-window snapshots as Realtime image context. This is not continuous video, and actual Roblox interpretation remains a manual demo claim.
+- Sample memories or historical context are labelled if seeded.
+- No claim implies real platform ingestion, public posting, proven creator growth, or measured burnout reduction.
+- The offline deterministic path exists for rehearsal but is never passed off as the live AI path.
