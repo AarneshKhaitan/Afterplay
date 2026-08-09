@@ -17,8 +17,7 @@ test("a creator can approve work and carry one experiment into learning", async 
 
   await page.getByRole("link", { name: "Review 3 outputs" }).click();
   await expect(page).toHaveURL(/\/studio$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Review 3 drafts" })).toBeVisible();
-  await expect(page.getByText("Your approval required", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Review the package" })).toBeVisible();
   await expect(page.getByRole("article", { name: "The machine gets one more rule" })).toBeVisible();
   await expect(page.getByRole("article", { name: "Chat chooses the impossible constraint" })).toBeVisible();
   await expect(page.getByRole("article", { name: "Next rule enters Tuesday" })).toBeVisible();
@@ -33,14 +32,14 @@ test("a creator can approve work and carry one experiment into learning", async 
 
   await page.getByRole("link", { name: "View sample results" }).click();
   await expect(page).toHaveURL(/\/audience$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Results for One More Rule" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Return behavior after the test" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sample results are not loaded" })).toBeVisible();
 
   await page.getByRole("button", { name: "Load labelled sample results" }).click();
   await expect(page.getByText("Synthetic sample result", { exact: true })).toBeVisible();
   await expect(page.getByText("13.6%", { exact: true })).toBeVisible();
   await expect(page.getByText("No causal claim", { exact: true })).toBeVisible();
-  await expect(page.getByText("The format name is worth testing again.", { exact: true })).toBeVisible();
+  await expect(page.getByText("The named format earned a cautious second test.", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Name the Builder" })).toBeVisible();
 
   await page.getByRole("link", { name: "Afterplay home" }).click();

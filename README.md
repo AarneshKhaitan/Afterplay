@@ -1,70 +1,156 @@
 # Afterplay
 
-**Riff makes chat part of the show. Afterplay turns what happens into memory, content, and the next growth experiment.**
+**The team behind the player.**
 
-Afterplay is a live-to-growth system for gaming creators. Its audible AI cohost, Riff, listens to the streamer, reads chat, receives gameplay context, and joins the show with a creator-configured personality. The useful moments do not disappear when the stream ends: Afterplay carries their sources into highlights, community memory, experiment evidence, and the next show idea.
+Afterplay is an autonomous growth team for gaming creators. It studies creator history, finds moments whose meaning depends on prior streams, chooses a falsifiable growth experiment, prepares coordinated work, waits for creator approval before external action, reads the result, and changes the next plan.
 
-This repository is a working prototype for the Garena AI Build Challenge 2026. The central judge path is a live Roblox obby performance with transparently simulated chat, an audible cohost, and a post-stream continuity debrief.
+This repository is a working end-to-end prototype for the Garena AI Build Challenge 2026. The clipper is part of the team: it can backfill creator memory, find callback/payoff moments, render shorts, and hand Studio a manifest with cited evidence. The central object remains a growth experiment and the north star is returning audience behavior.
 
-`accepted experiment -> live moment -> Riff intervention -> highlight and memory -> experiment evidence -> next experiment`
+Riff extends that loop into the live show. The audible AI cohost reads chat, receives bounded game snapshots from the desktop companion, and turns source-bearing moments into highlights, memory, and experiment evidence.
 
-## What the prototype proves
+`diagnosis → hypothesis → plan → production → approval → simulated distribution → result → learning → next experiment`
 
-- A creator can accept one stream experiment and tune Riff's personality, roast intensity, and talk frequency.
-- A deterministic rehearsal mode produces two repeatable comedy beats: a fail roast and a multi-message chat pile-on.
-- The desktop companion captures the selected game window, sends bounded image snapshots into an OpenAI Realtime session, listens through the microphone, plays Riff's speech, and drives the OBS HUD.
-- Free conversation stays out of the evidence ledger. A Riff reply becomes highlight, memory, or experiment evidence only when it answers a supplied, source-bearing show-context packet.
-- Riff can stay silent when a supplied moment has no useful setup.
-- Every useful turn retains source references and can become a semantic highlight, candidate viewer memory, and experiment evidence.
-- Ending the stream proposes a materially connected next experiment.
-- A stable OBS-safe browser source renders Riff's permanent nameplate, stateful waveform, and live captions without Afterplay application chrome.
-- Live-model failure remains visible; the application never disguises deterministic fixture output as live AI.
+## What works
+
+- Six populated product areas: Growth HQ, Experiments, Studio, Audience, Memory, and Integrations.
+- One complete stateful experiment loop for the fictional creator Mika Rao.
+- Revision-aware approval and fail-closed external action gating.
+- Idempotent simulated distribution receipts; no social platform is contacted.
+- Labelled synthetic results, explicit limits, and no causal-growth claim.
+- A deterministic offline strategy director and an optional live OpenAI director returning the same validated schema.
+- A nested Python clipper service that can backfill channel memory, select callback-aware clips, render them, QC them, and write manifests consumed by Studio.
+- A Riff desktop companion and OBS overlays for live cohosting, simulated-chat rehearsal, captions, and selected-window game context.
+- A visible reset control for repeatable judge runs.
+- Public HTTP, browser, production-mode, accessibility, and mobile-overflow tests.
 
 ## Quick start
 
-Requirements: Node.js `>=20.9.0`, npm, and a macOS demo machine. The Electron architecture is cross-platform, but this checkout has only been manually rehearsed on macOS.
+Requirements: Node.js `>=20.9.0`, npm, Python `>=3.10`, and `ffmpeg` in PATH.
+
+For real clipper runs, install Deno so yt-dlp can avoid extraction warnings:
+
+```bash
+deno --version
+```
 
 ```bash
 npm install
+npm run dev
+```
+
+```powershell
+cd services\video-clipper
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m afterplay.cli doctor
+```
+
+Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
+
+### Riff desktop companion
+
+Riff's live voice path needs a server-side OpenAI key plus macOS microphone and screen-recording permission:
+
+```bash
+cp .env.example .env.local
+# Set OPENAI_API_KEY outside git, then:
 npm run companion:dev
 ```
 
-`companion:dev` reuses an existing Afterplay server on port `3100`, or starts one, then opens the compact Riff desktop companion. Live Riff requires `OPENAI_API_KEY` in `.env.local`. macOS will request microphone and screen-recording access the first time.
+The companion opens the local web service and lets the streamer select the game window Riff may inspect. OBS can capture the transparent overlay at [http://127.0.0.1:3100/overlay/riff](http://127.0.0.1:3100/overlay/riff). The deterministic rehearsal path remains available when a repeatable demo is more important than a live provider call; see [the Riff and OBS rehearsal guide](docs/submission/OBS_REHEARSAL.md).
 
-## Five-minute judge path
+For callback clip review, run the Python clipper from `services/video-clipper` first,
+then refresh Studio. The web app intentionally reads the latest local manifest; it does
+not launch long-running media jobs from the browser.
 
-1. Add `http://127.0.0.1:3100/overlay/riff` to OBS once as a `1280 x 720` Browser Source. The Riff HUD stays visible for the whole stream.
-2. Run `npm run companion:dev`; the compact desktop companion opens outside the Afterplay dashboard.
-3. Click **Choose**, select the Roblox window, and confirm **Game vision active**.
-4. Click **Start Riff**, grant microphone/screen access, and wait for **Riff is listening**.
-5. Play Roblox and talk naturally. The companion sends a bounded current-frame snapshot every five seconds; Riff's returned audio plays from the companion while its state, waveform, and transcript update in OBS.
-6. After the live proof, use Afterplay's debrief path to explain how source-bearing show moments become highlights, memory, and experiment evidence. Spontaneous conversation alone is deliberately not promoted into that ledger.
+### Preferred live callback path
 
-The complete OBS wiring and rehearsal checklist live in [docs/submission/OBS_REHEARSAL.md](docs/submission/OBS_REHEARSAL.md).
+```powershell
+cd services\video-clipper
+$env:PYTHONPATH='.'
+$env:AFTERPLAY_MEMORY="$PWD\.memory"
+$env:OPENAI_API_KEY="<set outside git>"
 
-## Runtime modes
+# Seed memory from a source stream
+python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
 
-### Live AI
-
-Set a server-only key in `.env.local`:
-
-```text
-OPENAI_API_KEY=your_server_only_key
+# Generate callback-aware clips from a current stream
+python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
 ```
 
-Then run `npm run companion:dev`, choose a game window, and grant microphone/screen permission. The Electron renderer establishes a WebRTC session through the Afterplay server, sends microphone audio continuously, and adds a resized JPEG snapshot of only the selected game window every five seconds. Each new snapshot replaces the previous visual-context item. This is periodic image context, not raw video streaming. Automatic Twitch/YouTube chat ingestion is still pending.
+If memory is healthy but no callback is found, this is a valid outcome:
+`No memory-dependent callback found in this run. Showing highest-quality standalone clips.`
 
-### Demo rehearsal
+If memory fails (`memory_degraded: true`), the result must show an explicit failure reason and must not appear as this valid no-callback fallback message.
 
-The fallback mode is deterministic, offline, schema-validated, and audible through the browser's speech synthesizer. It is the reliable backup and automated-test path. The interface labels it **Deterministic Riff**.
+### Fixture path (offline)
 
-## OBS sources
+The repository still includes the deterministic fixture loop for interviews and test stability when external keys/services are unavailable.
 
-Use this stable URL once in OBS:
+- No credentials are required for fixture mode.
+- `AFTERPLAY_OPENAI_MODEL` drives the live strategy director.
+- `AFTERPLAY_CLIPPER_MODEL` drives clip extraction/selection in the Python service.
 
-- `http://127.0.0.1:3100/overlay/riff` for the permanent transparent Riff HUD and captions.
+For a production-shaped local run:
 
-OBS owns the Roblox capture, facecam, creator microphone, Riff application-audio capture, and final scene composition. The desktop companion handles Riff, game context, and overlay state; it is not a replacement streaming studio or an OBS plugin.
+```bash
+npm run build
+npm run start
+```
+
+## Modes and guarantees
+
+| Mode | What runs | What it needs | What is guaranteed |
+|---|---|---|---|
+| `demo` | deterministic fixture director; simulated distribution | none | repeatable, offline, no external calls |
+| `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true` + `OPENAI_API_KEY` | real strategy output or visible error — never fixture output |
+| `riff-live` | OpenAI Realtime cohost + selected-window snapshots | `OPENAI_API_KEY` + microphone/screen permission | live audio/image context or visible failure — never synthetic fallback |
+| `clipper` | real ingestion, memory, callback scoring, render | `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL` | genuine per-input computed clips |
+
+State plainly that demo-mode strategy is a fixture while clipper output is real.
+
+## Judge path
+
+1. From `services/video-clipper`, run `backfill` on a prior creator-owned stream.
+2. Run `afterplay.cli --json run --memory --creator <id>` on the current stream.
+3. Open **Studio** and review the latest service manifest, callback citation, or explicit no-callback/degraded state.
+4. Review the projected approval package. When a complete manifest exists, these outputs are pipeline-produced; otherwise the deterministic fixture package is shown.
+5. Select **Approve current revision**. The UI confirms that nothing has been posted.
+6. Select **Run simulated distribution**. Three receipts appear, each labelled `SIMULATED`.
+7. Open **View sample results**, then select **Load labelled sample results**.
+8. Read the Analyst's evidence, limitations, per-clip result note when present, and proposed **Name the Builder** experiment.
+9. Return to Afterplay home. HQ now shows **Experiment 04 learned** and carries the next experiment forward.
+
+To replay, open **Integrations → Reset demo workspace**.
+
+## AI modes
+
+Demo mode is selected by default. It is deterministic, schema-validated, offline, and never contacts OpenAI.
+
+Optional live planning is disabled unless both server conditions are present:
+
+```bash
+cp .env.example .env.local
+```
+
+Then set:
+
+```text
+AFTERPLAY_ENABLE_LIVE_AI=true
+OPENAI_API_KEY=your_server_only_key
+AFTERPLAY_OPENAI_MODEL=gpt-5.6-sol
+```
+
+Live mode is exposed through `POST /api/strategy/plan` with `mode: "live"`. It uses the OpenAI Responses API, strict Structured Outputs, `store: false`, medium reasoning effort, a hashed safety identifier, and domain validation. If live mode is unavailable or fails, the API returns a visible error and does **not** substitute the demo proposal.
+
+The judge workflow deliberately stays in deterministic mode.
+
+The nested clipper service uses a separate model variable for callback extraction and
+judging, so clipper experiments do not silently change the app's strategy director:
+
+```text
+AFTERPLAY_CLIPPER_MODEL=gpt-5.6-sol
+```
 
 ## Verification
 
@@ -73,29 +159,54 @@ npm run typecheck
 npm run lint
 npm run test:e2e
 npm run build
+npx playwright test tests/e2e/judge-loop.spec.ts --config playwright.production.config.ts
 ```
 
-The public suite verifies the live-session lifecycle, grounding and abstention, both comedy beats, visible mode boundaries, failure without hidden fallback, OBS-safe overlays, live-to-debrief UI path, the earlier experiment workflow, accessibility, and mobile overflow.
+The E2E suite verifies:
+
+- visible product understanding and all six routes;
+- approval, stale-revision, idempotency, and distribution guards;
+- the complete browser loop and its learned HQ state;
+- deterministic/live strategy adapter boundaries;
+- WCAG A/AA automated checks and 390px horizontal overflow;
+- visible demo reset.
+
+## Architecture
+
+- `src/domain/` owns lifecycle legality, revisions, decisions, receipts, results, and learning.
+- `src/ai/` owns the shared strategy schema and deterministic/live directors.
+- `src/app/api/` exposes the public HTTP seam.
+- `src/components/` contains the shared product shell and stateful creator controls.
+- `src/app/` contains the six product projections.
+- `tests/e2e/` verifies only public HTTP and visible browser behavior.
+
+The prototype uses seeded in-process state. It is ideal for a deterministic single-process judge run, but is not durable, multi-instance, or production multi-tenant storage.
 
 ## Truth boundary
 
-- The gameplay is live during a manual rehearsal; the automated browser tests do not launch Roblox or OBS.
-- Chat is scripted-but-reactive and labelled **Simulated** wherever it appears.
-- Demo rehearsal speech is a deterministic fixture, not model output.
-- Live AI requires an external credential, network access, microphone permission, headphones, and a manual audio-routing check.
-- The companion sends periodic selected-window snapshots to Realtime. Automated tests verify the image event; actual Roblox capture and model interpretation remain manual rehearsal gates.
-- The desktop companion does not yet ingest Twitch/YouTube chat. The scripted chat path remains available on `/live` for deterministic rehearsal while the companion integration is built next.
-- Memories remain reviewable candidates, and seeded in-process state is not durable production storage.
-- Final clips may exclude Riff. Riff contributes the timestamp, context, and experiment meaning.
-- No sample run proves creator growth, retention, or burnout reduction.
+- Mika Rao, Rivetfall, creator history, analytics, audience movement, and results are synthetic samples.
+- The generated images are project-owned fixtures and are disclosed with hashes and prompts.
+- Distribution creates local sample receipts only.
+- The prototype does not perform real OAuth, publishing, outreach, spending, or account mutation.
+- One sample run does not prove causality or guarantee creator growth.
+- Cross-platform identity is not inferred.
 
 ## Documentation map
 
+- [Competitive intelligence engine](docs/intel/INTELLIGENCE.md) — the `/intel` console: what is real, what is not, what is hardcoded
+- [Product requirements](docs/prd/PRD.md) — verified current state, full gap register, requirements
+- [Implementation phases](docs/prd/IMPLEMENTATION-PHASES.md) — what gets built when, with acceptance criteria
 - [Product contract](docs/product/PRODUCT.md)
+- [Demo workspace](docs/product/DEMO_WORKSPACE.md)
+- [Design system](docs/design/DESIGN.md)
 - [Architecture](docs/architecture/ARCHITECTURE.md)
+- [Clipper integration](docs/architecture/CLIPPER_INTEGRATION.md)
 - [AI contract](docs/AI.md)
+- [Problem evidence and competitor boundary](docs/research/PROBLEM_EVIDENCE.md)
 - [Accepted public test seams](docs/testing/TEST-SEAMS.md)
 - [Five-minute demo contract](docs/submission/DEMO_CONTRACT.md)
-- [OBS rehearsal runbook](docs/submission/OBS_REHEARSAL.md)
-- [Riff architecture decision](docs/decisions/0004-riff-connects-the-live-show-to-afterplay.md)
+- [Riff and OBS rehearsal](docs/submission/OBS_REHEARSAL.md)
+- [Challenge traceability](docs/submission/REQUIREMENTS.md)
 - [Third-party and synthetic asset ledger](docs/THIRD_PARTY.md)
+- [Image prompts](docs/assets/IMAGE_PROMPTS.md)
+- [Architecture decisions](docs/decisions/)

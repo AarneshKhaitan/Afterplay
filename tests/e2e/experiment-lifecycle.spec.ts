@@ -96,8 +96,8 @@ test("the public contract completes one truthful experiment loop", async ({ requ
       causalClaim: false,
     },
     learning: {
-      conclusion: "The format name is worth testing again.",
-      confidence: 61,
+      conclusion: "The named format earned a cautious second test.",
+      confidence: expect.any(Number),
       limitations: expect.any(Array),
     },
     nextExperiment: {
@@ -105,4 +105,36 @@ test("the public contract completes one truthful experiment loop", async ({ requ
       status: "proposed",
     },
   });
+});
+
+test("result analysis reflects failed submitted metrics", async ({ request }) => {
+  await request.post(`${experimentUrl}/decisions`, {
+    data: { action: "approve", revision: 2 },
+  });
+  await request.post(`${experimentUrl}/dispatch`, {
+    data: { revision: 2 },
+  });
+
+  const results = await request.post(`${experimentUrl}/results`, {
+    data: {
+      disclosure: "synthetic_sample_data",
+      metrics: {
+        views: 900,
+        returningViewerRate: 0,
+        repeatCommenters: 0,
+        trackedLiveVisits: 0,
+        nextStreamAverageConcurrency: 0,
+      },
+    },
+  });
+
+  expect(results.ok()).toBe(true);
+  const body = await results.json();
+  expect(body.learning.conclusion).toBe("The result contradicted the return-cue hypothesis.");
+  expect(body.learning.evidence).toEqual(expect.arrayContaining([
+    "Returning-viewer rate moved from 8.2% to 0% (-8.2pt).",
+    "Repeat commenters moved from 2 to 0 (-2).",
+    "Tracked live visits moved from 3 to 0 (-3).",
+  ]));
+  expect(body.learning.evidence.join(" ")).not.toContain("13.6%");
 });

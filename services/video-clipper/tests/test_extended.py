@@ -1,0 +1,916 @@
+"""Tests for ASR, face reframing, SponsorBlock, copy, analytics and the MCP surface.
+
+Hermetic: no network, no model weights, no GPU. Where a feature genuinely needs an
+external resource (Whisper weights, the SponsorBlock API), the test asserts the
+DEGRADATION path instead — that is the behaviour that has to be right in production.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from afterplay import ClipResult, JobResult, PLATFORMS, Settings, parse_vtt
+from afterplay.understand import MemoryReasoner, Moment, Sentence, Word
+
+
+# ── creator callback memory ─────────────────────────────────────────────────
+
+def _fake_embed(texts):
+    vectors = []
+    for text in texts:
+        lower = text.lower()
+        vectors.append([
+            1.0 if "cursed sniper" in lower else 0.0,
+            1.0 if "bridge" in lower else 0.0,
+            0.1,
+        ])
+    return vectors
+
+
+class TestChannelMemory:
+    def test_backfill_persists_and_retrieves_threads(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay.channel_memory import ChannelMemory
+
+        def extractor(stream_id, transcript):
+            return {"threads": [{
+                "kind": "running_joke",
+                "label": "cursed sniper on bridge",
+                "summary": "The creator keeps blaming the bridge sniper.",
+                "status": "open",
+                "first_seen": {"t": 12.0, "quote": "the cursed sniper is back"},
+            }]}
+
+        memory = ChannelMemory("creator", embedder=_fake_embed)
+        extracted = memory.backfill(
+            "stream_a",
+            [Sentence(10.0, 20.0, "the cursed sniper is back on the bridge")],
+            extractor=extractor,
+        )
+
+        assert len(extracted) == 1
+        assert memory.path.exists()
+
+        loaded = ChannelMemory("creator", embedder=_fake_embed)
+        hits = loaded.retrieve("that cursed sniper returned near the bridge", k=1)
+        assert hits[0]["label"] == "cursed sniper on bridge"
+        assert hits[0]["similarity"] > 0.9
+        assert "embedding" not in hits[0]
+        assert "updated" not in hits[0]
+
+    def test_memory_reasoner_boosts_clear_callbacks_and_carries_signals(self):
+        class Memory:
+            def retrieve(self, text, k=3):
+                return [{
+                    "id": "thread_1",
+                    "label": "cursed sniper on bridge",
+                    "summary": "The bridge sniper keeps returning.",
+                    "first_seen": {
+                        "stream_id": "stream_a",
+                        "t": 12.0,
+                        "quote": "the cursed sniper is back",
+                    },
+                }]
+
+        def judge(text, retrieved):
+            return {"is_callback": True, "thread_id": "thread_1",
+                    "confidence": 0.8, "why": "The window pays off the same bridge sniper."}
+
+        reasoner = MemoryReasoner(Memory(), judge=judge, boost=3.0)
+        moments = reasoner.rank(
+            [Sentence(0.0, 10.0, "the cursed sniper returned"),
+             Sentence(10.0, 22.0, "everyone yells about the bridge again")],
+            target=20.0,
+            n=1,
+            tol=5.0,
+        )
+
+        assert moments[0].signals["callback"] is True
+        assert moments[0].signals["thread_id"] == "thread_1"
+        assert moments[0].signals["source_stream"] == "stream_a"
+        assert moments[0].score >= 2.4
+
+    def test_memory_reasoner_does_not_judge_without_retrieved_threads(self):
+        class EmptyMemory:
+            def retrieve(self, text, k=3):
+                return []
+
+        def judge(text, retrieved):
+            raise AssertionError("judge should not run without retrieved memory")
+
+        moments = MemoryReasoner(EmptyMemory(), judge=judge).rank(
+            [Sentence(0.0, 11.0, "hello there"),
+             Sentence(11.0, 23.0, "nothing callbacks here")],
+            target=20.0,
+            n=1,
+            tol=5.0,
+        )
+        assert "callback" not in moments[0].signals
+
+    def test_memory_reasoner_falls_back_when_memory_fails(self):
+        class BrokenMemory:
+            def retrieve(self, text, k=3):
+                raise RuntimeError("embedding service down")
+
+        sents = [Sentence(0.0, 11.0, "is this good?"),
+                 Sentence(11.0, 23.0, "yes it is")]
+        moments = MemoryReasoner(BrokenMemory()).rank(sents, target=20.0, n=1, tol=5.0)
+        assert len(moments) == 1
+        assert moments[0].why.startswith("cold-start")
+
+    def test_memory_reasoner_batches_embeddings_and_caps_judges(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory, StreamMention, ThreadRecord
+
+        calls = []
+
+        def embed(texts):
+            calls.append(len(texts))
+            return [[1.0, 0.0] if "target" in text else [0.0, 1.0] for text in texts]
+
+        memory = ChannelMemory("creator", root=tmp_path, embedder=embed)
+        memory.threads = [ThreadRecord(
+            id="thread_1",
+            kind="running_joke",
+            label="target thread",
+            summary="A callback target.",
+            first_seen=StreamMention("prior", 3.0, "target quote"),
+            mentions=[StreamMention("prior", 3.0, "target quote")],
+            embedding=[1.0, 0.0],
+        )]
+        judged = []
+
+        def judge(text, retrieved):
+            judged.append(text)
+            assert "embedding" not in retrieved[0]
+            return {"is_callback": False, "thread_id": None, "confidence": 0.0, "why": ""}
+
+        sents = [
+            Sentence(i * 10.0, i * 10.0 + 10.0,
+                     "target callback" if i in (4, 12, 20) else f"ordinary line {i}")
+            for i in range(30)
+        ]
+        MemoryReasoner(memory, judge=judge, judge_top_k=2).rank(
+            sents, target=10.0, n=3, min_gap=0.0, tol=1.0
+        )
+
+        assert calls == [30]
+        assert len(judged) == 2
+        assert all("target callback" in text for text in judged)
+
+    def test_memory_reasoner_rejects_hallucinated_thread_id(self):
+        class Memory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {0: [{"id": "real_thread", "label": "Real thread",
+                             "first_seen": {"stream_id": "prior", "t": 1.0,
+                                            "quote": "real quote"}}]}
+
+        def judge(text, retrieved):
+            return {"is_callback": True, "thread_id": "invented_thread",
+                    "confidence": 0.99, "why": "not grounded"}
+
+        moments = MemoryReasoner(Memory(), judge=judge).rank(
+            [Sentence(0.0, 10.0, "target callback")], target=10.0, n=1, tol=1.0
+        )
+        assert "callback" not in moments[0].signals
+
+    def test_memory_reasoner_rejects_low_confidence_callback(self):
+        class Memory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {0: [{"id": "thread_1", "label": "Thread",
+                             "first_seen": {"stream_id": "prior", "t": 1.0,
+                                            "quote": "quote"}}]}
+
+        def judge(text, retrieved):
+            return {"is_callback": True, "thread_id": "thread_1",
+                    "confidence": 0.1, "why": "weak"}
+
+        moments = MemoryReasoner(Memory(), judge=judge).rank(
+            [Sentence(0.0, 10.0, "target callback")], target=10.0, n=1, tol=1.0
+        )
+        assert "callback" not in moments[0].signals
+
+    def test_clip_manifest_includes_signals(self):
+        job = JobResult(job_id="job", source={},
+                        clips=[ClipResult(clip_id="c1", platform="shorts",
+                                          start=0.0, end=20.0, duration=20.0,
+                                          signals={"callback": True})])
+        assert job.to_dict()["clips"][0]["signals"] == {"callback": True}
+
+
+# ── ASR ──────────────────────────────────────────────────────────────────────
+
+class TestASR:
+    def test_vtt_roundtrip_preserves_words_and_timings(self, tmp_path):
+        """to_vtt must emit exactly what parse_vtt reads back, so an ASR transcript and
+        a platform transcript are indistinguishable downstream."""
+        from afterplay.asr import to_vtt
+        words = [Word(round(i * 0.37, 3), f"word{i}") for i in range(40)]
+        p = to_vtt(words, tmp_path / "asr.vtt")
+        back = parse_vtt(p.read_text(encoding="utf-8"))
+        assert [w.text for w in back] == [w.text for w in words]
+        for a, b in zip(back, words):
+            assert a.t == pytest.approx(b.t, abs=0.01)
+
+    def test_vtt_is_wellformed(self, tmp_path):
+        from afterplay.asr import to_vtt
+        p = to_vtt([Word(0.0, "hello"), Word(0.5, "world")], tmp_path / "a.vtt")
+        txt = p.read_text(encoding="utf-8")
+        assert txt.startswith("WEBVTT")
+        assert "-->" in txt and "<c>" in txt
+
+    def test_empty_words_yields_header_only(self, tmp_path):
+        from afterplay.asr import to_vtt
+        p = to_vtt([], tmp_path / "e.vtt")
+        assert parse_vtt(p.read_text(encoding="utf-8")) == []
+
+    def test_bad_model_path_raises_asr_unavailable(self, monkeypatch):
+        """A missing model must be a typed, catchable error — the orchestrator relies on
+        this to fall back to audio-energy detection instead of failing the job."""
+        from afterplay.asr import ASRUnavailable, MODEL_ENV, load_model
+        monkeypatch.setenv(MODEL_ENV, "/definitely/not/here")
+        with pytest.raises(ASRUnavailable):
+            load_model()
+
+    def test_transcript_wpm(self):
+        from afterplay.asr import Transcript
+        t = Transcript(words=[Word(0.0, "a"), Word(60.0, "b")], sents=[],
+                       language="en", language_prob=1.0, seconds=1.0, model="tiny")
+        assert t.wpm == pytest.approx(2.0, abs=0.1)
+
+
+# ── SponsorBlock ─────────────────────────────────────────────────────────────
+
+class TestSponsorBlock:
+    def test_video_id_extraction(self):
+        from afterplay.insights import video_id_from_url
+        for u in ("https://youtu.be/xUgE42wSzUM?si=abc",
+                  "https://www.youtube.com/watch?v=xUgE42wSzUM&t=10",
+                  "https://youtube.com/shorts/xUgE42wSzUM",
+                  "https://www.youtube.com/embed/xUgE42wSzUM"):
+            assert video_id_from_url(u) == "xUgE42wSzUM", u
+        assert video_id_from_url("https://example.com/video") is None
+        assert video_id_from_url("") is None
+
+    def test_overlap_detection_respects_tolerance(self):
+        from afterplay.insights import overlaps_sponsor
+        segs = [{"start": 100.0, "end": 130.0, "category": "sponsor", "votes": 5}]
+        assert overlaps_sponsor(110, 140, segs) is not None      # straddles
+        assert overlaps_sponsor(90, 125, segs) is not None       # starts before
+        assert overlaps_sponsor(0, 99, segs) is None             # clear
+        assert overlaps_sponsor(131, 160, segs) is None
+        assert overlaps_sponsor(129.5, 160, segs) is None        # within tolerance
+
+    def test_drop_sponsored_filters_and_keeps_order(self):
+        from afterplay.insights import drop_sponsored
+        ms = [Moment(0, 30, 5.0, "a", "why"), Moment(100, 130, 4.0, "b", "why"),
+              Moment(200, 230, 3.0, "c", "why")]
+        segs = [{"start": 95.0, "end": 135.0, "category": "sponsor", "votes": 9}]
+        kept = drop_sponsored(ms, segs)
+        assert [m.start for m in kept] == [0, 200]
+
+    def test_no_segments_is_a_passthrough(self):
+        from afterplay.insights import drop_sponsored
+        ms = [Moment(0, 30, 1.0, "a", "w")]
+        assert drop_sponsored(ms, []) is ms
+
+    def test_api_failure_degrades_to_empty(self, monkeypatch):
+        """A 404 means 'nothing submitted' and any other error must not fail a job."""
+        import afterplay.insights as I
+        import urllib.error
+
+        def boom(*a, **k):
+            raise urllib.error.HTTPError("u", 404, "nf", None, None)
+        monkeypatch.setattr(I.urllib.request, "urlopen", boom)
+        assert I.sponsor_segments("abc") == []
+
+        def worse(*a, **k):
+            raise TimeoutError("slow")
+        monkeypatch.setattr(I.insights_urlopen if hasattr(I, "insights_urlopen")
+                            else I.urllib.request, "urlopen", worse)
+        assert I.sponsor_segments("abc") == []
+
+
+# ── copy generation ──────────────────────────────────────────────────────────
+
+class TestCopy:
+    def test_heuristic_copy_strips_markup_and_extracts_keywords(self):
+        from afterplay.insights import heuristic_copy
+        c = heuristic_copy(">> [laughter] The plate trade is obviously worth it. "
+                           "Nobody would ever refuse that plate.", "shorts")
+        assert ">>" not in c.title and "[laughter]" not in c.title
+        assert c.title and len(c.title) <= 90
+        assert "plate" in c.hashtags
+        assert c.source == "heuristic"
+
+    def test_linkedin_gets_no_hashtags(self):
+        from afterplay.insights import heuristic_copy
+        assert heuristic_copy("Some professional insight about hiring.", "linkedin"
+                              ).hashtags == []
+
+    def test_generate_copy_without_client_uses_heuristic(self, monkeypatch):
+        # no Anthropic client AND no OpenAI key: the deterministic floor, and it must
+        # say so rather than pass heuristic text off as model output.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        from afterplay.insights import generate_copy
+        c = generate_copy("A sentence about testing things properly.", "shorts")
+        assert c.source == "heuristic" and c.title
+        assert c.fallback_reason and "OPENAI_API_KEY" in c.fallback_reason
+
+    def test_heuristic_title_is_not_a_raw_transcript_slice(self, monkeypatch):
+        """REGRESSION: ASR of a stream has no sentence punctuation, so the old
+        "first 88 characters" title shipped a mid-sentence transcript fragment
+        ("oh oh wow defense lawyer or Pro or prosecution I don't know he just has a
+        weird sign aro") as the creator-facing title."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        from afterplay.insights import TITLE_MAX, generate_copy
+        text = ("[Music] oh oh wow defense lawyer or Pro or prosecution I don't know "
+                "he just has a weird sign around him so I I feel like I need to "
+                "protect him maybe he's Buster and you have to defend him")
+        c = generate_copy(text, "shorts", title_hint="")
+        assert c.source == "heuristic"
+        assert len(c.title) <= TITLE_MAX <= 70
+        # not a prefix of the transcript, at any length, in either direction
+        stripped = text.replace("[Music] ", "")
+        assert not stripped.lower().startswith(c.title.lower()[:20])
+        assert c.title not in stripped
+
+    def test_heuristic_title_falls_back_to_the_source_title(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        from afterplay.insights import generate_copy
+        from afterplay.insights import NEUTRAL_TITLE
+        blob = "um so yeah anyway that happened and then it kept going"
+        assert generate_copy(blob, "shorts",
+                             title_hint="Among Us with the whole crew"
+                             ).title == "Among Us with the whole crew"
+        # link jobs pass the bare video id as the source title — not a headline
+        assert generate_copy(blob, "shorts",
+                             title_hint="BW_MAa5L9lg").title == NEUTRAL_TITLE
+
+    def test_generate_copy_falls_back_when_llm_errors(self):
+        from afterplay.insights import generate_copy
+
+        class Broken:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    raise RuntimeError("api down")
+        c = generate_copy("Real text here about something.", "shorts", client=Broken())
+        assert c.source == "heuristic"
+
+    def test_generate_copy_parses_llm_json(self):
+        from afterplay.insights import generate_copy
+
+        class Fake:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    class M:
+                        content = [type("T", (), {"text": json.dumps({
+                            "title": "A better title",
+                            "caption": "One line.",
+                            "hashtags": ["#Gaming", "clips"],
+                            "hook_text_overlay": "wait for it"})})]
+                    return M()
+        c = generate_copy("text", "shorts", client=Fake())
+        assert c.source == "llm" and c.title == "A better title"
+        assert c.hashtags == ["gaming", "clips"]        # normalised
+        assert c.hook_text_overlay == "wait for it"
+
+
+# ── analytics loop ───────────────────────────────────────────────────────────
+
+class TestAnalytics:
+    def _seed(self, tmp_path, monkeypatch, n=8):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay.insights import Analytics, Metric
+        a = Analytics("creator1")
+        for i in range(n):
+            kind = "punchline" if i % 2 == 0 else "unknown"
+            clip = {"clip_id": f"c{i}", "duration": 30.0, "start": 100.0 * i,
+                    "why": "cold-start: 2 audio-events" if kind == "punchline" else "x",
+                    "attempts": 1, "repairs": [], "source_duration": 900.0}
+            a.record_post(clip, "shorts", f"post{i}")
+            # punchlines get much better retention
+            a.record_metric(Metric(post_id=f"post{i}", views=1000,
+                                   likes=100 if kind == "punchline" else 10,
+                                   comments=10, shares=5, saves=5,
+                                   avg_watch_pct=80.0 if kind == "punchline" else 25.0))
+        return a
+
+    def test_attribution_joins_metrics_to_features(self, tmp_path, monkeypatch):
+        a = self._seed(tmp_path, monkeypatch)
+        joined = a.attribute()
+        assert len(joined) == 8
+        assert all("score" in j and "features" in j for j in joined)
+
+    def test_priors_show_lift_for_the_better_moment_type(self, tmp_path, monkeypatch):
+        a = self._seed(tmp_path, monkeypatch)
+        pr = a.compute_priors()
+        assert pr["ready"] is True and pr["n"] == 8
+        types = pr["by"]["moment_type"]
+        assert types["punchline"]["lift"] > 1.0
+        assert types["punchline"]["lift"] > types["unknown"]["lift"]
+
+    def test_priors_not_ready_with_thin_history(self, tmp_path, monkeypatch):
+        a = self._seed(tmp_path, monkeypatch, n=1)
+        assert a.compute_priors()["ready"] is False
+
+    def test_ranking_hints_are_compact(self, tmp_path, monkeypatch):
+        a = self._seed(tmp_path, monkeypatch)
+        a.compute_priors()
+        h = a.ranking_hints()
+        assert "punchline" in h["winning_types"]
+        assert h["n"] == 8
+
+    def test_priors_rerank_moments_but_do_not_dominate(self, tmp_path, monkeypatch):
+        a = self._seed(tmp_path, monkeypatch)
+        a.compute_priors()
+        ms = [Moment(0, 30, 1.0, "t", "cold-start: 2 audio-events"),
+              Moment(60, 90, 1.05, "t", "x")]
+        out = a.apply_to_moments(ms, weight=0.25)
+        # the punchline should now lead despite starting lower
+        assert out[0].start == 0
+        # bounded: a single prior cannot multiply a score arbitrarily
+        assert out[0].score < 1.5
+
+    def test_csv_and_json_ingest(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay.insights import Analytics
+        a = Analytics("c2")
+        csv_p = tmp_path / "m.csv"
+        csv_p.write_text("post_id,views,likes,avg_watch_pct\np1,500,50,60\n"
+                         "p2,900,10,20\n", encoding="utf-8")
+        assert a.ingest_csv(csv_p) == 2
+        js = tmp_path / "m.json"
+        js.write_text(json.dumps([{"post_id": "p3", "views": 10, "likes": 1,
+                                   "avg_watch_pct": 5}]), encoding="utf-8")
+        assert a.ingest_json(js) == 1
+        assert len(a.metrics) == 3
+
+    def test_metric_score_weights_retention_over_raw_views(self):
+        from afterplay.insights import Metric
+        retained = Metric(post_id="a", views=100, likes=5, avg_watch_pct=90)
+        viral_but_skipped = Metric(post_id="b", views=100000, likes=50, avg_watch_pct=5)
+        assert retained.score() > viral_but_skipped.score()
+
+    def test_corrupt_analytics_file_degrades(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        d = tmp_path / "mem" / "c3"
+        d.mkdir(parents=True)
+        (d / "posts.json").write_text("{{{", encoding="utf-8")
+        from afterplay.insights import Analytics
+        assert Analytics("c3").posts == []
+
+
+# ── face reframing ───────────────────────────────────────────────────────────
+
+class TestVision:
+    def test_model_path_finds_the_downloaded_model_or_returns_none(self):
+        from afterplay.vision import model_path
+        p = model_path()
+        assert p is None or p.exists()
+
+    def test_env_override_wins(self, tmp_path, monkeypatch):
+        from afterplay.vision import MODEL_ENV, model_path
+        fake = tmp_path / "m.onnx"
+        fake.write_bytes(b"x" * 10)
+        monkeypatch.setenv(MODEL_ENV, str(fake))
+        assert model_path() == fake
+
+    def test_missing_model_disables_face_detection_cleanly(self, tmp_path, monkeypatch):
+        from afterplay.vision import MODEL_ENV, detect_faces
+        monkeypatch.setenv(MODEL_ENV, str(tmp_path / "nope.onnx"))
+        monkeypatch.setattr("afterplay.vision.DEFAULT_PATHS", ())
+        track = detect_faces(tmp_path / "no_such_video.mp4")
+        assert not track and track.coverage == 0.0
+
+    def test_no_faces_in_a_test_pattern_falls_back_to_saliency(self, tmp_path):
+        """testsrc has no faces, so the face path must decline and saliency must run."""
+        from afterplay.core import synth_source
+        from afterplay.vision import face_crop_path, track_subject_best
+        v = synth_source(tmp_path / "s.mp4", seconds=6, size=(640, 360), tone=False)
+        plat = PLATFORMS["shorts"]
+        assert face_crop_path(v, plat.aspect) is None
+        cp = track_subject_best(v, plat.aspect)          # must still produce a crop
+        assert cp.crop_w > 0 and cp.keys
+
+    def test_safe_zone_helper_abstains_without_faces(self, tmp_path):
+        from afterplay.core import synth_source
+        from afterplay.vision import face_in_safe_zone
+        v = synth_source(tmp_path / "s2.mp4", seconds=4, size=(640, 360), tone=False)
+        ok, metrics = face_in_safe_zone(v, PLATFORMS["shorts"])
+        assert ok is True                      # abstain, never fail on no evidence
+        assert "verdict" in metrics or "edge_frac" in metrics
+
+
+# ── MCP surface ──────────────────────────────────────────────────────────────
+
+class TestMCP:
+    def test_specs_are_llm_ready(self):
+        from afterplay.mcp_server import specs
+        s = specs()
+        assert len(s) == 5
+        names = {t["name"] for t in s}
+        assert names == {"plan_clips", "make_clips", "inspect_clip",
+                         "creator_report", "transcribe"}
+        for t in s:
+            assert t["description"] and t["schema"]["type"] == "object"
+            assert "fn" not in t
+        # the expensive tool must warn a model off casual use
+        mk = next(t for t in s if t["name"] == "make_clips")
+        assert "EXPENSIVE" in mk["description"]
+
+    def test_unknown_tool_returns_json_error_not_exception(self):
+        from afterplay.mcp_server import call
+        out = json.loads(call("nope"))
+        assert "error" in out and "available" in out
+
+    def test_tool_errors_are_returned_as_json(self):
+        from afterplay.mcp_server import call
+        out = json.loads(call("inspect_clip", path="/no/such/file.mp4"))
+        assert "error" in out
+
+    def test_plan_requires_a_source(self):
+        from afterplay.mcp_server import call
+        assert "error" in json.loads(call("plan_clips"))
+
+    def test_make_clips_validates_platforms(self):
+        from afterplay.mcp_server import call
+        out = json.loads(call("make_clips", url="x", platforms="myspace"))
+        assert "error" in out and "known" in out
+
+    def test_creator_report_works_on_an_unknown_creator(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay.mcp_server import call
+        out = json.loads(call("creator_report", creator="brand_new"))
+        assert out["creator"] == "brand_new" and "analytics" in out
+
+
+class TestCopyWiring:
+    """REGRESSION: the ClipResult was built without `text_for_copy`, so the copy stage
+    saw an empty string, skipped silently, and every clip shipped with no title or
+    hashtags. A patch that no-ops is worse than one that fails."""
+
+    def test_clip_result_carries_its_transcript(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay.agent import ClipAgent, HeuristicPolicy
+        from afterplay.core import Brand, PLATFORMS, Settings, synth_source
+        from afterplay.understand import Moment, Word
+        src = synth_source(tmp_path / "s.mp4", seconds=14, size=(640, 360), tone=True)
+        s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o",
+                     max_repair_attempts=0)
+        words = [Word(i * 0.4, f"word{i}") for i in range(30)]
+        agent = ClipAgent(tmp_path / "w", str(src), words, s, Brand(),
+                          HeuristicPolicy())
+        m = Moment(1.0, 9.0, 1.0, "A real sentence about a plate trade.", "test")
+        res = agent.run(m, PLATFORMS["shorts"], "c1")
+        assert res.text_for_copy, "copy stage would silently produce nothing"
+        assert "plate" in res.text_for_copy
+
+    def test_copy_is_attached_by_a_full_job(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)   # keep this offline
+        from afterplay import Orchestrator, Settings
+        from afterplay.core import synth_source
+        src = synth_source(tmp_path / "s2.mp4", seconds=16, size=(640, 360), tone=True)
+        vtt = tmp_path / "s.vtt"
+        vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:14.000\n"
+                       ">> The plate trade is obviously worth it. [laughter] "
+                       "Nobody refuses a plate like that. Really?\n", encoding="utf-8")
+        s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o",
+                     max_repair_attempts=0)
+        job = Orchestrator(settings=s, workers=1).run(
+            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+            target=8.0, job_id="copy1")
+        done = [c for c in job.clips if c.ok]
+        assert done, [c.error for c in job.clips]
+        c = done[0]
+        assert c.copy, "no copy attached to a delivered clip"
+        assert c.copy["title"] and c.copy["source"] == "heuristic"
+        assert ">>" not in c.copy["title"] and "[laughter]" not in c.copy["title"]
+
+
+# ── phase 1: memory lifecycle (A1-A4) ─────────────────────────────────────────
+
+class TestBackfillASRFallback:
+    """A1: backfill must work on sources with no captions.
+
+    Without this, channel memory cannot be built for gameplay VODs at all, which is
+    exactly the content the product targets."""
+
+    def _args(self, tmp_path, **kw):
+        import argparse
+        base = dict(url=None, info_json=None, vtt=None, local=None,
+                    creator="c_asr", stream_id="s1")
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_local_source_without_captions_uses_asr(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+        from afterplay import cli
+        from afterplay.core import synth_source
+        from afterplay.understand import Word
+
+        src = synth_source(tmp_path / "nocap.mp4", seconds=12, size=(320, 180), tone=True)
+
+        from afterplay.understand import sentences
+        _words = [Word(i * 0.5, w) for i, w in enumerate(
+            "Ravi missed the shot again so he is now the cursed sniper.".split())]
+
+        class FakeTranscript:
+            model = "fake-whisper"
+            words = _words
+            sents = sentences(_words)
+
+        monkeypatch.setattr("afterplay.asr.transcribe", lambda *a, **k: FakeTranscript())
+        captured = {}
+        monkeypatch.setattr("afterplay.channel_memory.ChannelMemory.backfill",
+                            lambda self, sid, sents, **k: captured.setdefault("sents", sents) or [])
+
+        rc = cli.cmd_backfill(self._args(tmp_path, local=str(src)))
+        assert rc == 0, "backfill failed on a caption-less local source"
+        assert captured.get("sents"), "ASR transcript never reached thread extraction"
+
+    def test_missing_asr_reports_an_actionable_error(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+        from afterplay import cli
+        from afterplay.asr import ASRUnavailable
+        from afterplay.core import synth_source
+
+        src = synth_source(tmp_path / "nocap2.mp4", seconds=8, size=(320, 180), tone=True)
+
+        def boom(*a, **k):
+            raise ASRUnavailable("faster-whisper is not installed")
+
+        monkeypatch.setattr("afterplay.asr.transcribe", boom)
+        rc = cli.cmd_backfill(self._args(tmp_path, local=str(src)))
+        err = capsys.readouterr().err.lower()
+        assert rc != 0
+        # must name the real cause, not fall back to the generic "needs captions" message
+        assert "whisper" in err or "asr" in err, err
+
+
+class TestMemoryDegradationSignal:
+    """A2: a dead key must be distinguishable from a stream with no callback."""
+
+    def _sents(self):
+        from afterplay.understand import Sentence
+        return [Sentence(i * 4.0, i * 4.0 + 3.5, f"line number {i} about the squad")
+                for i in range(14)]
+
+    def test_judge_failure_marks_memory_degraded(self):
+        from afterplay.understand import MemoryReasoner
+
+        class Mem:
+            threads = [object()]
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                raise RuntimeError("401 unauthorized")
+
+        r = MemoryReasoner(Mem(), judge=lambda *a: {})
+        picked = r.rank(self._sents(), None, target=20.0, n=3)
+        assert picked, "degradation must still return heuristic moments"
+        assert r.memory_degraded is True
+        assert r.memory_degradation_reason
+
+    def test_clean_run_with_no_callback_is_not_degraded(self):
+        from afterplay.understand import MemoryReasoner
+
+        class Mem:
+            threads = []
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {}
+
+        r = MemoryReasoner(Mem(), judge=lambda *a: {"is_callback": False})
+        picked = r.rank(self._sents(), None, target=20.0, n=3)
+        assert picked
+        assert r.memory_degraded is False, "no-callback must not look like a failure"
+        assert r.callback_found is False
+
+
+class TestJobStatus:
+    """A3: a run that dies before writing a manifest must not look complete."""
+
+    def test_completed_run_writes_status_complete(self, tmp_path):
+        import json as _json
+        from afterplay import Orchestrator, Settings
+        from afterplay.core import synth_source
+        src = synth_source(tmp_path / "st.mp4", seconds=14, size=(320, 180), tone=True)
+        vtt = tmp_path / "st.vtt"
+        vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:12.000\n"
+                       "A complete thought that ends cleanly. Another one here.\n",
+                       encoding="utf-8")
+        s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=0)
+        Orchestrator(settings=s, workers=1).run(
+            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+            target=8.0, job_id="statusok")
+        status = _json.loads((tmp_path / "w" / "statusok" / "status.json").read_text())
+        assert status["state"] == "complete"
+        assert status.get("manifest")
+
+
+class TestResultsCli:
+    """A4: recorded outcomes must land where Analytics reads them."""
+
+    def test_results_command_records_metrics_and_computes_priors(self, tmp_path, monkeypatch):
+        import argparse, json as _json
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        payload = [{"post_id": f"p{i}", "views": 100 * i, "avg_watch_pct": 40 + i}
+                   for i in range(1, 5)]
+        f = tmp_path / "rows.json"
+        f.write_text(_json.dumps(payload), encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_res", input=str(f), min_samples=3, json=True))
+        assert rc == 0
+        metrics = _json.loads((tmp_path / "mem" / "c_res" / "metrics.json").read_text())
+        assert len(metrics) == 4
+
+    def test_csv_export_reaches_priors(self, tmp_path, monkeypatch):
+        """A creator's real analytics arrive as a CSV export, not hand-written JSON.
+
+        `Analytics.ingest_csv` existed but no command reached it, so real published
+        performance had no route into the ranking priors. This drives the whole join:
+        CSV rows -> metrics -> attribute() against recorded posts -> priors.
+        """
+        import argparse, json as _json
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        from afterplay.insights import Analytics
+
+        # posts first: metrics with no matching post cannot be attributed
+        a = Analytics("c_csv")
+        for i, mtype in enumerate(("punchline", "punchline", "story", "story"), 1):
+            a.record_post({"clip_id": f"clip0{i}_shorts", "duration": 22.0, "start": 900.0,
+                           "source_duration": 2400.0, "signals": {"moment_type": mtype}},
+                          platform="shorts", post_id=f"yt_{i}")
+
+        csv_path = tmp_path / "yt_studio_export.csv"
+        csv_path.write_text(
+            "post_id,views,likes,comments,shares,saves,avg_watch_pct\n"
+            "yt_1,4210,120,18,9,4,62\n"
+            "yt_2,3980,110,15,7,3,59\n"
+            "yt_3,880,20,3,1,0,31\n"
+            "yt_4,910,22,4,1,0,29\n", encoding="utf-8")
+
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_csv", input=str(csv_path), min_samples=3, json=True))
+        assert rc == 0
+
+        metrics = _json.loads((tmp_path / "mem" / "c_csv" / "metrics.json").read_text())
+        assert len(metrics) == 4, "every CSV row should land as a metric"
+
+        priors = _json.loads((tmp_path / "mem" / "c_csv" / "priors.json").read_text())
+        assert priors["ready"] is True and priors["n"] == 4
+        by_type = priors["by"]["moment_type"]
+        assert by_type["punchline"]["lift"] > by_type["story"]["lift"], (
+            "the CSV said punchlines outperformed; the priors must say so too")
+
+    def test_csv_rows_without_matching_posts_are_reported_unattributed(self, tmp_path, monkeypatch, capsys):
+        """Unattributed rows must be visible, not silently absent from the priors."""
+        import argparse, json as _json
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        csv_path = tmp_path / "orphans.csv"
+        csv_path.write_text("post_id,views,avg_watch_pct\nunknown_1,500,40\n"
+                            "unknown_2,600,44\nunknown_3,700,48\n", encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_orphan", input=str(csv_path), min_samples=3, json=True))
+        assert rc == 0
+        out = _json.loads(capsys.readouterr().out)
+        assert out["records"] == 3 and out["attributed"] == 0
+        assert out["compute_priors"]["ready"] is False
+
+    def test_unreadable_csv_fails_loudly(self, tmp_path, monkeypatch):
+        import argparse
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        bad = tmp_path / "bad.csv"
+        bad.write_text("post_id,views\nyt_1,not_a_number\n", encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_bad", input=str(bad), min_samples=3, json=True))
+        assert rc == 2, "a malformed export must not look like a successful ingest"
+
+    def test_failed_csv_ingest_records_nothing(self, tmp_path, monkeypatch):
+        """A rejected import must not leave a partial prefix behind.
+
+        record_metric persists per call, so a bad row halfway down once left the earlier
+        rows written while the CLI reported failure — and the retry double-recorded them.
+        """
+        import argparse
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import cli
+        bad = tmp_path / "half_bad.csv"
+        bad.write_text("post_id,views,avg_watch_pct\nyt_1,100,40\nyt_2,200,45\n"
+                       "yt_3,GARBAGE,50\n", encoding="utf-8")
+        rc = cli.cmd_results(argparse.Namespace(
+            creator="c_partial", input=str(bad), min_samples=3, json=True))
+        assert rc == 2
+        assert not (tmp_path / "mem" / "c_partial" / "metrics.json").exists(), \
+            "the two good rows before the bad one must not have been persisted"
+
+
+class TestConfiguredDirs:
+    """Config paths must not depend on which directory the command was run from."""
+
+    def test_relative_workdir_is_repo_anchored_not_cwd_anchored(self, tmp_path, monkeypatch):
+        """REGRESSION: `.env` ships AFTERPLAY_WORKDIR=services/video-clipper/.work.
+
+        Resolved against the cwd, running from the service directory — which is exactly
+        what the README says to do — produced
+        `services/video-clipper/services/video-clipper/.work`. The job succeeded, wrote a
+        manifest nobody reads, and Studio kept serving the previous run.
+        """
+        from afterplay.core import REPO_ROOT, Settings
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", "services/video-clipper/.work")
+        monkeypatch.setenv("AFTERPLAY_OUTDIR", "services/video-clipper/.out")
+        monkeypatch.chdir(REPO_ROOT / "services" / "video-clipper")
+        s = Settings()
+        assert s.workdir == REPO_ROOT / "services" / "video-clipper" / ".work"
+        assert s.outdir == REPO_ROOT / "services" / "video-clipper" / ".out"
+
+    def test_absolute_paths_are_left_alone(self, tmp_path, monkeypatch):
+        from afterplay.core import Settings
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+        monkeypatch.setenv("AFTERPLAY_OUTDIR", str(tmp_path / "o"))
+        s = Settings()
+        assert s.workdir == tmp_path / "w" and s.outdir == tmp_path / "o"
+
+    def test_memory_root_follows_the_same_rule(self, tmp_path, monkeypatch):
+        """A backfill and the run that consumes it must reach the same store."""
+        from afterplay.core import REPO_ROOT
+        from afterplay.memory import memory_root
+        monkeypatch.setenv("AFTERPLAY_MEMORY", "services/video-clipper/.memory")
+        monkeypatch.chdir(REPO_ROOT / "services" / "video-clipper")
+        from_service_dir = memory_root()
+        monkeypatch.chdir(REPO_ROOT)
+        assert memory_root() == from_service_dir
+
+
+class TestCallbackFoundReflectsShippedClips:
+    """REGRESSION: `callback_found` described candidates, not output.
+
+    A callback detected in a window that lost the top-n cut still set the flag, so the
+    manifest claimed a callback, the honest no-callback message was suppressed, and the
+    UI had no citation to render — the silent state the status contract exists to stop.
+    """
+
+    @staticmethod
+    def _reasoner(boost: float):
+        class Memory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {i: [{"id": "thread_1", "label": "the thread",
+                             "first_seen": {"stream_id": "prior", "t": 1.0,
+                                            "quote": "the setup"}}]
+                        for i in range(len(texts))}
+
+        def judge(text, retrieved):
+            hit = "callback line" in text
+            return {"is_callback": hit, "thread_id": "thread_1" if hit else None,
+                    "confidence": 0.6 if hit else 0.0, "why": "pays off the thread"}
+
+        return MemoryReasoner(Memory(), judge=judge, judge_top_k=50, boost=boost)
+
+    @staticmethod
+    def _sents():
+        """Loud standalone windows first, a flat callback window last.
+
+        The callback is real but scores below the excitable windows, so with n=1 it is
+        found during scoring and then dropped by the cut — exactly the case the old flag
+        misreported.
+        """
+        return [Sentence(i * 10.0, i * 10.0 + 10.0,
+                         "callback line here" if i >= 10
+                         else f"wow what?! did you see that?! how?! amazing!! {i}")
+                for i in range(12)]
+
+    def test_callback_ranked_out_is_not_reported_as_found(self):
+        from afterplay.agent import Orchestrator
+        reasoner = self._reasoner(boost=0.0)
+        picked = reasoner.rank(self._sents(), target=10.0, n=1, min_gap=0.0, tol=1.0)
+
+        assert not any(m.signals.get("callback") for m in picked),             "fixture precondition: the callback must lose the cut here"
+        assert reasoner.callback_found is False,             "the flag must describe the clips returned, not every window scored"
+        assert reasoner.callbacks_ranked_out > 0,             "the discarded callback must stay visible, not vanish"
+
+        memory = Orchestrator._memory_manifest(reasoner)
+        assert memory["callback_found"] is False
+        assert memory["callbacks_ranked_out"] == reasoner.callbacks_ranked_out
+        message = Orchestrator._job_message(memory)
+        assert message and "scored below" in message,             "a callback that ranked out must be reported, not silently dropped"
+
+    def test_callback_that_ships_is_reported_and_has_a_citation(self):
+        from afterplay.agent import Orchestrator
+        reasoner = self._reasoner(boost=3.0)
+        picked = reasoner.rank(self._sents(), target=10.0, n=6, min_gap=0.0, tol=1.0)
+        assert any(m.signals.get("callback") for m in picked)
+        memory = Orchestrator._memory_manifest(reasoner)
+        assert memory["callback_found"] is True
+        assert Orchestrator._job_message(memory) is None
+        # Every claimed callback must carry the evidence trail.
+        for m in picked:
+            if m.signals.get("callback"):
+                assert m.signals["source_stream"] and m.signals["source_quote"]

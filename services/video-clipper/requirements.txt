@@ -1,0 +1,11 @@
+yt-dlp>=2025.1.1
+opencv-python>=4.9
+numpy>=1.26
+imageio-ffmpeg>=0.5
+openai>=1.50
+pytest>=8
+
+# optional, each degrades cleanly when absent:
+#   faster-whisper>=1.0   ASR for sources with no captions
+#   anthropic>=0.40       LLM ranking, vision QC, copy generation  (--llm)
+#   mcp[cli]>=1.2         MCP server transport
