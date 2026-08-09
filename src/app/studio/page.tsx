@@ -35,6 +35,34 @@ function clipLabel(clip: {
   return trimmed.length > 72 ? `${trimmed.slice(0, 69).trimEnd()}…` : trimmed;
 }
 
+/** Turn the picker's internal reason into something a creator can read.
+ *
+ * `why` is a diagnostic string — "cold-start: 1 audio-events, 0 turns, 0 questions,
+ * 222 wpm" — and it was being rendered as the clip's pull-quote. A callback reason is
+ * genuinely informative and stays; a cold-start reason is not, so it becomes a plain
+ * statement of how the moment was chosen instead of leaking instrumentation. */
+function selectionReason(clip: {
+  why?: string; callback?: boolean; threadLabel?: string; callbackConfidence?: number;
+}): string {
+  const why = clip.why?.trim() ?? "";
+  if (clip.callback && clip.threadLabel) {
+    return `Pays off “${clip.threadLabel}” from an earlier stream${
+      clip.callbackConfidence ? ` · confidence ${clip.callbackConfidence}` : ""}.`;
+  }
+  if (!why || /^cold-start:/.test(why)) {
+    const events = why.match(/(\d+) audio-events/)?.[1];
+    const wpm = why.match(/(\d+) wpm/)?.[1];
+    const signals = [
+      events && Number(events) > 0 ? `${events} audio peak${Number(events) === 1 ? "" : "s"}` : null,
+      wpm ? `${wpm} words per minute` : null,
+    ].filter(Boolean);
+    return signals.length
+      ? `Chosen on delivery signals: ${signals.join(", ")}. No earlier stream was referenced here.`
+      : "Chosen as a strong standalone moment. No earlier stream was referenced here.";
+  }
+  return why;
+}
+
 function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`;
 }
@@ -67,7 +95,7 @@ export default function StudioPage() {
   return (
     <WorkspaceShell active="Studio" pageName="Studio">
       <div className="surface studio-surface">
-        <section className="page-hero studio-hero"><div><h1>Review the package</h1><p>Review the {plural(experiment.outputs.length, "cut", "cuts")} as one test. Together they name the series, show how chat participates, and point to the next stream.</p><div className="hero-meta"><span className="status-chip status-chip--review">Needs approval</span><span>Revision {experiment.revision}</span><span>{plural(experiment.outputs.length, "output", "outputs")}</span>{realClips.length ? <span>{plural(realClips.length, "clipper clip", "clipper clips")}</span> : null}</div></div><div className="studio-summary"><span><Check weight="bold" /> Matches Experiment 04</span><span><ShieldCheck weight="fill" /> Synthetic project-owned media</span></div></section>
+        <section className="page-hero studio-hero"><div><h1>Review the package</h1><p>{realClips.length ? `${plural(realClips.length, "clip", "clips")} from the latest run, each with the evidence for why it was chosen. Approving here approves the real clips too.` : "No clipper run yet. Clip a stream from Ingest and its clips appear here with their evidence trail."}</p><div className="hero-meta"><span className="status-chip status-chip--review">Needs approval</span><span>Revision {experiment.revision}</span>{realClips.length ? <span>{plural(realClips.length, "real clip", "real clips")}</span> : null}<span>{plural(experiment.outputs.length, "seeded output", "seeded outputs")}</span></div></div><div className="studio-summary"><span><Check weight="bold" /> Approval gates distribution</span><span><ShieldCheck weight="fill" /> {realClips.length ? "Real pipeline output + seeded sample" : "Seeded sample only"}</span></div></section>
 
         {manifest ? (
           <section className="manifest-panel" aria-label="Latest clipper manifest">
@@ -89,7 +117,7 @@ export default function StudioPage() {
                 return (
                   <article className="output-card" key={clip.clip_id} aria-label={clip.clip_id}>
                     <div className="output-preview manifest-preview"><video controls preload="metadata" src={`/api/clips/${encodeURIComponent(clip.clip_id)}/media`} aria-label={`${clip.clip_id} preview`} /><span className="output-order">0{index + 1}</span><span className="duration">{Math.round(clip.duration)}s</span></div>
-                    <div className="output-body"><h2>{clipLabel(clip)}</h2><small className="clip-id">{clip.clip_id}</small><div className="output-platform"><span>{clip.callback ? "callback clip" : "service clip"}</span><strong>{clip.platform}</strong></div><blockquote>“{clip.why || "Manifest clip from the Python service."}”</blockquote><p>{clip.text_for_copy || clip.path || "No transcript excerpt was included in the manifest."}</p><div className="output-rationale"><span>{clip.callback ? "Callback evidence" : "Manifest"}</span><strong>{clip.callback ? `${clip.threadLabel ?? "Thread"} · confidence ${clip.callbackConfidence ?? "?"}` : manifest.manifestPath}</strong>{clip.callback ? <div className="callback-citation"><span>{clip.sourceStream ?? "Unknown source"}{sourceTime ? ` · ${sourceTime}` : ""}</span><q>{clip.sourceQuote ?? "No source quote recorded."}</q></div> : null}</div><div className="provenance"><ShieldCheck /><span>Real clipper manifest</span></div></div>
+                    <div className="output-body"><h2>{clipLabel(clip)}</h2><small className="clip-id">{clip.clip_id}</small><div className="output-platform"><span>{clip.callback ? "callback clip" : "service clip"}</span><strong>{clip.platform}</strong></div><p className="selection-reason">{selectionReason(clip)}</p><p className="clip-transcript"><span>Transcript</span>{clip.text_for_copy || "No transcript excerpt was included in the manifest."}</p><div className="output-rationale"><span>{clip.callback ? "Callback evidence" : "Manifest"}</span><strong>{clip.callback ? `${clip.threadLabel ?? "Thread"} · confidence ${clip.callbackConfidence ?? "?"}` : manifest.manifestPath}</strong>{clip.callback ? <div className="callback-citation"><span>{clip.sourceStream ?? "Unknown source"}{sourceTime ? ` · ${sourceTime}` : ""}</span><q>{clip.sourceQuote ?? "No source quote recorded."}</q></div> : null}</div><div className="provenance"><ShieldCheck /><span>Real clipper manifest</span></div></div>
                   </article>
                 );
               })}
@@ -125,6 +153,13 @@ export default function StudioPage() {
           </section>
         ) : null}
 
+        <section className="section-heading section-heading--standalone">
+          <h2>Seeded experiment package</h2>
+          <span className="sample-note">
+            Authored sample content for the growth-experiment loop — not produced by the
+            clipper, and not real media. The real clips are above.
+          </span>
+        </section>
         <section className="output-grid" aria-label="Experiment outputs">
           {experiment.outputs.map((output, index) => (
             <article className="output-card" key={output.id} aria-label={output.title}>

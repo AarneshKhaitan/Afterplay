@@ -72,11 +72,18 @@ class CropPath:
     keys: list[tuple[float, float]] = field(default_factory=list)
     static: bool = False
 
-    def expr(self, src_w: int) -> str:
-        """An ffmpeg crop-x expression: piecewise-linear pan between keypoints."""
-        max_x = max(0, src_w - self.crop_w)
+    def expr(self, src_w: int, crop_w: int | None = None) -> str:
+        """An ffmpeg crop-x expression: piecewise-linear pan between keypoints.
+
+        `crop_w` overrides the path's own width for renders that widen or tighten the
+        window (context floor, zoom): the keypoints are subject *centres*, so the
+        half-width subtracted here has to be the one actually cropped, not the one
+        the tracker planned with.
+        """
+        cw = crop_w or self.crop_w
+        max_x = max(0, src_w - cw)
         def clamp(x):
-            return min(max(0.0, x - self.crop_w / 2), max_x)
+            return min(max(0.0, x - cw / 2), max_x)
         if self.static or len(self.keys) < 2:
             x = clamp(self.keys[0][1]) if self.keys else max_x / 2
             return f"{x:.1f}"
@@ -292,6 +299,11 @@ class RenderSpec:
     ass: Path | None = None
     zoom: float = 1.0                # >1 tightens the crop (subject-out-of-frame fix)
     x_bias: float = 0.0              # nudge the crop window horizontally (px)
+    # A hard 9:16 crop of a 16:9 source keeps 31.6% of the frame width and then blows
+    # it up 2.7x — heads lose their tops, two-shots lose a head. Below this fraction of
+    # the source width we crop WIDER than the target and letterbox the surplus over a
+    # blurred fill instead of cropping it away. 0 restores the edge-to-edge crop.
+    min_width_frac: float = 0.50
     loudnorm: bool = True
     watermark: Path | None = None
 
@@ -303,19 +315,34 @@ class RenderSpec:
 
 def build_filtergraph(spec: RenderSpec, src: MediaInfo) -> str:
     p = spec.platform
+    fill = False
     if spec.crop:
-        cw = int(spec.crop.crop_w / max(1.0, spec.zoom)) & ~1
+        # widen to the context floor BEFORE zoom, so a repair that tightens the crop
+        # still tightens relative to the framing the viewer would otherwise have got
+        base_w = max(spec.crop.crop_w, min(src.width, int(src.width * spec.min_width_frac)))
+        cw = int(base_w / max(1.0, spec.zoom)) & ~1
         ch = int(spec.crop.crop_h / max(1.0, spec.zoom)) & ~1
-        xe = spec.crop.expr(src.width)
+        xe = spec.crop.expr(src.width, cw)
         if spec.x_bias:
             xe = f"({xe})+({spec.x_bias:.1f})"
         xe = f"max(0,min({src.width - cw},{xe}))"
         ye = f"(ih-{ch})/2"
         vf = [f"crop={cw}:{ch}:x='{xe}':y='{ye}'"]
+        fill = cw * p.height > ch * p.width          # wider than target -> can't fill
     else:
         vf = [f"crop='min(iw,ih*{p.aspect:.6f})':'min(ih,iw/{p.aspect:.6f})'"]
 
-    vf.append(f"scale={p.width}:{p.height}:flags=lanczos")
+    if fill:
+        # The surplus width means the sharp frame no longer fills 9:16. Sit it on a
+        # blurred, slightly darkened copy of itself rather than black bars: the blur is
+        # computed at 1/8 scale so it costs almost nothing.
+        vf.append(f"split=2[bg][fg];"
+                  f"[bg]scale={p.width // 8}:{p.height // 8},boxblur=8:2,"
+                  f"scale={p.width}:{p.height},setsar=1,eq=brightness=-0.08[bgo];"
+                  f"[fg]scale={p.width}:-2:flags=lanczos,setsar=1[fgo];"
+                  f"[bgo][fgo]overlay=(W-w)/2:(H-h)/2")
+    else:
+        vf.append(f"scale={p.width}:{p.height}:flags=lanczos")
     vf.append(f"fps={p.fps}")
     vf.append("setsar=1")
     if spec.ass:

@@ -103,6 +103,10 @@ this to was we were what when which who will with you your just like get got don
 really thats gonna wanna know think going yeah okay right""".split())
 
 
+TITLE_MAX = 70          # a headline a creator would actually post fits in one line
+NEUTRAL_TITLE = "Stream highlight"
+
+
 @dataclass
 class Copy:
     title: str
@@ -110,6 +114,9 @@ class Copy:
     hashtags: list[str] = field(default_factory=list)
     hook_text_overlay: str | None = None
     source: str = "heuristic"
+    # why the LLM path was not used, when it was attempted and did not produce copy.
+    # `source` must never claim "llm" for text the heuristic wrote.
+    fallback_reason: str | None = None
 
 
 def _keywords(text: str, k: int = 6) -> list[str]:
@@ -122,40 +129,105 @@ def _keywords(text: str, k: int = 6) -> list[str]:
     return [w for w, _ in sorted(freq.items(), key=lambda x: (-x[1], x[0]))[:k]]
 
 
-def heuristic_copy(text: str, platform: str, title_hint: str = "") -> Copy:
-    """Deterministic copy: first strong sentence as the title, keywords as tags.
+def _clamp_words(s: str, limit: int) -> str:
+    """Truncate on a word boundary. A line cut mid-word reads like a bug, not copy."""
+    s = s.strip()
+    if len(s) <= limit:
+        return s
+    return (s[:limit].rsplit(" ", 1)[0] or s[:limit]).rstrip(" ,;:-")
+
+
+def _headline(clean: str, title_hint: str) -> str:
+    """A line a human would post.
+
+    ASR of a stream is one long unpunctuated run, so the old "first 88 characters"
+    rule shipped a mid-sentence transcript slice as the title. Only a COMPLETE short
+    sentence earns the slot; otherwise use the source title, and failing that say
+    plainly that this is an untitled highlight rather than fake one out of speech.
+    """
+    for s in re.split(r"(?<=[.!?])\s+", clean):
+        s = s.strip()
+        if 12 < len(s) <= TITLE_MAX and s[-1] in ".!?":
+            return s.rstrip(".").strip()
+    hint = re.sub(r"\s+", " ", title_hint or "").strip()
+    # a bare video id ("BW_MAa5L9lg") arrives here as the source title on link jobs;
+    # it is a filename, not something a creator would post under
+    if len(hint) > 3 and (" " in hint or hint.isalpha()):
+        return _clamp_words(hint, TITLE_MAX)
+    return NEUTRAL_TITLE
+
+
+def heuristic_copy(text: str, platform: str, title_hint: str = "", *,
+                   fallback_reason: str | None = None) -> Copy:
+    """Deterministic copy: a complete short sentence as the title, keywords as tags.
     Not clever, but never hallucinates and always available."""
     clean = re.sub(r"\s+", " ", re.sub(r"\[[^\]]*\]|>>+", " ", text)).strip()
     sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean) if len(s.strip()) > 12]
-    title = (sents[0] if sents else (title_hint or clean))[:88].rstrip(" ,;:-")
-    caption = " ".join(sents[:2])[:220] if sents else clean[:220]
+    caption = _clamp_words(" ".join(sents[:2]) if sents else clean, 220)
     tags = [] if platform == "linkedin" else _keywords(clean, 5)
-    return Copy(title=title, caption=caption, hashtags=tags, source="heuristic")
+    return Copy(title=_headline(clean, title_hint), caption=caption, hashtags=tags,
+                source="heuristic", fallback_reason=fallback_reason)
+
+
+def copy_with_openai(text: str, platform: str, voice: str | None = None) -> dict:
+    """Same client and model configuration the channel-memory pass already runs on —
+    one credential, one model env var, no second config mechanism for copy."""
+    from .channel_memory import clipper_model, openai_client, parsed_response
+    from .prompts import COPY_JSON_SCHEMA, SYSTEM, copy_prompt, json_schema_format
+    client = openai_client()
+    response = client.responses.create(
+        model=clipper_model(),
+        input=[
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": copy_prompt(platform, text[:8000], voice)},
+        ],
+        text={"format": json_schema_format("afterplay_clip_copy", COPY_JSON_SCHEMA)},
+        store=False,
+    )
+    return parsed_response(response)
+
+
+def copy_with_anthropic(client, model: str, text: str, platform: str,
+                        voice: str | None = None) -> dict:
+    """Kept for callers that already hold an Anthropic client (ClaudePolicy)."""
+    from .prompts import SYSTEM, copy_prompt, extract_json
+    msg = client.messages.create(
+        model=model, max_tokens=700, system=SYSTEM,
+        messages=[{"role": "user",
+                   "content": copy_prompt(platform, text[:8000], voice)}])
+    return extract_json(msg.content[0].text)
 
 
 def generate_copy(text: str, platform: str, *, client=None,
                   model="claude-sonnet-5", voice: str | None = None,
                   title_hint: str = "") -> Copy:
-    """LLM copy in the creator's voice, with the heuristic as the floor."""
-    if client is None:
-        return heuristic_copy(text, platform, title_hint)
+    """LLM copy in the creator's voice, with the heuristic as the floor.
+
+    Default path is OpenAI on `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL`, exactly the
+    credentials the channel-memory pass uses; an Anthropic `client`, when one is passed,
+    wins. Every failure mode — no key, API error, unparseable or empty JSON — degrades
+    to `heuristic_copy` with the reason recorded, so a render never dies on copy and a
+    heuristic title is never labelled `llm`.
+    """
     try:
-        from .prompts import SYSTEM, copy_prompt, extract_json
-        msg = client.messages.create(
-            model=model, max_tokens=700, system=SYSTEM,
-            messages=[{"role": "user",
-                       "content": copy_prompt(platform, text[:8000], voice)}])
-        d = extract_json(msg.content[0].text)
-        tags = [str(t).lstrip("#").lower() for t in (d.get("hashtags") or [])][:6]
-        return Copy(title=str(d.get("title", ""))[:90],
-                    caption=str(d.get("caption", ""))[:400],
-                    hashtags=tags,
-                    hook_text_overlay=(str(d["hook_text_overlay"])[:42]
-                                       if d.get("hook_text_overlay") else None),
-                    source="llm")
+        if client is not None:
+            d = copy_with_anthropic(client, model, text, platform, voice)
+        else:
+            d = copy_with_openai(text, platform, voice)
+        title = re.sub(r"\s+", " ", str(d.get("title") or "")).strip()
+        if not title:
+            raise ValueError("model returned no title")
     except Exception as e:                                    # noqa: BLE001
         log.warning("copy generation failed (%s); using heuristic", e)
-        return heuristic_copy(text, platform, title_hint)
+        return heuristic_copy(text, platform, title_hint,
+                              fallback_reason=f"{type(e).__name__}: {e}"[:200])
+    tags = [str(t).lstrip("#").lower() for t in (d.get("hashtags") or [])][:6]
+    return Copy(title=title[:90],
+                caption=str(d.get("caption", ""))[:400],
+                hashtags=tags,
+                hook_text_overlay=(str(d["hook_text_overlay"])[:42]
+                                   if d.get("hook_text_overlay") else None),
+                source="llm")
 
 
 # ── performance analytics loop ───────────────────────────────────────────────

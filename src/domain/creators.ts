@@ -28,7 +28,10 @@ export type CreatorProfile = {
 /** Display names for creators we have actually backfilled. Everything else is derived
  * from the id, so a new backfill shows up without a code change. */
 const KNOWN: Record<string, { displayName: string; handle: string }> = {
-  probe_ksi: { displayName: "KSI", handle: "ksi" },
+  // The backfilled videos are MoreSidemen uploads (KSI appears in them, but the channel
+  // is not his). Labelling this workspace "KSI" would misattribute someone else's
+  // content, which is the same class of error as claiming rights we do not have.
+  probe_ksi: { displayName: "MoreSidemen", handle: "MoreSidemen" },
   demo_live: { displayName: "Demo Live", handle: "demo_live" },
   e2e_demo: { displayName: "E2E Demo", handle: "e2e_demo" },
 };
@@ -154,4 +157,46 @@ export function creatorCookieName(): string {
  * independently discovered, never to build a path. */
 export function isSelectableCreator(id: string): boolean {
   return id === GUEST.id || listCreators().some((creator) => creator.id === id);
+}
+
+export type ChannelThread = {
+  id: string;
+  kind: string;
+  label: string;
+  summary: string;
+  status: string;
+  streamId: string;
+  t: number;
+  quote: string;
+  mentions: number;
+};
+
+/** The threads actually extracted from this creator's history.
+ *
+ * This is the real product artifact — what the memory pass found in past streams and
+ * what a callback is later matched against. The Memory page previously showed only
+ * authored sample beliefs, so the one genuinely novel thing the system does was invisible.
+ */
+export function loadThreads(creatorId: string): ChannelThread[] {
+  try {
+    const raw = readFileSync(join(memoryRoot(), creatorId, "threads.json"), "utf-8");
+    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
+    return parsed.map((thread, index) => {
+      const seen = (thread.first_seen ?? {}) as { stream_id?: string; t?: number; quote?: string };
+      const mentions = Array.isArray(thread.mentions) ? thread.mentions.length : 0;
+      return {
+        id: String(thread.id ?? `thread_${index}`),
+        kind: String(thread.kind ?? "thread").replaceAll("_", " "),
+        label: String(thread.label ?? "Untitled thread"),
+        summary: String(thread.summary ?? ""),
+        status: String(thread.status ?? "open"),
+        streamId: String(seen.stream_id ?? "unknown"),
+        t: Number(seen.t ?? 0),
+        quote: String(seen.quote ?? ""),
+        mentions,
+      };
+    });
+  } catch {
+    return [];
+  }
 }

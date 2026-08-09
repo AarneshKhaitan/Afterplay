@@ -642,7 +642,9 @@ class Orchestrator:
         timings["produce"] = round(time.time() - t0, 2)
         timings["total"] = round(time.time() - t_all, 2)
 
-        # per-platform copy for every clip that rendered
+        # per-platform copy for every clip that rendered. With no Anthropic client this
+        # falls through to the OpenAI path inside generate_copy (same key and model as
+        # the memory pass) — passing None here used to mean "raw transcript as a title".
         from .insights import generate_copy
         client = None
         if isinstance(self.policy, ClaudePolicy) and self.policy.available():
@@ -657,6 +659,11 @@ class Orchestrator:
                                                   client=client, title_hint=src.title))
                 except Exception as e:                        # noqa: BLE001
                     log.warning("copy for %s failed: %s", r.clip_id, e)
+        n_llm = sum(1 for r in results if r.copy.get("source") == "llm")
+        n_copy = sum(1 for r in results if r.copy)
+        if n_copy:
+            log.info("copy: %d/%d from the LLM, %d heuristic", n_llm, n_copy,
+                     n_copy - n_llm)
         results.sort(key=lambda r: (r.clip_id))
         memory_state = self._memory_manifest(reasoner)
         job = JobResult(job_id=job_id,

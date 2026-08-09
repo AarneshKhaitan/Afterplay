@@ -165,6 +165,18 @@ COPY_SCHEMA = """{
   "hook_text_overlay": "<<=42 chars, or null if the clip needs none>"
 }"""
 
+COPY_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string"},
+        "caption": {"type": "string"},
+        "hashtags": {"type": "array", "items": {"type": "string"}},
+        "hook_text_overlay": {"type": ["string", "null"]},
+    },
+    "required": ["title", "caption", "hashtags", "hook_text_overlay"],
+}
+
 COPY = """# Job
 Write the post copy for one short-form clip, for {platform}.
 
@@ -173,6 +185,9 @@ Write the post copy for one short-form clip, for {platform}.
 
 # Rules
 - Describe what is actually in the clip. Never promise something it does not deliver.
+- The transcript is raw ASR: unpunctuated, sometimes misheard. Read past that.
+- The title is a headline someone would post, not a transcript slice. Never open it \
+mid-sentence and never quote the clip verbatim as the title.
 - No emoji unless the creator's voice sample uses them.
 - No "in this video" or "watch till the end".
 - Hashtags: specific over generic. Skip them entirely for LinkedIn.

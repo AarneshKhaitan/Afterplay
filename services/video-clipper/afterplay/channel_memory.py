@@ -247,7 +247,8 @@ def extract_threads(stream_id: str, sents, extractor=None) -> list[ThreadRecord]
 
 def openai_client():
     if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is required for channel memory")
+        raise RuntimeError("OPENAI_API_KEY is required for OpenAI calls "
+                           "(channel memory, clip copy)")
     from openai import OpenAI
     return OpenAI()
 

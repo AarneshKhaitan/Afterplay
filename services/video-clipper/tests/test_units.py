@@ -150,6 +150,37 @@ class TestCropPath:
         e = cp.expr(1920)
         assert e.count("(") == e.count(")")
 
+    def test_width_override_recentres_the_window(self):
+        # a wider window must move LEFT by half the extra width, not stay put
+        cp = CropPath(608, 1080, [(0.0, 700.0)], static=True)
+        assert float(cp.expr(1920)) == pytest.approx(700 - 608 / 2)
+        assert float(cp.expr(1920, 900)) == pytest.approx(700 - 900 / 2)
+
+
+class TestContextFloor:
+    """A hard 9:16 crop of 16:9 keeps 31.6% of the width; the floor widens it."""
+
+    def _spec(self, **kw):
+        from afterplay.produce import RenderSpec
+        return RenderSpec(platform=PLATFORMS["shorts"], brand=Brand(),
+                          crop=CropPath(404, 720, [(0.0, 640.0)], static=True), **kw)
+
+    def _src(self):
+        return MediaInfo("src.mp4", width=1280, height=720, fps=30.0, duration=30.0,
+                         has_audio=True)
+
+    def test_narrow_crop_is_widened_and_composited(self):
+        from afterplay.produce import build_filtergraph
+        vf = build_filtergraph(self._spec(), self._src())
+        assert vf.startswith("crop=640:720:")          # 50% of 1280, not 404
+        assert "overlay=(W-w)/2:(H-h)/2" in vf and "boxblur" in vf
+
+    def test_floor_off_keeps_the_edge_to_edge_crop(self):
+        from afterplay.produce import build_filtergraph
+        vf = build_filtergraph(self._spec(min_width_frac=0.0), self._src())
+        assert vf.startswith("crop=404:720:")
+        assert "overlay" not in vf and "scale=1080:1920:flags=lanczos" in vf
+
 
 class TestCaptions:
     def test_ass_is_wellformed_and_inside_the_safe_zone(self, tmp_path):

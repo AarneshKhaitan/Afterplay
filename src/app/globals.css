@@ -1300,3 +1300,29 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .creator-popover .account-row small { color: var(--muted-2); font-size: 10.5px; }
 .creator-popover .account-row svg { flex: none; width: 14px; height: 14px; color: var(--positive); }
 .creator-option-list { display: flex; flex-direction: column; gap: 3px; }
+
+/* ── channel memory: the real extracted threads ─────────────────────────────
+   This is the artifact that makes a callback findable. The page used to show
+   only authored beliefs, so the one genuinely novel thing the system does was
+   invisible on the page named after it. */
+.channel-memory { display: flex; flex-direction: column; gap: 12px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+.thread-list { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.thread-row { display: flex; flex-direction: column; gap: 7px; padding: 13px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--panel-soft); }
+.thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.thread-head h3 { flex: 1; min-width: 140px; margin: 0; color: var(--text); font-size: var(--type-body); font-weight: 720; }
+.thread-kind { padding: 3px 7px; border: 1px solid rgba(140,182,232,.22); border-radius: 6px; background: rgba(140,182,232,.08); color: #a9c7ea; font-size: 10px; font-weight: 720; letter-spacing: .04em; text-transform: uppercase; }
+.thread-status { padding: 3px 7px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--muted-2); font-size: 10px; font-weight: 700; }
+.thread-status--open { border-color: rgba(142,214,160,.22); background: var(--positive-soft); color: var(--positive); }
+.thread-row p { margin: 0; color: var(--muted); font-size: var(--type-small); line-height: 1.55; }
+.thread-cite { display: flex; flex-direction: column; gap: 4px; padding-top: 7px; border-top: 1px solid var(--line); }
+.thread-cite span { color: var(--muted-2); font-size: var(--type-meta); font-weight: 640; }
+.thread-cite q { color: #d5d9dc; font-size: var(--type-small); font-style: italic; line-height: 1.5; }
+.thread-empty { margin: 0; color: var(--muted); font-size: var(--type-body); line-height: 1.6; }
+.thread-empty code { color: var(--blue); }
+.identity-mark { display: grid; width: 62px; height: 62px; place-items: center; border-radius: 14px; background: var(--accent-soft); color: #ff9a89; font-size: 20px; font-weight: 800; }
+
+.selection-reason { margin: 0; color: var(--muted); font-size: var(--type-small); line-height: 1.55; }
+.clip-transcript { display: flex; flex-direction: column; gap: 4px; margin: 0; color: var(--muted-2); font-size: var(--type-meta); line-height: 1.5; }
+.clip-transcript span { color: var(--muted-2); font-size: 10px; font-weight: 720; letter-spacing: .08em; text-transform: uppercase; }
+.section-heading--standalone { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.section-heading--standalone h2 { margin: 0; font-size: var(--type-body); }

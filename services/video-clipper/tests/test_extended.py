@@ -309,10 +309,44 @@ class TestCopy:
         assert heuristic_copy("Some professional insight about hiring.", "linkedin"
                               ).hashtags == []
 
-    def test_generate_copy_without_client_uses_heuristic(self):
+    def test_generate_copy_without_client_uses_heuristic(self, monkeypatch):
+        # no Anthropic client AND no OpenAI key: the deterministic floor, and it must
+        # say so rather than pass heuristic text off as model output.
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         from afterplay.insights import generate_copy
         c = generate_copy("A sentence about testing things properly.", "shorts")
         assert c.source == "heuristic" and c.title
+        assert c.fallback_reason and "OPENAI_API_KEY" in c.fallback_reason
+
+    def test_heuristic_title_is_not_a_raw_transcript_slice(self, monkeypatch):
+        """REGRESSION: ASR of a stream has no sentence punctuation, so the old
+        "first 88 characters" title shipped a mid-sentence transcript fragment
+        ("oh oh wow defense lawyer or Pro or prosecution I don't know he just has a
+        weird sign aro") as the creator-facing title."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        from afterplay.insights import TITLE_MAX, generate_copy
+        text = ("[Music] oh oh wow defense lawyer or Pro or prosecution I don't know "
+                "he just has a weird sign around him so I I feel like I need to "
+                "protect him maybe he's Buster and you have to defend him")
+        c = generate_copy(text, "shorts", title_hint="")
+        assert c.source == "heuristic"
+        assert len(c.title) <= TITLE_MAX <= 70
+        # not a prefix of the transcript, at any length, in either direction
+        stripped = text.replace("[Music] ", "")
+        assert not stripped.lower().startswith(c.title.lower()[:20])
+        assert c.title not in stripped
+
+    def test_heuristic_title_falls_back_to_the_source_title(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        from afterplay.insights import generate_copy
+        from afterplay.insights import NEUTRAL_TITLE
+        blob = "um so yeah anyway that happened and then it kept going"
+        assert generate_copy(blob, "shorts",
+                             title_hint="Among Us with the whole crew"
+                             ).title == "Among Us with the whole crew"
+        # link jobs pass the bare video id as the source title — not a headline
+        assert generate_copy(blob, "shorts",
+                             title_hint="BW_MAa5L9lg").title == NEUTRAL_TITLE
 
     def test_generate_copy_falls_back_when_llm_errors(self):
         from afterplay.insights import generate_copy
@@ -537,6 +571,7 @@ class TestCopyWiring:
 
     def test_copy_is_attached_by_a_full_job(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)   # keep this offline
         from afterplay import Orchestrator, Settings
         from afterplay.core import synth_source
         src = synth_source(tmp_path / "s2.mp4", seconds=16, size=(640, 360), tone=True)

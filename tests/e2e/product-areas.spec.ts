@@ -3,12 +3,13 @@ import { expect, test } from "@playwright/test";
 test("all six product areas are populated and navigable", async ({ page, request }) => {
   await request.post("/api/demo/reset");
 
-  const areas = [
+  const areas: Array<{ path: string; heading: string | RegExp }> = [
     { path: "/", heading: "New viewers watch, but few come back" },
     { path: "/experiments", heading: "One More Rule" },
     { path: "/studio", heading: "Review the package" },
     { path: "/audience", heading: "Return behavior after the test" },
-    { path: "/memory", heading: "What the team knows about Mika" },
+    // Driven by the selected creator; the suite pins AFTERPLAY_CREATOR_ID.
+    { path: "/memory", heading: /^What Afterplay remembers about / },
     { path: "/integrations", heading: "Connections and permissions" },
   ];
 
@@ -22,7 +23,14 @@ test("all six product areas are populated and navigable", async ({ page, request
 test("Memory exposes durable identity, boundaries, and learned updates", async ({ page }) => {
   await page.goto("/memory");
 
-  await expect(page.getByRole("heading", { name: "Mika Rao" })).toBeVisible();
+  // Identity follows the selected creator instead of a hardcoded fixture name.
+  await expect(page.getByRole("heading", { name: "Creator Mika Rigged", exact: true })).toBeVisible();
+
+  // The pinned test creator has no channel memory on disk, and that must be stated
+  // plainly rather than dressed up with authored sample threads: with no memory, no
+  // callback can be claimed. This is the cold-start contract.
+  const channelMemory = page.getByRole("region", { name: "Channel memory" });
+  await expect(channelMemory.getByText(/No channel memory for/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Working beliefs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Approval rules" })).toBeVisible();
   await expect(page.getByText("Never publish, contact, spend, or change an account without approval.", { exact: true })).toBeVisible();
