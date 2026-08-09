@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { currentCreator } from "@/domain/creators";
 import { invalidRequest } from "@/app/api/http";
 import { AgentError, askAgent } from "@/domain/intel/agent";
 import { latestCompleteScan, loadMemory, loadScan } from "@/domain/intel/store";
@@ -8,7 +9,7 @@ import { latestCompleteScan, loadMemory, loadScan } from "@/domain/intel/store";
 export const dynamic = "force-dynamic";
 
 const askSchema = z.object({
-  creatorId: z.string().min(1).max(80).default("creator_mika_rigged"),
+  creatorId: z.string().min(1).max(80).optional(),
   question: z.string().min(2).max(1000),
   /** Pin the answer to a specific scan. Omitted means "the latest complete one", which
    * is what the UI wants by default. */
@@ -33,8 +34,9 @@ export async function POST(request: Request) {
   }
 
   const { creatorId, question, scanId, history } = parsed.data;
-  const scan = scanId ? loadScan(scanId) : latestCompleteScan(creatorId);
-  const memory = loadMemory(creatorId);
+  const activeCreatorId = creatorId ?? (await currentCreator()).id;
+  const scan = scanId ? loadScan(scanId) : latestCompleteScan(activeCreatorId);
+  const memory = loadMemory(activeCreatorId);
 
   try {
     const result = await askAgent(question, history, scan, memory);

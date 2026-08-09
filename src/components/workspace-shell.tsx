@@ -1,5 +1,4 @@
 import {
-  CaretDown,
   CirclesThreePlus,
   Database,
   Flask,
@@ -10,11 +9,11 @@ import {
   Stack,
   UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
-import Image from "next/image";
 import Link from "next/link";
 
-import { activeCreator, liveAiState } from "@/domain/identity";
-import { demoWorkspace } from "@/domain/workspace";
+import { CreatorSwitcher } from "@/components/creator-switcher";
+import { currentCreator, GUEST, listCreators } from "@/domain/creators";
+import { liveAiState } from "@/domain/identity";
 
 /** Navigation follows the actual workflow, not an alphabet of features.
  *
@@ -57,7 +56,7 @@ const navigation: Array<{
   },
 ];
 
-export function WorkspaceShell({
+export async function WorkspaceShell({
   active,
   pageName,
   children,
@@ -75,8 +74,8 @@ export function WorkspaceShell({
   /** Overrides the topbar badge, for the same reason. */
   badge?: string;
 }>) {
-  const { creator } = demoWorkspace.workspace;
-  const identity = activeCreator();
+  const identity = await currentCreator();
+  const creators = [...listCreators(), GUEST];
   const live = liveAiState();
 
   return (
@@ -87,27 +86,7 @@ export function WorkspaceShell({
           <span>Afterplay</span>
         </Link>
 
-        <details className="creator-menu">
-          <summary className="creator-switcher" aria-label="Creator workspace">
-            <Image src={creator.avatarUrl} alt="" width={38} height={38} priority />
-            <span className="creator-copy">
-              <strong>{identity.displayName}</strong>
-              <small>{identity.clipperCreatorId}</small>
-            </span>
-            <CaretDown aria-hidden="true" />
-          </summary>
-          <div className="creator-popover">
-            <p>Creator workspace</p>
-            <div className="account-row account-row--active">
-              <span className="account-avatar account-avatar--mika">{identity.initials}</span>
-              <span><strong>{identity.displayName}</strong><small>Active · {identity.source}</small></span>
-            </div>
-            <p className="creator-popover-note">
-              Set <code>AFTERPLAY_CREATOR_ID</code> to point the workspace at a different
-              channel memory. Switching accounts in the UI is not built yet.
-            </p>
-          </div>
-        </details>
+        <CreatorSwitcher active={identity} creators={creators} />
 
         <nav className="product-nav" aria-label="Product">
           {navigation.map(({ section, items }) => (
@@ -117,7 +96,9 @@ export function WorkspaceShell({
                 <Link key={label} href={href}
                   className={label === active ? "nav-link nav-link--active" : "nav-link"}>
                   <Icon aria-hidden="true" />
-                  <span className="nav-text"><span>{label}</span>{hint ? <small>{hint}</small> : null}</span>
+                  <span className="nav-text"><span>{label}</span>{/* Decorative: keeps each link's accessible name the label alone, so it stays
+                        addressable as "Studio" rather than "Studio Review and approve". */}
+                    {hint ? <small aria-hidden="true">{hint}</small> : null}</span>
                 </Link>
               ))}
             </div>

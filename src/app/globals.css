@@ -1281,3 +1281,22 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .ingest-next:hover { border-color: var(--accent); color: #ff9a89; }
 .ingest-result details { color: var(--muted-2); font-size: var(--type-meta); }
 .ingest-result pre { overflow-x: auto; max-height: 240px; margin: 8px 0 0; padding: 10px; border-radius: var(--radius-sm); background: #0d0f11; font-size: 10.5px; line-height: 1.55; }
+
+/* ── creator switcher ────────────────────────────────────────────────────────
+   Replaces a <details> that listed two accounts marked "not loaded". Creators
+   here are real: each one exists because a channel memory directory exists, and
+   the thread count is what was actually extracted from that channel. */
+.creator-menu { position: relative; }
+.creator-switcher { width: 100%; border: 1px solid var(--line); background: var(--panel-soft); cursor: pointer; text-align: left; }
+.creator-avatar-mark { display: grid; flex: none; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--accent-soft); color: #ff9a89; font-size: var(--type-small); font-weight: 800; }
+.creator-popover { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; left: 0; display: flex; flex-direction: column; gap: 3px; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--panel-raised); box-shadow: 0 18px 40px rgba(0,0,0,.45); }
+.creator-popover > p:first-child { margin: 0 0 4px; color: var(--muted-2); font-size: var(--type-meta); font-weight: 720; letter-spacing: .08em; text-transform: uppercase; }
+.creator-popover .account-row { display: flex; width: 100%; align-items: center; gap: 9px; padding: 8px; border: none; border-radius: var(--radius-sm); background: none; color: var(--text); text-align: left; cursor: pointer; }
+.creator-popover .account-row:hover:not(:disabled) { background: rgba(255,255,255,.05); }
+.creator-popover .account-row:disabled { opacity: .55; cursor: wait; }
+.creator-popover .account-row--active { background: rgba(255,255,255,.07); }
+.creator-popover .account-row > span:nth-child(2) { display: flex; flex: 1; flex-direction: column; gap: 1px; }
+.creator-popover .account-row strong { font-size: var(--type-small); font-weight: 700; }
+.creator-popover .account-row small { color: var(--muted-2); font-size: 10.5px; }
+.creator-popover .account-row svg { flex: none; width: 14px; height: 14px; color: var(--positive); }
+.creator-option-list { display: flex; flex-direction: column; gap: 3px; }

@@ -1,12 +1,11 @@
 import { IntelConsole } from "@/components/intel/intel-console";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 import { apifyConfigured } from "@/domain/intel/apify";
 import { activeBeliefs } from "@/domain/intel/memory";
 import { latestCompleteScan, listScans, loadMemory } from "@/domain/intel/store";
 
 export const dynamic = "force-dynamic";
-
-const CREATOR_ID = "creator_mika_rigged";
 
 /** Server shell for the intelligence console.
  *
@@ -14,7 +13,11 @@ const CREATOR_ID = "creator_mika_rigged";
  * immediately instead of flashing an empty state and then filling in — which is what a
  * client-side fetch on mount would do, and it reads as broken on a demo machine.
  */
-export default function IntelPage() {
+export default async function IntelPage() {
+  // Every tab reads the same selected creator, so switching in the sidebar changes what
+  // the whole workspace is about rather than one page at a time.
+  const creator = await currentCreator();
+  const CREATOR_ID = creator.id;
   const memory = loadMemory(CREATOR_ID);
   const latest = latestCompleteScan(CREATOR_ID);
 

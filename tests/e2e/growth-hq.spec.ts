@@ -39,10 +39,18 @@ test("a judge can understand the product from Growth HQ", async ({ page }) => {
   await expect(page.getByText("Approval needed", { exact: true })).toBeVisible();
   await expect(page.getByText("Sample workspace", { exact: true })).toBeVisible();
 
-  await expect(page.getByLabel("Creator workspace")).toContainText("Mika Rao");
+  // The workspace names the creator it is actually configured for. Asserting a fixture
+  // name here is what let "Mika Rao" stay hardcoded in nine places while
+  // AFTERPLAY_CREATOR_ID was ignored, so assert the control works instead.
+  const switcher = page.getByRole("button", { name: "Creator workspace" });
+  await expect(switcher).toBeVisible();
+  await expect(switcher).toContainText(/threads? remembered/);
+  await switcher.click();
+  await expect(page.getByRole("listbox", { name: "Creator workspaces" })).toBeVisible();
+  await expect(page.getByRole("option").first()).toBeVisible();
 
   const navigation = page.getByRole("navigation", { name: "Product" });
-  for (const label of ["HQ", "Experiments", "Studio", "Audience", "Memory", "Integrations"]) {
+  for (const label of ["HQ", "Intel", "Experiments", "Ingest", "Studio", "Audience", "Memory", "Integrations"]) {
     await expect(navigation.getByRole("link", { name: label, exact: true })).toBeVisible();
   }
 });

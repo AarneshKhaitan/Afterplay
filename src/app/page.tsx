@@ -1,35 +1,19 @@
 import {
   ArrowRight,
   Broadcast,
-  CaretDown,
   ChartLineUp,
   Check,
-  CirclesThreePlus,
-  Clock,
-  Database,
-  Flask,
-  House,
-  LinkSimple,
   Sparkle,
-  Stack,
-  UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
 import Image from "next/image";
 import Link from "next/link";
 
+import { WorkspaceShell } from "@/components/workspace-shell";
 import { getExperiment, resultMovement } from "@/domain/experiment";
 import { getDemoWorkspace } from "@/domain/workspace";
 
 export const dynamic = "force-dynamic";
 
-const navigation = [
-  { label: "HQ", href: "/", icon: House },
-  { label: "Experiments", href: "/experiments", icon: Flask },
-  { label: "Studio", href: "/studio", icon: Stack },
-  { label: "Audience", href: "/audience", icon: UsersThree },
-  { label: "Memory", href: "/memory", icon: Database },
-  { label: "Integrations", href: "/integrations", icon: LinkSimple },
-];
 
 const roleTone = {
   Strategist: "role--strategist",
@@ -39,8 +23,9 @@ const roleTone = {
 } as const;
 
 export default function GrowthHqPage() {
-  const { meta, workspace } = getDemoWorkspace();
-  const { creator, diagnosis, activeExperiment, teamActivity, decision, learning } = workspace;
+  // `meta` and `creator` moved into the shared shell with the sidebar and footer.
+  const { workspace } = getDemoWorkspace();
+  const { diagnosis, activeExperiment, teamActivity, decision, learning } = workspace;
   const experiment = getExperiment("exp_one_more_rule");
   const movement = resultMovement(experiment.result);
   const learnedState = experiment.status === "learned" && experiment.learning && experiment.nextExperiment
@@ -54,65 +39,7 @@ export default function GrowthHqPage() {
     : teamActivity;
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <Link className="brand" href="/" aria-label="Afterplay home">
-          <span className="brand-mark"><CirclesThreePlus weight="fill" /></span>
-          <span>Afterplay</span>
-        </Link>
-
-        <details className="creator-menu">
-          <summary className="creator-switcher" aria-label="Creator workspace">
-            <Image src={creator.avatarUrl} alt="" width={38} height={38} priority />
-            <span className="creator-copy">
-              <strong>{creator.displayName}</strong>
-              <small>@{creator.handle}</small>
-            </span>
-            <CaretDown aria-hidden="true" />
-          </summary>
-          <div className="creator-popover">
-            <p>Creator workspaces</p>
-            <div className="account-row account-row--active"><span className="account-avatar account-avatar--mika">MR</span><span><strong>Mika Rao</strong><small>Active demo</small></span></div>
-            <div className="account-row"><span className="account-avatar">NL</span><span><strong>Nova Lee</strong><small>Example account · not loaded</small></span></div>
-            <div className="account-row"><span className="account-avatar">RO</span><span><strong>Rae Okafor</strong><small>Example account · not loaded</small></span></div>
-          </div>
-        </details>
-
-        <nav className="product-nav" aria-label="Product">
-          <p className="nav-label">Workspace</p>
-          {navigation.map(({ label, href, icon: Icon }, index) => (
-            <Link key={label} href={href} className={index === 0 ? "nav-link nav-link--active" : "nav-link"}>
-              <Icon aria-hidden="true" />
-              <span>{label}</span>
-              {label === "Studio" && <span className="nav-count" aria-hidden="true">3</span>}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="sidebar-foot">
-          <div className="mode-block">
-            <span className="mode-dot" aria-hidden="true" />
-            <span><strong>Demo mode</strong><small>No live actions</small></span>
-          </div>
-          <details className="team-menu">
-            <summary className="team-button"><Database weight="bold" /> Team notes</summary>
-            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs Mika’s approval.</p><Link href="/memory">Open memory</Link></div>
-          </details>
-        </div>
-      </aside>
-
-      <main className="main-shell">
-        <header className="topbar">
-          <div>
-            <span className="topbar-kicker">Growth HQ</span>
-            <span className="topbar-date">Tuesday, 5 August</span>
-          </div>
-          <div className="topbar-actions">
-            <span className="sample-badge"><span /> Sample workspace</span>
-            <span className="updated"><Clock /> Updated 09:40</span>
-          </div>
-        </header>
-
+    <WorkspaceShell active="HQ" pageName="Growth HQ">
         <div className="workspace-grid">
           <section className="primary-column" aria-labelledby="diagnosis-title">
             <article className="diagnosis-panel">
@@ -216,12 +143,6 @@ export default function GrowthHqPage() {
           </aside>
         </div>
 
-        <footer className="truth-footer">
-          <span>Demo mode</span>
-          <p>This workspace contains synthetic sample data. Distribution and elapsed-time results are simulated.</p>
-          <time dateTime={meta.updatedAt}>Snapshot 05 Aug 2026</time>
-        </footer>
-      </main>
-    </div>
+    </WorkspaceShell>
   );
 }

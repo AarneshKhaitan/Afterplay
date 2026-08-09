@@ -5,6 +5,7 @@ import { invalidRequest } from "@/app/api/http";
 import {
   assertIngestableUrl, IngestError, newJobId, pythonConfigured, startIngestJob,
 } from "@/domain/ingest/jobs";
+import { currentCreator } from "@/domain/creators";
 import { findCachedSource, listCachedSources, mediaDirConfigured } from "@/domain/ingest/sources";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ const startSchema = z.object({
 /** What can be ingested right now, and honestly under what conditions. */
 export async function GET() {
   const python = pythonConfigured();
+  const creator = await currentCreator();
   return NextResponse.json({
     sources: listCachedSources().map((source) => ({
       id: source.id,
@@ -31,7 +33,7 @@ export async function GET() {
     })),
     mediaDirConfigured: mediaDirConfigured(),
     python,
-    creatorDefault: process.env.AFTERPLAY_CREATOR_ID ?? "demo_live",
+    creatorDefault: creator.id,
   });
 }
 

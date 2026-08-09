@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { currentCreator } from "@/domain/creators";
+
 import { activeBeliefs } from "@/domain/intel/memory";
 import { loadMemory } from "@/domain/intel/store";
 
@@ -13,7 +15,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const creatorId = url.searchParams.get("creatorId") ?? "creator_mika_rigged";
+  const creatorId = url.searchParams.get("creatorId") ?? (await currentCreator()).id;
   const memory = loadMemory(creatorId);
   return NextResponse.json(
     { memory, active: activeBeliefs(memory) },

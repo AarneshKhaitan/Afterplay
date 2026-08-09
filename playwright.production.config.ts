@@ -20,6 +20,9 @@ export default defineConfig({
       // Pinned off so the "unconfigured live mode fails visibly" assertion does not
       // depend on whether the developer enabled live AI in their local .env.
       AFTERPLAY_ENABLE_LIVE_AI: "false",
+      // Pinned so the suite does not depend on which creators happen to be backfilled
+      // on the developer's machine, and so the intel fixtures resolve to one creator.
+      AFTERPLAY_CREATOR_ID: "creator_mika_rigged",
       AFTERPLAY_INTEL_DIR: TEST_INTEL_DIR,
       APIFY_API_TOKEN: "",
     },

@@ -30,6 +30,9 @@ export default defineConfig({
       AFTERPLAY_ENABLE_LIVE_AI: "false",
       // Keep the intelligence store out of the real `.intel/`: its belief memory is
       // cumulative, so test pollution there compounds instead of being overwritten.
+      // Pinned so the suite does not depend on which creators happen to be backfilled
+      // on the developer's machine, and so the intel fixtures resolve to one creator.
+      AFTERPLAY_CREATOR_ID: "creator_mika_rigged",
       AFTERPLAY_INTEL_DIR: TEST_INTEL_DIR,
       // Pinned empty so the "scraper not configured" path is what the suite asserts on,
       // and so no test run can ever spend money on a real scrape.

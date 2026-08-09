@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { currentCreator } from "@/domain/creators";
 import { invalidRequest } from "@/app/api/http";
 import { apifyConfigured, MAX_RESULTS_PER_SCAN } from "@/domain/intel/apify";
 import { startScan } from "@/domain/intel/pipeline";
@@ -9,7 +10,7 @@ import { cacheStats, latestCompleteScan, listScans } from "@/domain/intel/store"
 export const dynamic = "force-dynamic";
 
 const scanSchema = z.object({
-  creatorId: z.string().min(1).max(80).default("creator_mika_rigged"),
+  creatorId: z.string().min(1).max(80).optional(),
   ownChannel: z.string().min(1).max(300),
   competitors: z.array(z.string().min(1).max(300)).max(5).default([]),
   videosPerChannel: z.number().int().min(3).max(50).default(12),
@@ -45,6 +46,9 @@ export async function POST(request: Request) {
 
   const { creatorId, ownChannel, competitors, videosPerChannel, withTranscripts, sortVideosBy } =
     parsed.data;
+  // Fall back to the creator selected in the sidebar, so a scan belongs to the workspace
+  // the operator is actually looking at rather than a fixture id.
+  const activeCreatorId = creatorId ?? (await currentCreator()).id;
   const total = (competitors.length + 1) * videosPerChannel;
   if (total > MAX_RESULTS_PER_SCAN) {
     return invalidRequest(
@@ -53,7 +57,7 @@ export async function POST(request: Request) {
   }
 
   const job = startScan({
-    creatorId,
+    creatorId: activeCreatorId,
     ownChannel,
     competitors,
     videosPerChannel,
@@ -67,7 +71,7 @@ export async function POST(request: Request) {
  * on first paint without a second round trip. */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const creatorId = url.searchParams.get("creatorId") ?? undefined;
+  const creatorId = url.searchParams.get("creatorId") ?? (await currentCreator()).id;
   return NextResponse.json(
     {
       latest: latestCompleteScan(creatorId),
