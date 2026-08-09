@@ -39,7 +39,7 @@ test("a creator can approve work and carry one experiment into learning", async 
   await expect(page.getByText("Synthetic sample result", { exact: true })).toBeVisible();
   await expect(page.getByText("13.6%", { exact: true })).toBeVisible();
   await expect(page.getByText("No causal claim", { exact: true })).toBeVisible();
-  await expect(page.getByText("The format name is worth testing again.", { exact: true })).toBeVisible();
+  await expect(page.getByText("The named format earned a cautious second test.", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Name the Builder" })).toBeVisible();
 
   await page.getByRole("link", { name: "Afterplay home" }).click();

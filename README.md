@@ -2,9 +2,9 @@
 
 **The team behind the player.**
 
-Afterplay is an autonomous growth team for gaming creators. It studies creator evidence, chooses a falsifiable growth experiment, prepares coordinated work, waits for creator approval before external action, reads the result, and changes the next plan.
+Afterplay is an autonomous growth team for gaming creators. It studies creator history, finds moments whose meaning depends on prior streams, chooses a falsifiable growth experiment, prepares coordinated work, waits for creator approval before external action, reads the result, and changes the next plan.
 
-This repository is a working end-to-end prototype for the Garena AI Build Challenge 2026. It is not a clipper with an AI sidebar: the central object is a growth experiment and the north star is returning audience behavior.
+This repository is a working end-to-end prototype for the Garena AI Build Challenge 2026. The clipper is part of the team: it can backfill creator memory, find callback/payoff moments, render shorts, and hand Studio a manifest with cited evidence. The central object remains a growth experiment and the north star is returning audience behavior.
 
 `diagnosis → hypothesis → plan → production → approval → simulated distribution → result → learning → next experiment`
 
@@ -16,19 +16,65 @@ This repository is a working end-to-end prototype for the Garena AI Build Challe
 - Idempotent simulated distribution receipts; no social platform is contacted.
 - Labelled synthetic results, explicit limits, and no causal-growth claim.
 - A deterministic offline strategy director and an optional live OpenAI director returning the same validated schema.
+- A nested Python clipper service that can backfill channel memory, select callback-aware clips, render them, QC them, and write manifests consumed by Studio.
 - A visible reset control for repeatable judge runs.
 - Public HTTP, browser, production-mode, accessibility, and mobile-overflow tests.
 
 ## Quick start
 
-Requirements: Node.js `>=20.9.0` and npm.
+Requirements: Node.js `>=20.9.0`, npm, Python `>=3.10`, and `ffmpeg` in PATH.
+
+For real clipper runs, install Deno so yt-dlp can avoid extraction warnings:
+
+```bash
+deno --version
+```
 
 ```bash
 npm install
 npm run dev
 ```
 
+```powershell
+cd services\video-clipper
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m afterplay.cli doctor
+```
+
 Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
+
+For callback clip review, run the Python clipper from `services/video-clipper` first,
+then refresh Studio. The web app intentionally reads the latest local manifest; it does
+not launch long-running media jobs from the browser.
+
+### Preferred live callback path
+
+```powershell
+cd services\video-clipper
+$env:PYTHONPATH='.'
+$env:AFTERPLAY_MEMORY="$PWD\.memory"
+$env:OPENAI_API_KEY="<set outside git>"
+
+# Seed memory from a source stream
+python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
+
+# Generate callback-aware clips from a current stream
+python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
+```
+
+If memory is healthy but no callback is found, this is a valid outcome:
+`No memory-dependent callback found in this run. Showing highest-quality standalone clips.`
+
+If memory fails (`memory_degraded: true`), the result must show an explicit failure reason and must not appear as this valid no-callback fallback message.
+
+### Fixture path (offline)
+
+The repository still includes the deterministic fixture loop for interviews and test stability when external keys/services are unavailable.
+
+- No credentials are required for fixture mode.
+- `AFTERPLAY_OPENAI_MODEL` drives the live strategy director.
+- `AFTERPLAY_CLIPPER_MODEL` drives clip extraction/selection in the Python service.
 
 For a production-shaped local run:
 
@@ -37,16 +83,26 @@ npm run build
 npm run start
 ```
 
+## Modes and guarantees
+
+| Mode | What runs | What it needs | What is guaranteed |
+|---|---|---|---|
+| `demo` | deterministic fixture director; simulated distribution | none | repeatable, offline, no external calls |
+| `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true` + `OPENAI_API_KEY` | real strategy output or visible error — never fixture output |
+| `clipper` | real ingestion, memory, callback scoring, render | `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL` | genuine per-input computed clips |
+
+State plainly that demo-mode strategy is a fixture while clipper output is real.
+
 ## Judge path
 
-1. Start on **Growth HQ** and read “New viewers watch, but few come back.”
-2. Open **One More Rule** and inspect evidence, confidence, alternatives, uncertainty, falsifier, plan, and success signal.
-3. Select **Review 3 outputs** to enter Studio.
-4. Review the premise cut, community cut, return prompt, rationale, and media provenance.
+1. From `services/video-clipper`, run `backfill` on a prior creator-owned stream.
+2. Run `afterplay.cli --json run --memory --creator <id>` on the current stream.
+3. Open **Studio** and review the latest service manifest, callback citation, or explicit no-callback/degraded state.
+4. Review the projected approval package. When a complete manifest exists, these outputs are pipeline-produced; otherwise the deterministic fixture package is shown.
 5. Select **Approve current revision**. The UI confirms that nothing has been posted.
 6. Select **Run simulated distribution**. Three receipts appear, each labelled `SIMULATED`.
 7. Open **View sample results**, then select **Load labelled sample results**.
-8. Read the Analyst's evidence, limitations, and proposed **Name the Builder** experiment.
+8. Read the Analyst's evidence, limitations, per-clip result note when present, and proposed **Name the Builder** experiment.
 9. Return to Afterplay home. HQ now shows **Experiment 04 learned** and carries the next experiment forward.
 
 To replay, open **Integrations → Reset demo workspace**.
@@ -72,6 +128,13 @@ AFTERPLAY_OPENAI_MODEL=gpt-5.6-sol
 Live mode is exposed through `POST /api/strategy/plan` with `mode: "live"`. It uses the OpenAI Responses API, strict Structured Outputs, `store: false`, medium reasoning effort, a hashed safety identifier, and domain validation. If live mode is unavailable or fails, the API returns a visible error and does **not** substitute the demo proposal.
 
 The judge workflow deliberately stays in deterministic mode.
+
+The nested clipper service uses a separate model variable for callback extraction and
+judging, so clipper experiments do not silently change the app's strategy director:
+
+```text
+AFTERPLAY_CLIPPER_MODEL=gpt-5.6-sol
+```
 
 ## Verification
 
@@ -114,10 +177,14 @@ The prototype uses seeded in-process state. It is ideal for a deterministic sing
 
 ## Documentation map
 
+- [Competitive intelligence engine](docs/intel/INTELLIGENCE.md) — the `/intel` console: what is real, what is not, what is hardcoded
+- [Product requirements](docs/prd/PRD.md) — verified current state, full gap register, requirements
+- [Implementation phases](docs/prd/IMPLEMENTATION-PHASES.md) — what gets built when, with acceptance criteria
 - [Product contract](docs/product/PRODUCT.md)
 - [Demo workspace](docs/product/DEMO_WORKSPACE.md)
 - [Design system](docs/design/DESIGN.md)
 - [Architecture](docs/architecture/ARCHITECTURE.md)
+- [Clipper integration](docs/architecture/CLIPPER_INTEGRATION.md)
 - [AI contract](docs/AI.md)
 - [Problem evidence and competitor boundary](docs/research/PROBLEM_EVIDENCE.md)
 - [Accepted public test seams](docs/testing/TEST-SEAMS.md)

@@ -8,3 +8,20 @@ test-results/
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.work/
+.out/
+.memory/
+
+# Cached third-party resolve artifacts for an offline demo run.
+# Never commit: these are transcripts of other people's videos.
+.demo-cache/
+
+# Competitive intelligence store (scans, cache, memory)
+.intel/
+
+# Local Claude Code settings (per-developer, may contain permission overrides)
+.claude/settings.local.json

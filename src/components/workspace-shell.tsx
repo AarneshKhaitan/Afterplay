@@ -1,37 +1,82 @@
 import {
-  CaretDown,
   CirclesThreePlus,
   Database,
   Flask,
   House,
   LinkSimple,
+  Crosshair,
+  Scissors,
   Stack,
   UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
-import Image from "next/image";
 import Link from "next/link";
 
-import { demoWorkspace } from "@/domain/workspace";
+import { CreatorSwitcher } from "@/components/creator-switcher";
+import { currentCreator, GUEST, listCreators } from "@/domain/creators";
+import { liveAiState } from "@/domain/identity";
 
-const navigation = [
-  { label: "HQ", href: "/", icon: House },
-  { label: "Experiments", href: "/experiments", icon: Flask },
-  { label: "Studio", href: "/studio", icon: Stack },
-  { label: "Audience", href: "/audience", icon: UsersThree },
-  { label: "Memory", href: "/memory", icon: Database },
-  { label: "Integrations", href: "/integrations", icon: LinkSimple },
+/** Navigation follows the actual workflow, not an alphabet of features.
+ *
+ * The pages existed as seven peers with no implied order, so nothing told a first-time
+ * viewer where to start or what follows what. Grouping them into the loop the product
+ * actually performs — research, make, learn — is what makes the demo read as one
+ * system rather than a menu. */
+const navigation: Array<{
+  section: string;
+  items: Array<{ label: string; href: string; icon: typeof House; hint?: string }>;
+}> = [
+  {
+    section: "Overview",
+    items: [{ label: "HQ", href: "/", icon: House, hint: "Where things stand" }],
+  },
+  {
+    section: "1 · Decide",
+    items: [
+      { label: "Intel", href: "/intel", icon: Crosshair, hint: "What to make next" },
+      { label: "Experiments", href: "/experiments", icon: Flask, hint: "The growth test" },
+    ],
+  },
+  {
+    section: "2 · Make",
+    items: [
+      { label: "Ingest", href: "/ingest", icon: Scissors, hint: "Clip a stream" },
+      { label: "Studio", href: "/studio", icon: Stack, hint: "Review and approve" },
+    ],
+  },
+  {
+    section: "3 · Learn",
+    items: [
+      { label: "Audience", href: "/audience", icon: UsersThree, hint: "What happened" },
+      { label: "Memory", href: "/memory", icon: Database, hint: "What it remembers" },
+    ],
+  },
+  {
+    section: "Setup",
+    items: [{ label: "Integrations", href: "/integrations", icon: LinkSimple, hint: "Keys and permissions" }],
+  },
 ];
 
-export function WorkspaceShell({
+export async function WorkspaceShell({
   active,
   pageName,
   children,
+  dataNote,
+  badge,
 }: Readonly<{
   active: string;
   pageName: string;
   children: React.ReactNode;
+  /** Overrides the truth footer. The default states that the workspace is synthetic,
+   * which is correct for the seeded experiment loop and WRONG for surfaces built on real
+   * scraped data — labelling real competitor numbers as sample data is as much a
+   * truthfulness failure as the reverse. */
+  dataNote?: string;
+  /** Overrides the topbar badge, for the same reason. */
+  badge?: string;
 }>) {
-  const { creator } = demoWorkspace.workspace;
+  const identity = await currentCreator();
+  const creators = [...listCreators(), GUEST];
+  const live = liveAiState();
 
   return (
     <div className="app-shell">
@@ -41,49 +86,62 @@ export function WorkspaceShell({
           <span>Afterplay</span>
         </Link>
 
-        <details className="creator-menu">
-          <summary className="creator-switcher" aria-label="Creator workspace">
-            <Image src={creator.avatarUrl} alt="" width={38} height={38} priority />
-            <span className="creator-copy"><strong>{creator.displayName}</strong><small>@{creator.handle}</small></span>
-            <CaretDown aria-hidden="true" />
-          </summary>
-          <div className="creator-popover">
-            <p>Creator workspaces</p>
-            <div className="account-row account-row--active"><span className="account-avatar account-avatar--mika">MR</span><span><strong>Mika Rao</strong><small>Active demo</small></span></div>
-            <div className="account-row"><span className="account-avatar">NL</span><span><strong>Nova Lee</strong><small>Example account · not loaded</small></span></div>
-            <div className="account-row"><span className="account-avatar">RO</span><span><strong>Rae Okafor</strong><small>Example account · not loaded</small></span></div>
-          </div>
-        </details>
+        <CreatorSwitcher active={identity} creators={creators} />
 
         <nav className="product-nav" aria-label="Product">
-          <p className="nav-label">Workspace</p>
-          {navigation.map(({ label, href, icon: Icon }) => (
-            <Link key={label} href={href} className={label === active ? "nav-link nav-link--active" : "nav-link"}>
-              <Icon aria-hidden="true" />
-              <span>{label}</span>
-              {label === "Studio" && <span className="nav-count" aria-hidden="true">3</span>}
-            </Link>
+          {navigation.map(({ section, items }) => (
+            <div key={section} className="nav-group">
+              <p className="nav-label">{section}</p>
+              {items.map(({ label, href, icon: Icon, hint }) => (
+                <Link key={label} href={href}
+                  className={label === active ? "nav-link nav-link--active" : "nav-link"}>
+                  <Icon aria-hidden="true" />
+                  <span className="nav-text"><span>{label}</span>{/* Decorative: keeps each link's accessible name the label alone, so it stays
+                        addressable as "Studio" rather than "Studio Review and approve". */}
+                    {hint ? <small aria-hidden="true">{hint}</small> : null}</span>
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 
         <div className="sidebar-foot">
-          <div className="mode-block"><span className="mode-dot" aria-hidden="true" /><span><strong>Demo mode</strong><small>No live actions</small></span></div>
+          <div className={`mode-block mode-block--${live.enabled ? "live" : "demo"}`}>
+            <span className="mode-dot" aria-hidden="true" />
+            <span>
+              <strong>{live.enabled ? "Live AI enabled" : "Demo mode"}</strong>
+              <small>{live.enabled ? live.model : "No live actions"}</small>
+            </span>
+          </div>
           <details className="team-menu">
             <summary className="team-button"><Database weight="bold" /> Team notes</summary>
-            <div className="team-popover"><strong>Notes shared by all four roles</strong><p>See what the team knows, what changed, and what still needs Mika’s approval.</p><Link href="/memory">Open memory</Link></div>
+            <div className="team-popover">
+              <strong>Notes shared by all four roles</strong>
+              <p>See what the team knows, what changed, and what still needs approval.</p>
+              <Link href="/memory">Open memory</Link>
+            </div>
           </details>
         </div>
       </aside>
 
       <main className="main-shell">
         <header className="topbar">
-          <div><span className="topbar-kicker">{pageName}</span><span className="topbar-date">Mika Rao · One More Rule</span></div>
-          <div className="topbar-actions"><span className="sample-badge"><span /> Sample workspace</span><span className="updated">Demo snapshot · 09:40</span></div>
+          <div>
+            <span className="topbar-kicker">{pageName}</span>
+            <span className="topbar-date">{identity.displayName}</span>
+          </div>
+          <div className="topbar-actions">
+            <span className="sample-badge"><span /> {badge ?? "Sample workspace"}</span>
+            <span className="updated">{live.enabled ? `Live · ${live.model}` : "Demo snapshot"}</span>
+          </div>
         </header>
         {children}
         <footer className="truth-footer">
-          <span>Demo mode</span>
-          <p>This workspace contains synthetic sample data. Distribution and elapsed-time results are simulated.</p>
+          <span>{dataNote ? "Live data" : "Demo mode"}</span>
+          <p>
+            {dataNote ??
+              "This workspace contains synthetic sample data. Distribution and elapsed-time results are simulated."}
+          </p>
           <time dateTime="2026-08-05">Snapshot 05 Aug 2026</time>
         </footer>
       </main>
