@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { clipperRoot, type CachedSource } from "./sources";
@@ -139,9 +139,33 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
     cwd: clipperRoot(),
     // No shell: user input reaches the process as argv, never as a command string.
     shell: false,
-    detached: true,
+    // NOT detached. On Windows a detached child was dying silently a few seconds in —
+    // the run.log held only the start banner and no traceback, while the identical
+    // command run by hand completed. Keeping it in the server's process group makes the
+    // job live exactly as long as the server, which is what an operator expects anyway,
+    // and lets us record an exit that would otherwise vanish.
+    detached: false,
     stdio: ["ignore", fd, fd],
     env: { ...process.env, PYTHONPATH: clipperRoot(), PYTHONUNBUFFERED: "1" },
+  });
+
+  // A job that dies without writing a manifest must say so rather than appearing to run
+  // forever. The CLI writes status.json itself on a clean failure; this covers the case
+  // where the process never got that far.
+  child.on("exit", (code, signal) => {
+    if (code === 0) return;
+    const statusPath = join(dir, "status.json");
+    try {
+      const raw = readFileSync(statusPath, "utf-8");
+      if ((JSON.parse(raw) as { state?: string }).state !== "started") return;
+    } catch { /* no status yet: fall through and write one */ }
+    writeFileSync(statusPath, JSON.stringify({
+      state: "failed",
+      updated: Date.now() / 1000,
+      message: signal
+        ? `The clipper was terminated by ${signal}.`
+        : `The clipper exited with code ${code}. See run.log.`,
+    }), "utf-8");
   });
   child.unref();
 
