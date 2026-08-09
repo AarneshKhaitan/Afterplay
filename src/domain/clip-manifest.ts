@@ -109,16 +109,38 @@ export function getLatestClipManifest(): ClipperManifest | null {
     const files = manifestFiles(workdir)
       .map((path) => ({ path, mtimeMs: statSync(path).mtimeMs }))
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const complete = files
-      .map((file) => loadManifest(file.path, file.mtimeMs))
-      .find((manifest) => manifest && manifest.status === "complete");
-    if (!complete) return null;
+    const newest = files
+      .map((file) => ({ manifest: loadManifest(file.path, file.mtimeMs), mtimeMs: file.mtimeMs }))
+      .find((entry) => entry.manifest && entry.manifest.status === "complete");
+    if (!newest?.manifest) return null;
+    const complete = newest.manifest;
 
-    const latestStatus = statusRows[0];
-    if (latestStatus && latestStatus.mtimeMs > Date.parse(complete.updatedAt) && latestStatus.status?.state !== "complete") {
+    /* Look for an unfinished job that is NOT older than the manifest we are about to
+     * serve — the G20 case, where a run died before writing its own manifest.
+     *
+     * Two bugs lived in the previous version of this check, both invisible until a
+     * machine was fast enough to hit them:
+     *
+     *  1. It examined only `statusRows[0]`, the newest status file of ANY state. A
+     *     completed job's own `status.json` is usually the newest, so the check compared
+     *     against that, saw `state === "complete"`, and never flagged anything. Now we
+     *     search for the newest genuinely-incomplete status instead.
+     *  2. It compared against `Date.parse(updatedAt)`, and `updatedAt` is the mtime
+     *     round-tripped through an ISO string, which truncates sub-millisecond
+     *     precision. Comparing the raw mtimes avoids inventing a difference that is not
+     *     there.
+     *
+     * `>=` rather than `>` because a dead job written in the same filesystem timestamp
+     * tick as the previous complete one is exactly the case worth catching: the operator
+     * still needs to know the run they are looking at is not the latest attempt.
+     */
+    const staleSignal = statusRows.find(
+      (row) => row.status?.state !== "complete" && row.mtimeMs >= newest.mtimeMs,
+    );
+    if (staleSignal) {
       complete.stale = true;
-      complete.staleReason = `A newer job is ${latestStatus.status?.state ?? "incomplete"}; showing the latest complete manifest.`;
-      complete.latestJobStatus = latestStatus.status;
+      complete.staleReason = `A newer job is ${staleSignal.status?.state ?? "incomplete"}; showing the latest complete manifest.`;
+      complete.latestJobStatus = staleSignal.status;
     }
     return complete;
   } catch {

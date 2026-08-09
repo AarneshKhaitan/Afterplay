@@ -5,6 +5,7 @@ import {
   Flask,
   House,
   LinkSimple,
+  Crosshair,
   Stack,
   UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
@@ -15,6 +16,7 @@ import { demoWorkspace } from "@/domain/workspace";
 
 const navigation = [
   { label: "HQ", href: "/", icon: House },
+  { label: "Intel", href: "/intel", icon: Crosshair },
   { label: "Experiments", href: "/experiments", icon: Flask },
   { label: "Studio", href: "/studio", icon: Stack },
   { label: "Audience", href: "/audience", icon: UsersThree },
@@ -26,10 +28,19 @@ export function WorkspaceShell({
   active,
   pageName,
   children,
+  dataNote,
+  badge,
 }: Readonly<{
   active: string;
   pageName: string;
   children: React.ReactNode;
+  /** Overrides the truth footer. The default states that the workspace is synthetic,
+   * which is correct for the seeded experiment loop and WRONG for surfaces built on real
+   * scraped data — labelling real competitor numbers as sample data is as much a
+   * truthfulness failure as the reverse. */
+  dataNote?: string;
+  /** Overrides the topbar badge, for the same reason. */
+  badge?: string;
 }>) {
   const { creator } = demoWorkspace.workspace;
 
@@ -78,12 +89,15 @@ export function WorkspaceShell({
       <main className="main-shell">
         <header className="topbar">
           <div><span className="topbar-kicker">{pageName}</span><span className="topbar-date">Mika Rao · One More Rule</span></div>
-          <div className="topbar-actions"><span className="sample-badge"><span /> Sample workspace</span><span className="updated">Demo snapshot · 09:40</span></div>
+          <div className="topbar-actions"><span className="sample-badge"><span /> {badge ?? "Sample workspace"}</span><span className="updated">Demo snapshot · 09:40</span></div>
         </header>
         {children}
         <footer className="truth-footer">
-          <span>Demo mode</span>
-          <p>This workspace contains synthetic sample data. Distribution and elapsed-time results are simulated.</p>
+          <span>{dataNote ? "Live data" : "Demo mode"}</span>
+          <p>
+            {dataNote ??
+              "This workspace contains synthetic sample data. Distribution and elapsed-time results are simulated."}
+          </p>
           <time dateTime="2026-08-05">Snapshot 05 Aug 2026</time>
         </footer>
       </main>

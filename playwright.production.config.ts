@@ -2,6 +2,7 @@ import base from "./playwright.config";
 import { defineConfig } from "@playwright/test";
 
 import { TEST_CLIPPER_WORKDIR } from "./tests/e2e/clipper-workdir";
+import { TEST_INTEL_DIR } from "./tests/e2e/intel-dir";
 
 export default defineConfig({
   ...base,
@@ -19,6 +20,8 @@ export default defineConfig({
       // Pinned off so the "unconfigured live mode fails visibly" assertion does not
       // depend on whether the developer enabled live AI in their local .env.
       AFTERPLAY_ENABLE_LIVE_AI: "false",
+      AFTERPLAY_INTEL_DIR: TEST_INTEL_DIR,
+      APIFY_API_TOKEN: "",
     },
   },
 });

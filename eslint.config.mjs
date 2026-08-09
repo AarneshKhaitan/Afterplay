@@ -5,5 +5,16 @@ import nextTypeScript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores([".next/**", ".agents/**", "playwright-report/**", "test-results/**"]),
+  // `.venv` is the Python service's virtualenv, which the service README tells you to
+  // create inside `services/video-clipper`. Without this, eslint walks vendored yt-dlp
+  // JavaScript and reports warnings against third-party code nobody here can fix.
+  globalIgnores([
+    ".next/**",
+    ".agents/**",
+    ".intel/**",
+    "playwright-report/**",
+    "test-results/**",
+    "**/.venv/**",
+    "services/video-clipper/**",
+  ]),
 ]);

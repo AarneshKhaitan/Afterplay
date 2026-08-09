@@ -177,6 +177,7 @@ The prototype uses seeded in-process state. It is ideal for a deterministic sing
 
 ## Documentation map
 
+- [Competitive intelligence engine](docs/intel/INTELLIGENCE.md) — the `/intel` console: what is real, what is not, what is hardcoded
 - [Product requirements](docs/prd/PRD.md) — verified current state, full gap register, requirements
 - [Implementation phases](docs/prd/IMPLEMENTATION-PHASES.md) — what gets built when, with acceptance criteria
 - [Product contract](docs/product/PRODUCT.md)
