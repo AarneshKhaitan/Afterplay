@@ -31,7 +31,7 @@ const KNOWN: Record<string, { displayName: string; handle: string }> = {
   // The backfilled videos are MoreSidemen uploads (KSI appears in them, but the channel
   // is not his). Labelling this workspace "KSI" would misattribute someone else's
   // content, which is the same class of error as claiming rights we do not have.
-  probe_ksi: { displayName: "MoreSidemen", handle: "MoreSidemen" },
+  probe_ksi: { displayName: "Sidemen", handle: "Sidemen" },
   demo_live: { displayName: "Demo Live", handle: "demo_live" },
   e2e_demo: { displayName: "E2E Demo", handle: "e2e_demo" },
 };
