@@ -22,6 +22,7 @@ Code owns identity, permissions, revisions, approval, action dispatch, receipts,
 | --- | --- | --- | --- |
 | `demo` | deterministic fixture director | none | Deterministic output; no external runtime calls |
 | `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true`, `OPENAI_API_KEY` | Real strategy output or visible failure; never synthetic fallback |
+| `riff-live` | OpenAI Realtime cohost | `OPENAI_API_KEY`, microphone/screen permission | Audible cohost output or visible failure; never synthetic fallback |
 | `clipper` | real callback-aware clipper service | `OPENAI_API_KEY`, `AFTERPLAY_CLIPPER_MODEL`, Python deps | Per-input computed clips and evidence trail |
 
 Callback output is a ranking boost, not a gate: when no callback is found, strongest standalone clips are still valid output. A healthy no-callback outcome is distinct from `memory.degraded: true`, which must remain a visible failure state with a reason.
@@ -46,6 +47,12 @@ Official references:
 - https://developers.openai.com/api/docs/guides/prompt-guidance-gpt-5p6.md
 - https://developers.openai.com/api/docs/guides/structured-outputs
 - https://api.openai.com/v1/responses
+
+## Riff realtime cohost
+
+Riff uses `gpt-realtime-2.1` over WebRTC, initialized through an authenticated server route so the standard OpenAI API key remains server-side. The companion sends microphone audio and a resized JPEG snapshot of only the selected game window every five seconds; it does not stream raw desktop video.
+
+Semantic voice activity detection controls turn-taking. Spoken lines and captions are ephemeral show output: they do not become creator memory or experiment evidence unless the application also records source-bearing show context. Application events are parsed through Zod before they can update the session, highlight, or experiment state.
 
 ## Implemented live director
 

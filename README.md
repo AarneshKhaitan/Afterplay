@@ -6,6 +6,8 @@ Afterplay is an autonomous growth team for gaming creators. It studies creator h
 
 This repository is a working end-to-end prototype for the Garena AI Build Challenge 2026. The clipper is part of the team: it can backfill creator memory, find callback/payoff moments, render shorts, and hand Studio a manifest with cited evidence. The central object remains a growth experiment and the north star is returning audience behavior.
 
+Riff extends that loop into the live show. The audible AI cohost reads chat, receives bounded game snapshots from the desktop companion, and turns source-bearing moments into highlights, memory, and experiment evidence.
+
 `diagnosis → hypothesis → plan → production → approval → simulated distribution → result → learning → next experiment`
 
 ## What works
@@ -17,6 +19,7 @@ This repository is a working end-to-end prototype for the Garena AI Build Challe
 - Labelled synthetic results, explicit limits, and no causal-growth claim.
 - A deterministic offline strategy director and an optional live OpenAI director returning the same validated schema.
 - A nested Python clipper service that can backfill channel memory, select callback-aware clips, render them, QC them, and write manifests consumed by Studio.
+- A Riff desktop companion and OBS overlays for live cohosting, simulated-chat rehearsal, captions, and selected-window game context.
 - A visible reset control for repeatable judge runs.
 - Public HTTP, browser, production-mode, accessibility, and mobile-overflow tests.
 
@@ -43,6 +46,18 @@ python -m venv .venv
 ```
 
 Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
+
+### Riff desktop companion
+
+Riff's live voice path needs a server-side OpenAI key plus macOS microphone and screen-recording permission:
+
+```bash
+cp .env.example .env.local
+# Set OPENAI_API_KEY outside git, then:
+npm run companion:dev
+```
+
+The companion opens the local web service and lets the streamer select the game window Riff may inspect. OBS can capture the transparent overlay at [http://127.0.0.1:3100/overlay/riff](http://127.0.0.1:3100/overlay/riff). The deterministic rehearsal path remains available when a repeatable demo is more important than a live provider call; see [the Riff and OBS rehearsal guide](docs/submission/OBS_REHEARSAL.md).
 
 For callback clip review, run the Python clipper from `services/video-clipper` first,
 then refresh Studio. The web app intentionally reads the latest local manifest; it does
@@ -89,6 +104,7 @@ npm run start
 |---|---|---|---|
 | `demo` | deterministic fixture director; simulated distribution | none | repeatable, offline, no external calls |
 | `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true` + `OPENAI_API_KEY` | real strategy output or visible error — never fixture output |
+| `riff-live` | OpenAI Realtime cohost + selected-window snapshots | `OPENAI_API_KEY` + microphone/screen permission | live audio/image context or visible failure — never synthetic fallback |
 | `clipper` | real ingestion, memory, callback scoring, render | `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL` | genuine per-input computed clips |
 
 State plainly that demo-mode strategy is a fixture while clipper output is real.
@@ -189,6 +205,7 @@ The prototype uses seeded in-process state. It is ideal for a deterministic sing
 - [Problem evidence and competitor boundary](docs/research/PROBLEM_EVIDENCE.md)
 - [Accepted public test seams](docs/testing/TEST-SEAMS.md)
 - [Five-minute demo contract](docs/submission/DEMO_CONTRACT.md)
+- [Riff and OBS rehearsal](docs/submission/OBS_REHEARSAL.md)
 - [Challenge traceability](docs/submission/REQUIREMENTS.md)
 - [Third-party and synthetic asset ledger](docs/THIRD_PARTY.md)
 - [Image prompts](docs/assets/IMAGE_PROMPTS.md)

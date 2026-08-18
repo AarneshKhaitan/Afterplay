@@ -5,6 +5,7 @@ const routes = [
   "/",
   "/intel",
   "/experiments/exp_one_more_rule",
+  "/live",
   "/studio",
   "/audience",
   "/memory",

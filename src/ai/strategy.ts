@@ -47,9 +47,9 @@ export class StrategyDirectorError extends Error {
 
 const deterministicProposal: StrategyProposal = {
   name: "One More Rule",
-  diagnosis: "Mika earns occasional clip reach, but the archive does not present a recognizable recurring show or a concrete path back to live participation.",
-  hypothesis: "If Mika names the recurring constraint format and makes viewer participation the premise, first-time viewers will have a stronger cue to recognize and return to the show.",
-  targetBehavior: "Return to another Mika upload or live session within the next audience window.",
+  diagnosis: "The archive earns occasional clip reach, but it does not present a recognizable recurring show or a concrete path back to live participation.",
+  hypothesis: "Naming the recurring constraint format and making viewer participation the premise may give first-time viewers a stronger cue to recognize and return to the show.",
+  targetBehavior: "Return to another upload or live session within the next audience window.",
   successSignal: "Returning-viewer rate and repeat commenters rise together; raw views remain a secondary reach signal.",
   confidence: 72,
   evidenceRefs: ["evidence_format_gap", "evidence_return_gap", "evidence_chat"],

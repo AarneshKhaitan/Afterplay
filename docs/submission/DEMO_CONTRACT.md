@@ -2,93 +2,66 @@
 
 Target runtime: **4 minutes 40 seconds**, leaving 20 seconds of safety.
 
-This is the proof order, not the final spoken script. Every segment must show working product behavior.
+This is the proof order, not the final spoken script. Every segment must show working behavior.
 
-## 0:00-0:25 - Problem and promise
+## 0:00-0:30 — Set the stakes
 
-Before recording, run the clipper CLI on the prepared creator-owned source material:
+Open the Afterplay check-in beside the prepared OBS scene.
 
-```powershell
-cd services\video-clipper
-python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
-python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
-```
+Say the problem plainly: a streamer cannot play, perform, follow every chat thread, remember the community, run a deliberate growth experiment, and package the result at the same time.
 
-Then open directly in the selected creator's Growth HQ.
+Show the truth strip: **live gameplay · simulated chat · live AI cohost**.
 
-The judge must understand:
+## 0:30-1:05 — Give Riff a job
 
-- this creator sometimes gets views but does not build a returning audience;
-- Afterplay is an autonomous growth team with a callback-aware clipper as one worker;
-- one creator decision currently needs attention.
+Show one Afterplay-proposed stream experiment. The creator accepts or edits it, then confirms Riff's compact cohost configuration:
 
-## 0:25-1:10 - Diagnosis and AI contribution
+- funny, sharp personality brief;
+- roast intensity;
+- talk frequency.
 
-Open the active experiment. Show:
+Start the live session. This must feel like a check-in, not dashboard administration.
 
-- evidence behind the reach-without-return diagnosis;
-- confidence and uncertainty;
-- rejected alternatives;
-- the testable hypothesis;
-- Strategist and Scout contributions.
+## 1:05-3:15 — The live proof
 
-State the removal test: without semantic judgment across creator history, the system becomes dashboards and templates rather than a creator-specific growth team.
+Switch attention to the OBS-composed stream:
 
-## 1:10-2:05 - Plan and finished work
+- live Roblox obby gameplay;
+- small facecam;
+- normal scrolling simulated chat;
+- Riff audible to the creator and audience;
+- sparse Riff captions, with no animated avatar and no special chat callouts.
 
-Move into Studio through the experiment, not through disconnected navigation. Show:
+The scripted-but-reactive sequence should create two genuine AI moments:
 
-- the latest real clipper manifest, if prepared before the recording;
-- the playable callback clip;
-- the cited prior stream, timestamp, and quote that make the clip meaningful;
-- the experiment's stream premise;
-- prepared content variants;
-- target audience and intended job of each output;
-- Producer rationale and provenance;
-- the available reject, change-request, and approve controls;
-- why the recorded revision matters at the action boundary.
+1. A viewer roasts the creator after a mistake. Riff recognizes the setup and pushes the creator to answer.
+2. Several viewers ask for the same thing in different language. Riff synthesizes the request and challenges the creator to respond.
 
-## 2:05-2:55 - Human authority and external action
+At least one moment must show experiment relevance, and one visible highlight marker must appear. If live AI fails, show the failure; do not silently switch modes.
 
-Approve the current revision. Show:
+## 3:15-4:25 — The stream becomes leverage
 
-- the UI explicitly says nothing has been posted after approval;
-- current-revision approval creates one action;
-- the simulated publisher is visibly labelled;
-- an idempotent sample receipt returns;
-- three transparently simulated, idempotent receipts.
+End the session and open the continuity debrief. Show:
 
-## 2:55-3:55 - Results and learning
+- a newly captured public viewer contribution or creator promise;
+- one or more timestamped highlight candidates with semantic context;
+- evidence that supports, contradicts, or leaves the accepted experiment inconclusive;
+- a proposed next experiment or callback that uses what actually happened.
 
-Open Audience from the experiment result. Show:
+The final clip need not contain Riff. The product value is that Riff helped create, notice, and explain the moment.
 
-- labelled sample performance;
-- movement in returning audience, not only reach;
-- the Analyst's evidence-backed interpretation;
-- uncertainty from the small sample;
-- the limits that prevent a causal claim;
-- the materially changed next experiment.
+## 4:25-4:40 — Close
 
-## 3:55-4:40 - The loop closes
+Close on:
 
-Return to Growth HQ. Show:
-
-- the completed experiment;
-- what Afterplay learned;
-- a materially changed next experiment;
-- the team continuing autonomous internal work;
-- the next creator decision, if any.
-
-If the workspace is not at its initial state, use **Integrations → Reset demo workspace** before recording. The reset is visible and backed by the public service.
-
-Close on the product contract: the creator plays; Afterplay decides what to test, prepares the work, learns from results, and asks before acting in public.
+> Riff makes chat part of the show. Afterplay turns what happens into memory, content, and the next growth experiment.
 
 ## Demo truth rules
 
-- Demo AI mode is visible.
-- Sample platform data and receipts are labelled where shown.
-- No claim implies real public posting or proven creator growth.
-- No static slide substitutes for a required workflow step.
-- The app remains fully usable without network access or external credentials.
-- The web app does not claim to launch the clipper. The demo boundary is CLI first,
-  refresh Studio second.
+- Simulated chat is labelled at the point of use.
+- Live versus deterministic Riff mode is visible.
+- Roblox, facecam, microphone, audio routing, and final composition happen in OBS and are not represented as Afterplay-owned streaming infrastructure.
+- The desktop companion sends periodic selected-window snapshots as Realtime image context. This is not continuous video, and actual Roblox interpretation remains a manual demo claim.
+- Sample memories or historical context are labelled if seeded.
+- No claim implies real platform ingestion, public posting, proven creator growth, or measured burnout reduction.
+- The offline deterministic path exists for rehearsal but is never passed off as the live AI path.

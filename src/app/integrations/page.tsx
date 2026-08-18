@@ -34,9 +34,9 @@ function connectionRows(live: ReturnType<typeof liveAiState>) {
 
 const authority = [
   { action: "Research, diagnose, and plan", owner: "Afterplay", rule: "Runs inside the workspace", state: "autonomous" },
-  { action: "Publish or schedule content", owner: "Creator", rule: "Approval required", state: "controlled" },
-  { action: "Send outreach or accept terms", owner: "Creator", rule: "Approval required", state: "controlled" },
-  { action: "Spend money or change access", owner: "Creator", rule: "Approval required", state: "controlled" },
+  { action: "Publish or schedule content", owner: "You", rule: "Approval required", state: "controlled" },
+  { action: "Send outreach or accept terms", owner: "You", rule: "Approval required", state: "controlled" },
+  { action: "Spend money or change access", owner: "You", rule: "Approval required", state: "controlled" },
 ];
 
 export default function IntegrationsPage() {
@@ -49,7 +49,7 @@ export default function IntegrationsPage() {
         <section className="page-hero integrations-hero">
           <div>
             <h1>Connections and permissions</h1>
-            <p>See what is connected, what is simulated, and which actions still need the creator.</p>
+            <p>See what is connected, what is simulated, and which actions still need your approval.</p>
             <div className="hero-meta">
               <span className={`status-chip status-chip--${live.usable ? "review" : "safe"}`}>
                 {live.usable ? "Live AI configured" : "Demo configuration"}

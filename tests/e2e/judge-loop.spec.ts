@@ -23,7 +23,7 @@ test("a creator can approve work and carry one experiment into learning", async 
   await expect(page.getByRole("article", { name: "Next rule enters Tuesday" })).toBeVisible();
 
   await page.getByRole("button", { name: "Approve current revision" }).click();
-  await expect(page.getByText("Approved by Mika", { exact: true })).toBeVisible();
+  await expect(page.getByText("Approved by you", { exact: true })).toBeVisible();
   await expect(page.getByText("Nothing has been posted yet.", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Run simulated distribution" }).click();

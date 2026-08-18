@@ -1,63 +1,64 @@
 # Product contract
 
-Last updated: 2026-08-05
+Last updated: 2026-08-09
 
 ## Promise
 
-Afterplay helps a gaming creator build a returning audience without becoming their own strategist, researcher, editor, analyst, and distribution team.
+Afterplay gives gaming creators an audible AI cohost that can follow the streamer, gameplay, chat, community history, and one accepted experiment at the same time. Riff helps create the live moment; Afterplay preserves what the moment taught the creator.
 
-## Canonical creator
+## Canonical demo creator
 
-The prototype opens in the workspace of a small gaming creator with roughly one month of activity, 1-5 average live viewers, inconsistent off-platform reach, and no confident next move.
+The prototype opens in a creator workspace prepared for a live Roblox obby stream. The creator has chat energy but cannot play, perform, read every message, remember previous viewers, execute a deliberate show experiment, and mine the stream for follow-up work simultaneously.
 
-Their clips sometimes receive views, but those viewers do not return or join the live stream because the content feels like isolated highlights rather than a recognizable ongoing show.
+The chat is a scripted-but-reactive simulation so the demo is reliable and visibly disclosed. The gameplay, creator performance, and live cohost are real during the rehearsal path.
 
 ## Central workflow
 
-1. Afterplay studies the creator baseline and identifies the current bottleneck.
-2. The Strategist forms a testable growth hypothesis.
-3. Scout and Producer prepare the stream plan and content outputs.
-4. The creator reviews evidence, alternatives, confidence, and proposed external actions.
-5. Approved content receives transparently simulated distribution receipts.
-6. Audience results arrive as labelled sample data.
-7. The Analyst explains what changed, what remains uncertain, and what to test next.
+1. Afterplay proposes one falsifiable stream experiment.
+2. The creator accepts or edits the experiment and tunes Riff's personality, roast intensity, and talk frequency.
+3. The creator opens the lightweight desktop companion, selects the game window, and starts a live session with that accepted experiment in context.
+4. Riff hears the streamer, receives periodic frames from only the selected game window, and decides when speaking would improve the show. Simulated chat remains a separate deterministic input path until it is connected to the companion.
+5. Riff can roast the creator, surface the audience's request, recall a relevant prior contribution, or stay silent.
+6. Afterplay records the evidence behind each useful live turn and identifies semantic highlight candidates.
+7. The stream ends in a short debrief: new memories, highlight candidates, experiment evidence, and a proposed next experiment or callback.
 
 ## Canonical judge path
 
-`Growth HQ -> active experiment -> evidence and plan -> Studio outputs -> approval -> simulated distribution -> Audience results -> next experiment`
+`Experiment check-in -> live session -> audible Riff intervention -> visible highlight capture -> continuity debrief`
 
-The first screen must communicate within 20 seconds:
+Within the first 20 seconds, the judge must understand:
 
-- what is holding this creator back;
-- what Afterplay believes should change;
-- what the team is doing now;
-- which decision requires the creator;
-- whether the returning audience is moving.
+- Riff is an audible AI cohost, not another dashboard assistant;
+- Riff has simultaneous context from the streamer, gameplay, chat, memory, and accepted experiment;
+- the chat is simulated and the AI status is visible;
+- the stream will produce reusable memory and evidence rather than evaporating when it ends.
 
-## Platform areas
+## Product surfaces
 
-1. **HQ**: current briefing, experiment, team activity, decisions, returning-audience movement, and next move.
-2. **Experiments**: hypotheses, plans, lifecycle, evidence, alternatives, results, and learning.
-3. **Studio**: streams, generated content, revisions, approvals, and distribution receipts.
-4. **Audience**: returning audience, funnel diagnosis, segments, and platform performance.
-5. **Memory**: creator identity, recurring formats, storylines, community language, preferences, and boundaries.
-6. **Integrations**: connected channels, permissions, simulation disclosures, and automation limits.
+1. **Check-in**: the proposed experiment and compact cohost configuration in Afterplay.
+2. **Desktop companion**: selected-game preview, microphone/Realtime state, Riff output, and start/stop control outside the dashboard.
+3. **OBS overlay**: one stable transparent browser-source page with a permanent Riff nameplate, stateful waveform, and captions. OBS remains the broadcaster.
+4. **Debrief**: memories, highlights, experiment evidence, and next experiment.
+5. **History**: prior experiments and creator/community memory. It supports the core loop but is not the demo climax.
 
 ## Prototype boundary
 
-- One preloaded creator account is used in the judge path.
-- A reusable account switcher and product shell establish multi-account capability.
-- All six product areas are polished, navigable, and populated.
-- One growth experiment functions completely end to end.
-- External platform connections, publishing, elapsed time, and performance are explicitly simulated.
-- Media is generated, owned, or rights-cleared and represented truthfully.
-- Demo mode is deterministic and reliable.
-- Optional live mode uses the same validated domain contract and never masquerades as fixture output.
+- One preloaded creator workspace and one Roblox-obstacle-course demo are used.
+- Simulated chat is deterministic but reacts to known live beats.
+- Demo mode uses a deterministic cohost director and returns the same validated decision shape as live mode.
+- Live mode uses an OpenAI realtime voice model and fails visibly if it is unavailable.
+- Gameplay context is sampled from the selected desktop window every five seconds and sent as bounded image input; continuous video is not claimed.
+- Roblox broadcast capture, facecam, creator-microphone routing, Riff application audio, and final composition are configured in OBS and verified manually.
+- The product emits captions/speaking state for an OBS browser source; it does not recreate OBS.
+- Seeded in-process state is acceptable for the prototype and is not represented as durable production storage.
+- Final clips may exclude Riff. Riff contributes timestamps, context, memory, and experiment evidence.
 
 ## Deliberate exclusions
 
-- Real OAuth and production social-platform credentials.
-- Real public posting from the judge environment.
-- Autonomous partner outreach, spending, or agreement acceptance.
-- A claim that sample results prove actual creator growth.
-- Production-scale ingestion, durable storage, billing, or multi-tenant administration.
+- Real Twitch or YouTube chat ingestion.
+- An animated Riff avatar.
+- Special chat-message callout graphics.
+- Direct game control, modifiers, trouble tokens, or chat-triggered commands.
+- Autonomous moderation sanctions, DMs, purchases, public posting, or sponsor claims.
+- Sensitive individual fan profiles.
+- Claims that simulated chat or one demo proves retention, burnout reduction, or creator growth.

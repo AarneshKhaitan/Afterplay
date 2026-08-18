@@ -50,7 +50,7 @@ test("a judge can understand the product from Growth HQ", async ({ page }) => {
   await expect(page.getByRole("option").first()).toBeVisible();
 
   const navigation = page.getByRole("navigation", { name: "Product" });
-  for (const label of ["HQ", "Intel", "Experiments", "Ingest", "Studio", "Audience", "Memory", "Integrations"]) {
+  for (const label of ["HQ", "Intel", "Experiments", "Riff live", "Ingest", "Studio", "Audience", "Memory", "Integrations"]) {
     await expect(navigation.getByRole("link", { name: label, exact: true })).toBeVisible();
   }
 });

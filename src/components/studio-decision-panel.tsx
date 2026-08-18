@@ -71,7 +71,7 @@ export function StudioDecisionPanel({ initialExperiment }: { initialExperiment: 
   if (experiment.status === "approved") {
     return (
       <section className="approval-console" aria-live="polite">
-        <div className="approval-console-heading"><span className="approval-icon approval-icon--approved"><Check weight="bold" /></span><div><h2>Approved by Mika</h2><span className="decision-status">Revision {experiment.revision}</span></div></div>
+        <div className="approval-console-heading"><span className="approval-icon approval-icon--approved"><Check weight="bold" /></span><div><h2>Approved by you</h2><span className="decision-status">Revision {experiment.revision}</span></div></div>
         <p>Nothing has been posted yet.</p>
         <div className="authority-note"><WarningCircle /><span>Run the simulation to create three local receipts. No external service will be contacted.</span></div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
@@ -88,7 +88,7 @@ export function StudioDecisionPanel({ initialExperiment }: { initialExperiment: 
 
   return (
     <section className="approval-console">
-      <div className="approval-console-heading"><span className="approval-icon"><Check weight="bold" /></span><div><h2>Approve revision {experiment.revision}</h2><span className="decision-status">Mika’s approval required</span></div></div>
+      <div className="approval-console-heading"><span className="approval-icon"><Check weight="bold" /></span><div><h2>Approve revision {experiment.revision}</h2><span className="decision-status">Your approval required</span></div></div>
       <p>Approve these three pieces, ask the Producer for changes, or stop the test. Nothing leaves Afterplay at this step.</p>
       {feedbackAction ? (
         <form className="feedback-form" onSubmit={(event) => { event.preventDefault(); void decide(feedbackAction); }}>

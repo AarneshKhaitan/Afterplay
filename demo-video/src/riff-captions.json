@@ -1,0 +1,23 @@
+[
+  {
+    "text": "Yo. Chat is challenging you to trap some guy with that button.",
+    "startMs": 350,
+    "endMs": 4140,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Bro, he walked straight through it and slapped you into a different server.",
+    "startMs": 9230,
+    "endMs": 14480,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "No, no, no. I am not shutting up, and the chat is with me.",
+    "startMs": 19050,
+    "endMs": 25980,
+    "timestampMs": null,
+    "confidence": 1
+  }
+]
