@@ -9,18 +9,59 @@
  * through the `/api/intel/*` routes.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import "server-only";
+
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  readVersionedJson,
+  writeVersionedJson,
+  type VersionedJsonSchema,
+} from "@/domain/persist";
 import type { IntelMemory, ScanJob } from "./types";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const scanSchema: VersionedJsonSchema<ScanJob> = {
+  name: "intel.scan",
+  version: 1,
+  acceptLegacy: true,
+  accepts: (value): value is ScanJob =>
+    isRecord(value) &&
+    typeof value.scanId === "string" &&
+    typeof value.creatorId === "string" &&
+    typeof value.status === "string" &&
+    Array.isArray(value.channels),
+};
+
+const memorySchema: VersionedJsonSchema<IntelMemory> = {
+  name: "intel.memory",
+  version: 1,
+  acceptLegacy: true,
+  accepts: (value): value is IntelMemory =>
+    isRecord(value) &&
+    typeof value.creatorId === "string" &&
+    Array.isArray(value.beliefs) &&
+    Array.isArray(value.events) &&
+    Array.isArray(value.scans) &&
+    isRecord(value.totals),
+};
+
+function cacheSchema<T>(): VersionedJsonSchema<CacheEntry<T>> {
+  return {
+    name: "intel.cache-entry",
+    version: 1,
+    acceptLegacy: true,
+    accepts: (value): value is CacheEntry<T> =>
+      isRecord(value) &&
+      typeof value.at === "string" &&
+      typeof value.key === "string" &&
+      "value" in value,
+  };
+}
 
 export function intelRoot(): string {
   return process.env.AFTERPLAY_INTEL_DIR ?? join(process.cwd(), ".intel");
@@ -49,35 +90,14 @@ function safe(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "unknown";
 }
 
-function readJson<T>(path: string): T | null {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, "utf-8")) as T;
-  } catch {
-    return null;
-  }
-}
-
-/** Atomic write via rename.
- *
- * The UI polls scan files every second while a scan runs. A plain `writeFileSync` can be
- * observed half-written, and the poller would parse that as corrupt and report the scan
- * failed. `rename` is atomic on both NTFS and POSIX, so a reader sees either the old
- * file or the new one — never a partial. */
-function writeJson(path: string, value: unknown): void {
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2), "utf-8");
-  renameSync(tmp, path);
-}
-
 // ── scans ────────────────────────────────────────────────────────────────────
 
 export function saveScan(job: ScanJob): void {
-  writeJson(join(scansDir(), `${safe(job.scanId)}.json`), job);
+  writeVersionedJson(join(scansDir(), `${safe(job.scanId)}.json`), scanSchema, job);
 }
 
 export function loadScan(scanId: string): ScanJob | null {
-  return readJson<ScanJob>(join(scansDir(), `${safe(scanId)}.json`));
+  return readVersionedJson(join(scansDir(), `${safe(scanId)}.json`), scanSchema);
 }
 
 export function listScans(creatorId?: string, limit = 25): ScanJob[] {
@@ -87,7 +107,7 @@ export function listScans(creatorId?: string, limit = 25): ScanJob[] {
     .filter((name) => name.endsWith(".json"))
     .map((name) => ({ name, mtime: statSync(join(dir, name)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime)
-    .map(({ name }) => readJson<ScanJob>(join(dir, name)))
+    .map(({ name }) => readVersionedJson(join(dir, name), scanSchema))
     .filter((scan): scan is ScanJob => Boolean(scan))
     .filter((scan) => !creatorId || scan.creatorId === creatorId)
     .slice(0, limit);
@@ -116,14 +136,18 @@ export function cacheKey(parts: (string | number | boolean)[]): string {
 }
 
 export function readCache<T>(key: string, maxAgeMs: number): T | null {
-  const entry = readJson<CacheEntry<T>>(join(cacheDir(), `${key}.json`));
+  const entry = readVersionedJson(join(cacheDir(), `${key}.json`), cacheSchema<T>());
   if (!entry) return null;
   if (Date.now() - Date.parse(entry.at) > maxAgeMs) return null;
   return entry.value;
 }
 
 export function writeCache<T>(key: string, value: T): void {
-  writeJson(join(cacheDir(), `${key}.json`), { at: new Date().toISOString(), key, value });
+  writeVersionedJson(join(cacheDir(), `${key}.json`), cacheSchema<T>(), {
+    at: new Date().toISOString(),
+    key,
+    value,
+  });
 }
 
 export function cacheStats(): { entries: number; oldest: string | null } {
@@ -148,9 +172,9 @@ export function emptyMemory(creatorId: string): IntelMemory {
 }
 
 export function loadMemory(creatorId: string): IntelMemory {
-  return readJson<IntelMemory>(memoryPath(creatorId)) ?? emptyMemory(creatorId);
+  return readVersionedJson(memoryPath(creatorId), memorySchema) ?? emptyMemory(creatorId);
 }
 
 export function saveMemory(memory: IntelMemory): void {
-  writeJson(memoryPath(memory.creatorId), memory);
+  writeVersionedJson(memoryPath(memory.creatorId), memorySchema, memory);
 }

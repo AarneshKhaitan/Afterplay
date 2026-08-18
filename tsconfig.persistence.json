@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/domain/persist.ts",
+    "src/domain/persist-core.ts",
+    "src/domain/intel/store.ts",
+    "tests/e2e/persistence.spec.ts"
+  ],
+  "exclude": ["node_modules"]
+}
