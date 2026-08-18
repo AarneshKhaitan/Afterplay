@@ -576,9 +576,14 @@ class Orchestrator:
             # clips carry burned captions. Audio-energy is the fallback.
             try:
                 from .asr import to_vtt, transcribe
-                tr = transcribe(audio_path)
+                tr = transcribe(audio_path, language=self.settings.asr_language)
                 words, sents = tr.words, tr.sents
-                to_vtt(words, job_dir / "asr.vtt")
+                src.vtt_path = to_vtt(
+                    words, job_dir / "asr.vtt", language=tr.language
+                )
+                src.transcript_language = tr.language
+                src.transcript_source = "asr"
+                src.subtitle_track = None
                 detector = "asr:" + tr.model
                 moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                      n=n_clips, target=target,
@@ -669,7 +674,10 @@ class Orchestrator:
         job = JobResult(job_id=job_id,
                         source={"url": src.url, "title": src.title,
                                 "uploader": src.uploader, "duration": src.duration,
-                                "local": str(src.local_path) if src.local_path else None},
+                                "local": str(src.local_path) if src.local_path else None,
+                                "transcript_language": src.transcript_language,
+                                "transcript_source": src.transcript_source,
+                                "subtitle_track": src.subtitle_track},
                         clips=results, timings=timings,
                         encoder=detect_encoder(self.settings),
                         heatmap_available=src.has_heatmap,

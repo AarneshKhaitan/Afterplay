@@ -108,6 +108,12 @@ def _configured_dir(var: str, fallback: Path) -> Path:
     return p if p.is_absolute() else (REPO_ROOT / p)
 
 
+def _configured_languages() -> tuple[str, ...]:
+    raw = os.environ.get("AFTERPLAY_SUBTITLE_LANGUAGES", "en,en-US,en-GB,en-orig")
+    languages = tuple(item.strip() for item in raw.split(",") if item.strip())
+    return languages or ("en",)
+
+
 @dataclass
 class Settings:
     workdir: Path = field(default_factory=lambda: _configured_dir(
@@ -121,6 +127,10 @@ class Settings:
     http_timeout: int = 60
     # yt-dlp format preference: cap the source at 1080p to bound the fetch
     format: str = "bv*[height<=1080]+ba/b[height<=1080]/b"
+    subtitle_languages: tuple[str, ...] = field(default_factory=_configured_languages)
+    asr_language: str | None = field(default_factory=lambda: (
+        os.environ.get("AFTERPLAY_ASR_LANGUAGE") or None
+    ))
 
     # ── ingestion auth and pacing ────────────────────────────────────────────
     # YouTube rate-limits unauthenticated extraction and then answers every
@@ -149,6 +159,13 @@ class Settings:
         self.outdir = Path(self.outdir)
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.outdir.mkdir(parents=True, exist_ok=True)
+        self.subtitle_languages = tuple(self.subtitle_languages)
+        if not self.subtitle_languages:
+            raise ValueError("subtitle_languages must contain at least one language")
+        if self.asr_language is None:
+            # Keep caption-less runs deterministic too. A Hindi case study can set
+            # AFTERPLAY_ASR_LANGUAGE=hi instead of accepting auto-detected drift.
+            self.asr_language = self.subtitle_languages[0].split("-", 1)[0]
 
 
 def network_opts(settings: "Settings") -> dict:

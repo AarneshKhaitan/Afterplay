@@ -31,6 +31,9 @@ class Source:
     info_path: Path | None = None
     local_path: Path | None = None      # set for direct-upload ingest
     resolve_seconds: float = 0.0
+    transcript_language: str | None = None
+    transcript_source: str | None = None
+    subtitle_track: str | None = None
 
     @property
     def is_local(self) -> bool:
@@ -49,7 +52,7 @@ def _ydl_opts(settings: Settings, workdir: Path, extra: dict | None = None) -> d
         "writeinfojson": True,
         "writeautomaticsub": True,
         "writesubtitles": True,
-        "subtitleslangs": ["en", "en-US", "en-GB", "en-orig"],
+        "subtitleslangs": list(settings.subtitle_languages),
         "subtitlesformat": "vtt",
         "outtmpl": str(workdir / "source.%(ext)s"),
         "format": settings.format,
@@ -84,7 +87,9 @@ def resolve(url: str, settings: Settings, job_id: str = "job") -> Source:
                 "or replay a cached run with --info-json.") from e
         raise ResolveError(f"could not resolve {url}: {e}") from e
 
-    vtt = _pick_vtt(workdir)
+    vtt, transcript_language, transcript_source, subtitle_track = _pick_vtt(
+        workdir, settings.subtitle_languages, info
+    )
     info_json = next(iter(sorted(workdir.glob("*.info.json"))), None)
 
     src = Source(
@@ -98,6 +103,9 @@ def resolve(url: str, settings: Settings, job_id: str = "job") -> Source:
         vtt_path=vtt,
         info_path=info_json,
         resolve_seconds=time.time() - t0,
+        transcript_language=transcript_language,
+        transcript_source=transcript_source,
+        subtitle_track=subtitle_track,
     )
     if not src.duration:
         raise ResolveError(f"{url}: no duration in metadata")
@@ -109,6 +117,8 @@ def resolve(url: str, settings: Settings, job_id: str = "job") -> Source:
 def from_info_json(info_path, vtt_path=None) -> Source:
     """Build a Source from an already-saved info.json (offline / replay / tests)."""
     info = json.loads(Path(info_path).read_text(encoding="utf-8"))
+    vtt = Path(vtt_path) if vtt_path else None
+    track = _subtitle_track(vtt) if vtt else None
     return Source(
         url=info.get("webpage_url"),
         title=info.get("title") or "",
@@ -117,8 +127,11 @@ def from_info_json(info_path, vtt_path=None) -> Source:
         view_count=int(info.get("view_count") or 0),
         heatmap=list(info.get("heatmap") or []),
         chapters=list(info.get("chapters") or []),
-        vtt_path=Path(vtt_path) if vtt_path else None,
+        vtt_path=vtt,
         info_path=Path(info_path),
+        transcript_language=_vtt_language(vtt) if vtt else None,
+        transcript_source="provided_vtt" if vtt else None,
+        subtitle_track=track,
     )
 
 
@@ -129,19 +142,77 @@ def from_local(path, vtt_path=None) -> Source:
     if not p.exists():
         raise ResolveError(f"{p} does not exist")
     mi = probe(p)
+    vtt = Path(vtt_path) if vtt_path else None
     return Source(url=None, title=p.stem, duration=mi.duration,
-                  local_path=p, vtt_path=Path(vtt_path) if vtt_path else None)
+                  local_path=p, vtt_path=vtt,
+                  transcript_language=_vtt_language(vtt) if vtt else None,
+                  transcript_source="provided_vtt" if vtt else None,
+                  subtitle_track=_subtitle_track(vtt) if vtt else None)
 
 
-def _pick_vtt(workdir: Path) -> Path | None:
-    """Prefer manual English captions over auto-generated, then anything English."""
+def _subtitle_track(path: Path | None) -> str | None:
+    if not path:
+        return None
+    stem = path.stem
+    return stem.rsplit(".", 1)[-1] if "." in stem else None
+
+
+def _vtt_language(path: Path | None) -> str | None:
+    if not path or not path.exists():
+        return None
+    try:
+        for line in path.read_text(encoding="utf-8-sig").splitlines()[:20]:
+            key, separator, value = line.partition(":")
+            if separator and key.strip().casefold() == "language":
+                language = value.strip()
+                return language if language and language.casefold() != "auto" else None
+    except OSError:
+        return None
+    track = _subtitle_track(path)
+    return track.split("-", 1)[0] if track else None
+
+
+def _metadata_has_track(tracks: dict, track: str) -> bool:
+    wanted = track.casefold()
+    return any(str(key).casefold() == wanted for key in (tracks or {}))
+
+
+def _track_matches(requested: str, track: str) -> bool:
+    requested = requested.casefold()
+    track = track.casefold()
+    return track == requested or track.startswith(requested + "-")
+
+
+def _pick_vtt(
+    workdir: Path,
+    preferred_languages: tuple[str, ...],
+    info: dict | None = None,
+) -> tuple[Path | None, str | None, str | None, str | None]:
+    """Select only a configured language and disclose the exact selected track."""
     cands = [Path(p) for p in glob.glob(str(workdir / "*.vtt"))]
     if not cands:
-        return None
-    def key(p: Path):
-        n = p.name.lower()
-        return (0 if ".en." in n and "orig" not in n else 1, -p.stat().st_size)
-    return sorted(cands, key=key)[0]
+        return None, None, None, None
+
+    by_track = [(path, _subtitle_track(path) or "") for path in cands]
+    for requested in preferred_languages:
+        matches = [item for item in by_track if _track_matches(requested, item[1])]
+        if not matches:
+            continue
+        matches.sort(key=lambda item: (
+            item[1].casefold() != requested.casefold(),
+            -item[0].stat().st_size,
+        ))
+        path, track = matches[0]
+        metadata = info or {}
+        if _metadata_has_track(metadata.get("subtitles") or {}, track):
+            source = "youtube_manual"
+        elif _metadata_has_track(metadata.get("automatic_captions") or {}, track):
+            source = "youtube_auto"
+        else:
+            source = "youtube_unknown"
+        language = _vtt_language(path) or track.split("-", 1)[0]
+        return path, language, source, track
+    return None, None, None, None
 
 
 STREAM_URL_TTL_S = 4 * 3600      # CDN URLs are short-lived; assume ~4h

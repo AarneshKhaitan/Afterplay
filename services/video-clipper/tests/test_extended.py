@@ -295,10 +295,15 @@ class TestASR:
 
     def test_vtt_is_wellformed(self, tmp_path):
         from afterplay.asr import to_vtt
-        p = to_vtt([Word(0.0, "hello"), Word(0.5, "world")], tmp_path / "a.vtt")
+        p = to_vtt(
+            [Word(0.0, "नमस्ते"), Word(0.5, "दोस्त")],
+            tmp_path / "a.vtt",
+            language="hi",
+        )
         txt = p.read_text(encoding="utf-8")
         assert txt.startswith("WEBVTT")
         assert "-->" in txt and "<c>" in txt
+        assert "Language: hi" in txt
 
     def test_empty_words_yields_header_only(self, tmp_path):
         from afterplay.asr import to_vtt

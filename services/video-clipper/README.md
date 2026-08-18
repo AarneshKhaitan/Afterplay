@@ -114,6 +114,19 @@ That ASR path requires `faster-whisper` and local/downloadable Whisper weights. 
 are unavailable, `backfill` fails with an actionable error naming `AFTERPLAY_WHISPER_SIZE`
 or `AFTERPLAY_WHISPER_MODEL`; it does not silently behave like a no-callback stream.
 
+Caption selection follows `AFTERPLAY_SUBTITLE_LANGUAGES` in order and never falls back to
+an unlisted language. Pin caption-less transcription with `AFTERPLAY_ASR_LANGUAGE`. For the
+bounded Hindi case study, for example:
+
+```bash
+export AFTERPLAY_SUBTITLE_LANGUAGES=hi,en
+export AFTERPLAY_ASR_LANGUAGE=hi
+```
+
+Every manifest records `transcript_language`, `transcript_source`, and `subtitle_track`.
+This is source provenance for a measured case study, not a claim of general multilingual
+support.
+
 Run the current stream with memory enabled:
 
 ```bash
@@ -234,6 +247,8 @@ pip install faster-whisper
 export AFTERPLAY_WHISPER_SIZE=base          # downloaded on first use
 # or, on a locked-down box, point at a pre-downloaded CTranslate2 model:
 export AFTERPLAY_WHISPER_MODEL=/models/faster-whisper-base
+export AFTERPLAY_SUBTITLE_LANGUAGES=en,en-US,en-GB,en-orig
+export AFTERPLAY_ASR_LANGUAGE=en
 ```
 
 If weights cannot be loaded, `transcribe` raises `ASRUnavailable` and the job silently

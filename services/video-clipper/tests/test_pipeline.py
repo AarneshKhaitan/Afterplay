@@ -253,6 +253,9 @@ class TestOrchestratorEndToEnd:
         assert manifest.exists()
         data = json.loads(manifest.read_text(encoding="utf-8"))
         assert data["clips"] and data["encoder"]
+        assert data["source"]["transcript_source"] == "provided_vtt"
+        assert "transcript_language" in data["source"]
+        assert "subtitle_track" in data["source"]
 
         produced = [c for c in job.clips if c.path and Path(c.path).exists()]
         assert produced, [c.error for c in job.clips]
