@@ -46,6 +46,7 @@ test.beforeAll(() => {
           source_stream: "prior_001",
           source_t: 12,
           source_quote: "bro Ravi is the cursed sniper, he cannot hit anything",
+          citation_verified: true,
         },
       }],
       encoder: "h264_qsv",
@@ -66,6 +67,7 @@ test("Studio renders callback citation and media route from latest manifest", as
         sourceStream: "prior_001",
         sourceT: 12,
         sourceQuote: "bro Ravi is the cursed sniper, he cannot hit anything",
+        citationVerified: true,
       }],
     },
   });

@@ -25,6 +25,7 @@ export type ClipperManifestClip = {
   sourceStream?: string;
   sourceT?: number;
   sourceQuote?: string;
+  citationVerified?: boolean;
 };
 
 export type ClipperMemoryState = {
@@ -53,6 +54,9 @@ export type ClipperManifest = {
     url?: string | null;
     uploader?: string;
     duration?: number;
+    transcript_language?: string | null;
+    transcript_source?: string | null;
+    subtitle_track?: string | null;
   };
   clips: ClipperManifestClip[];
   timings?: Record<string, number>;
@@ -156,10 +160,28 @@ function loadManifest(path: string, mtimeMs: number): ClipperManifest | null {
   const status = readStatus(join(path, "..", "status.json"));
   const state = data.status ?? status?.state ?? "complete";
   if (state !== "complete") return null;
+  const rawClips = Array.isArray(data.clips) ? data.clips : [];
+  const clips = rawClips.map(normalizeClip);
+  const rejectedCallbacks = rawClips.filter(
+    (clip, index) => clip.signals?.callback === true && clips[index]?.callback !== true,
+  ).length;
+  const integrityReason = rejectedCallbacks
+    ? `${rejectedCallbacks} callback ${rejectedCallbacks === 1 ? "claim was" : "claims were"} omitted because the manifest lacks complete verified citation metadata.`
+    : null;
   return {
     ...data,
     status: "complete",
-    clips: Array.isArray(data.clips) ? data.clips.map(normalizeClip) : [],
+    clips,
+    memory: integrityReason
+      ? {
+          ...data.memory,
+          enabled: data.memory?.enabled ?? true,
+          degraded: true,
+          reason: data.memory?.reason ?? integrityReason,
+          callback_found: clips.some((clip) => clip.callback === true),
+        }
+      : data.memory,
+    message: integrityReason ?? data.message,
     manifestPath: path,
     updatedAt: new Date(mtimeMs).toISOString(),
   };
@@ -175,14 +197,23 @@ function readStatus(path: string): ClipperJobStatus | undefined {
 
 function normalizeClip(clip: ClipperManifestClip): ClipperManifestClip {
   const signals = clip.signals ?? {};
+  const sourceStream = stringValue(signals.source_stream);
+  const sourceT = numberValue(signals.source_t);
+  const sourceQuote = stringValue(signals.source_quote);
+  const citationVerified = signals.citation_verified === true;
+  const callback =
+    signals.callback === true &&
+    citationVerified &&
+    Boolean(sourceStream && sourceT !== undefined && sourceQuote);
   return {
     ...clip,
-    callback: signals.callback === true,
+    callback,
     threadLabel: stringValue(signals.thread_label),
     callbackConfidence: numberValue(signals.confidence),
-    sourceStream: stringValue(signals.source_stream),
-    sourceT: numberValue(signals.source_t),
-    sourceQuote: stringValue(signals.source_quote),
+    sourceStream,
+    sourceT,
+    sourceQuote,
+    citationVerified,
   };
 }
 

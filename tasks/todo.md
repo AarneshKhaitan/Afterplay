@@ -48,6 +48,8 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Default legacy evidence to unverified and exclude it from retrieval and judging.
 - [x] Report verified, repaired, and rejected evidence from backfill.
 - [x] Cover exact, repaired, rejected, repeated, Unicode, legacy, and judge-boundary cases.
+- [x] Suppress legacy manifest callback flags unless complete verified citation metadata exists
+      — E-031.
 
 ### Language provenance foundation
 

@@ -893,3 +893,21 @@ as hypotheses rather than recommendations presented as facts.
   retirement of the unreachable contradiction state, evidence-to-channel provenance, GTA/FPS/COD
   adversarial titles, explicit constraints, sample denominators, bounded copy, and rendered UI.
 - `npm run typecheck` and `npm run lint` both exit zero.
+
+---
+
+## e-031-manifest-citation-integrity-boundary
+
+Claim: a staged or legacy manifest cannot display a callback or enter the approval package as a
+memory-dependent clip unless it carries complete verified citation metadata.
+
+- Date: 2026-08-19
+- The loader requires `citation_verified: true`, source stream, source timestamp, and source quote
+  before projecting `callback: true`.
+- A rejected callback claim is normalized to a standalone clip and the manifest is surfaced as
+  degraded with an explicit integrity reason; the original clip asset remains inspectable.
+- `npm run typecheck` exits zero and focused ESLint exits zero.
+- Focused Playwright's first run passed the new integrity test plus six related manifest tests.
+  One unrelated dispatch test then timed out when Turbopack filled the system drive (`os error
+  112`); this was an environmental failure after the integrity assertion had passed, not a green
+  full-suite claim.
