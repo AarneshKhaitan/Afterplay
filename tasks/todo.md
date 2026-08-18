@@ -1,10 +1,46 @@
 # Afterplay Current Task Status
 
-Updated: 2026-08-08
+Updated: 2026-08-19
 
 Status document, not a history. Anything checked here has an evidence entry in
 `docs/prd/EVIDENCE.md` recording the command that produced the result. The gap register in
 `docs/prd/PRD.md` is the authority; this file is the short view.
+
+## Finals execution documentation
+
+- [x] Create a repository-owned finals execution index.
+- [x] Create four owner-ready workstream plans covering F1-F9 without duplicated ownership.
+- [x] Cross-check shared contracts, dependencies, merge order, acceptance gates, and verification.
+- [x] Record the documentation review result below.
+
+### Review - 2026-08-19
+
+- Added `docs/prd/FINALS-PHASES.md` as the PRD entry point and linked it from the existing
+  implementation roadmap.
+- Added `docs/finals/README.md` as the canonical finals execution index.
+- Added four workstream plans with one accountable owner each: AI/provenance/proof,
+  backend/product, Intel/contracts, and demo/QA/narrative.
+- Verified F1-F9 ownership coverage, shared-contract handoffs, merge order, release gates, and
+  local Markdown links. No product code was changed and no runtime tests were required for this
+  documentation-only task.
+
+## Finals implementation execution
+
+- [ ] Baseline verification recorded before runtime changes.
+- [ ] Shared citation, provenance, ablation, creator-scope, and Riff contracts frozen.
+- [ ] F1 provenance accepted and committed.
+- [ ] F2 measured detection quality accepted and committed.
+- [ ] F3 memory ablation accepted and committed.
+- [ ] F4 durability, isolation, and live-run safety accepted and committed.
+- [ ] F5 Intelligence integrity accepted and committed.
+- [ ] F6 product surface accepted and committed.
+- [ ] F7 shared evidence contract accepted and committed.
+- [ ] F8 narrative, docs, and stage package accepted and committed.
+- [ ] F9 second-channel proof accepted, or its go/no-go decision recorded.
+- [ ] Full release gate passed on the freeze candidate.
+
+Implementation details and acceptance gates live in `docs/finals/README.md` and its four
+workstream plans. Check an item only after its documented verification has run.
 
 ## Phase 0 - Truth and submission integrity — complete except G1
 

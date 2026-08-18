@@ -2,6 +2,10 @@
 
 Companion to [PRD.md](./PRD.md). Gap IDs (`G1`…`G23`) refer to the PRD gap register.
 
+The calendar-bound 19-22 August finals program is indexed in
+[FINALS-PHASES.md](./FINALS-PHASES.md). Its executable workstream checklists live under
+[`docs/finals/`](../finals/README.md).
+
 Phases are ordered by **dependency and risk**, not by calendar. Each phase is independently
 shippable and leaves the product in a coherent state.
 
