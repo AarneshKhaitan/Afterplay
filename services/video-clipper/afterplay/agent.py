@@ -312,6 +312,7 @@ class JobResult:
     encoder: str = ""
     heatmap_available: bool = False
     memory: dict = field(default_factory=dict)
+    ablation: dict = field(default_factory=dict)
     message: str | None = None
     status: str = "complete"
     ok: bool = False
@@ -512,6 +513,16 @@ class Orchestrator:
         }
 
     @staticmethod
+    def _ablation_manifest(reasoner: Reasoner, *, transcript_available: bool) -> dict:
+        from .baseline import unavailable_ablation
+        if not transcript_available:
+            return unavailable_ablation("transcript_unavailable")
+        if not isinstance(reasoner, MemoryReasoner):
+            return unavailable_ablation("memory_disabled")
+        from copy import deepcopy
+        return deepcopy(reasoner.ablation)
+
+    @staticmethod
     def _job_message(memory: dict) -> str | None:
         if not memory.get("enabled"):
             return None
@@ -556,6 +567,8 @@ class Orchestrator:
         # ── stage 2: understand (still kilobytes)
         t0 = time.time()
         words, sents, detector = [], [], "transcript"
+        from .baseline import unavailable_ablation
+        ablation = unavailable_ablation("transcript_unavailable")
         if src.vtt_path and Path(src.vtt_path).exists():
             words, sents = TOOLS.call("read_transcript", vtt_path=str(src.vtt_path))
         reasoner = self.policy.reasoner()
@@ -563,6 +576,7 @@ class Orchestrator:
             moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                  n=n_clips, target=target,
                                  reasoner=reasoner)
+            ablation = self._ablation_manifest(reasoner, transcript_available=True)
         else:
             # No captions (gameplay, music, reaction content). The signal was never
             # words — fetch audio only (~5-15 MB, not ~200 MB) and score excitement
@@ -588,6 +602,7 @@ class Orchestrator:
                 moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                      n=n_clips, target=target,
                                      reasoner=reasoner)
+                ablation = self._ablation_manifest(reasoner, transcript_available=True)
             except Exception as e:                            # noqa: BLE001
                 log.info("ASR unavailable (%s) -> audio-energy detection", e)
                 detector = "audio"
@@ -682,6 +697,7 @@ class Orchestrator:
                         encoder=detect_encoder(self.settings),
                         heatmap_available=src.has_heatmap,
                         memory=memory_state,
+                        ablation=ablation,
                         message=self._job_message(memory_state),
                         ok=any(r.ok for r in results))
 

@@ -58,6 +58,14 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Preserve source-script quotes and test a Hindi transcript path.
 - [ ] Inspect and permission the actual second creator corpus; run the bounded case study.
 
+### F3 ablation implementation
+
+- [x] Split deterministic score-all and selection operations with equivalence coverage.
+- [x] Compare memory off/on over identical candidates before sponsor and analytics mutation.
+- [x] Emit ranks, rank delta, base percentile, applied boost, scores, scale, and comparison point.
+- [x] Emit explicit unavailable reasons and prove the memory-off arm has no memory dependency.
+- [ ] Record the stage ablation over the rebuilt, verified demo corpus before accepting F3.
+
 ### F5 Intel integrity - complete
 
 - [x] Retain supporting channel ids and decay beliefs only after equivalent scan coverage.
@@ -81,6 +89,8 @@ workstream plans. Check an item only after its documented verification has run.
 
 - Citation verification and language provenance are committed foundations; the real corpus
   rebuild, eval, ablation, and second-creator case study remain open.
+- The same-pipeline ablation contract is implemented and tested — E-032; F3 remains open until
+  its stage result comes from the rebuilt verified corpus.
 - Atomic storage is committed, but F4 remains open for creator isolation, durable experiments,
   structured job controls, and manifest v2.
 - F5 acceptance is complete: scoped decay, contradiction removal, detector calibration,

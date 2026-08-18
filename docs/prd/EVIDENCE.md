@@ -911,3 +911,26 @@ memory-dependent clip unless it carries complete verified citation metadata.
   One unrelated dispatch test then timed out when Turbopack filled the system drive (`os error
   112`); this was an environmental failure after the integrity assertion had passed, not a green
   full-suite claim.
+
+---
+
+## e-032-same-pipeline-memory-ablation-contract
+
+Claim: one memory-enabled clipper run computes a same-source memory-off/memory-on comparison over
+identical candidate windows before sponsor filtering and analytics mutation.
+
+- Date: 2026-08-19
+- `score_all` and `select` are separate deterministic operations; frozen legacy-equivalence tests
+  cover both heatmap and cold-start scoring.
+- The versioned manifest artifact records baseline rank, memory rank and rank delta, baseline
+  percentile, applied boost, base and final scores, score scale, selected state, candidate count,
+  and `post_scoring_pre_sponsor_pre_analytics` as the comparison point.
+- Missing transcripts, disabled memory, retrieval/judge degradation, no candidates, and candidate
+  mismatch produce explicit unavailable reasons rather than a zero-effect claim.
+- Parent verification:
+  `pytest tests/test_ablation.py tests/test_citations.py tests/test_extended.py::TestChannelMemory tests/test_extended.py::TestCallbackFoundReflectsShippedClips -q`
+  returned `29 passed`.
+- Parallel broader verification returned `122 passed, 1 skipped`; the dedicated ablation slice
+  returned `32 passed` during implementation.
+- This proves the implementation contract, not the finale result. F3 remains open until the same
+  artifact is produced from the rebuilt verified demo corpus.
