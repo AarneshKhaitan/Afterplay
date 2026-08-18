@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { experimentErrorResponse, invalidRequest } from "@/app/api/http";
+import { currentCreator } from "@/domain/creators";
 import { recordResults } from "@/domain/experiment";
 // Imported here, not from domain/experiment, because the bridge touches node:fs and
 // `experiment` is pulled into client bundles. Route handlers are server-only.
@@ -45,9 +46,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
-    const { id } = await context.params;
+    const [{ id }, creator] = await Promise.all([context.params, currentCreator()]);
     const recorded = recordResults({
       id,
+      creatorId: creator.id,
       result: {
         disclosure: parsed.data.disclosure,
         causalClaim: false,

@@ -1,11 +1,13 @@
 import { AudienceResults } from "@/components/audience-results";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment } from "@/domain/experiment";
 
 export const dynamic = "force-dynamic";
 
-export default function AudiencePage() {
-  const experiment = getExperiment("exp_one_more_rule");
+export default async function AudiencePage() {
+  const creator = await currentCreator();
+  const experiment = getExperiment("exp_one_more_rule", creator.id);
 
   return (
     <WorkspaceShell active="Audience" pageName="Audience">

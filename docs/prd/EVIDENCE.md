@@ -934,3 +934,26 @@ identical candidate windows before sponsor filtering and analytics mutation.
   returned `32 passed` during implementation.
 - This proves the implementation contract, not the finale result. F3 remains open until the same
   artifact is produced from the rebuilt verified demo corpus.
+
+---
+
+## e-033-creator-scoped-durable-experiments
+
+Claim: experiment decisions, dispatch receipts, results, and learned state survive process restart
+and cannot be read or mutated through another active creator's request context.
+
+- Date: 2026-08-19
+- State uses the versioned atomic persistence helper under `AFTERPLAY_EXPERIMENT_DIR`, with a
+  traversal-safe creator digest and the original creator id retained inside the envelope.
+- Missing state initializes explicitly; valid unversioned state migrates; corrupt, mismatched, or
+  unsupported state fails visibly and is not silently replaced.
+- `pipelineOutputs` remains a response projection and is deliberately removed before persistence,
+  preventing stale manifest output from becoming durable experiment truth.
+- All experiment server pages and API routes now resolve `currentCreator()` and pass the same id to
+  reads and mutations. Focused tests cover durable initialization, migration, corruption, and two
+  isolated creator lifecycles.
+- Parent verification: `npm run typecheck` exits zero and focused ESLint exits zero.
+- The worker's focused browser run returned `6 passed, 1 timed out`; the timeout occurred during
+  first route compilation at the old 30-second limit, while the same results endpoint passed in
+  the following test. A clean rerun could not be completed after the system drive fell to roughly
+  70 MB free, so this is not recorded as a fully green browser-suite result.

@@ -84,6 +84,10 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Use unique temporary files and retry one Windows `EPERM`/`EBUSY` rename failure.
 - [x] Migrate Intel persistence while retaining legacy-file compatibility.
 - [x] Add isolated tests and run focused verification, typecheck, and lint — E-029.
+- [x] Replace process-local experiment state with creator-scoped durable state — E-033.
+- [x] Migrate valid legacy state and fail visibly without resetting corrupt state.
+- [x] Resolve the same active creator through experiment pages, reads, decisions, dispatch,
+      results, and explicit demo reset.
 
 ### Implementation review - 2026-08-19
 
@@ -91,8 +95,10 @@ workstream plans. Check an item only after its documented verification has run.
   rebuild, eval, ablation, and second-creator case study remain open.
 - The same-pipeline ablation contract is implemented and tested — E-032; F3 remains open until
   its stage result comes from the rebuilt verified corpus.
-- Atomic storage is committed, but F4 remains open for creator isolation, durable experiments,
-  structured job controls, and manifest v2.
+- Atomic storage is committed, but F4 remains open for complete creator isolation, structured job
+  controls, and manifest v2.
+- Experiment lifecycle durability and request-level creator isolation are committed — E-033;
+  F4 remains open for the other stores, structured job controls, and manifest v2.
 - F5 acceptance is complete: scoped decay, contradiction removal, detector calibration,
   low-sample disclosure, grounding tests, typecheck, and lint all pass.
 

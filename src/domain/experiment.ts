@@ -1,7 +1,19 @@
 ﻿// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
 // node:fs imports into client bundles. The value-side call lives in the API route.
+import { createHash } from "node:crypto";
+import { isAbsolute, join, resolve } from "node:path";
+
+import { z } from "zod";
+
 import { getLatestClipManifest } from "./clip-manifest";
+import { defaultCreatorId } from "./creators";
 import { BASELINE, formatDelta } from "./experiment-metrics";
+import {
+  PersistenceError,
+  readVersionedJson,
+  writeVersionedJson,
+  type VersionedJsonSchema,
+} from "./persist";
 import type { PerClipResult } from "./results-bridge";
 
 export { BASELINE, resultMovement } from "./experiment-metrics";
@@ -125,6 +137,7 @@ export type GrowthExperiment = {
 };
 
 export type ExperimentStore = {
+  creatorId: string;
   experiment: GrowthExperiment;
 };
 
@@ -240,17 +253,225 @@ const initialExperiment: GrowthExperiment = {
   receipts: [],
 };
 
-declare global {
-  var __afterplayExperimentStore: ExperimentStore | undefined;
+const outputSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["premise_cut", "community_cut", "return_prompt"]),
+  title: z.string(),
+  platform: z.enum(["YouTube Shorts", "TikTok", "Instagram Reels"]),
+  duration: z.string(),
+  hook: z.string(),
+  caption: z.string(),
+  rationale: z.string(),
+  thumbnailUrl: z.string(),
+  status: z.enum(["ready", "approved", "distributed"]),
+  provenance: z.object({
+    media: z.enum(["generated_fixture", "pipeline_manifest"]),
+    source: z.string(),
+    rights: z.enum(["project_owned", "creator_owned", "third_party_extracted"]),
+  }).strict(),
+}).strict();
+
+const perClipResultSchema = z.object({
+  clip_id: z.string().min(1),
+  post_id: z.string().min(1).optional(),
+  platform: z.enum(["YouTube Shorts", "TikTok", "Instagram Reels"]).optional(),
+  metrics: z.object({
+    views: z.number().int().nonnegative(),
+    likes: z.number().int().nonnegative().optional(),
+    comments: z.number().int().nonnegative().optional(),
+    shares: z.number().int().nonnegative().optional(),
+    saves: z.number().int().nonnegative().optional(),
+    avg_watch_pct: z.number().min(0).max(100).optional(),
+  }).strict(),
+}).strict();
+
+const growthExperimentSchema = z.object({
+  id: z.literal("exp_one_more_rule"),
+  name: z.literal("One More Rule"),
+  revision: z.number().int().positive(),
+  status: z.enum([
+    "awaiting_approval",
+    "changes_requested",
+    "rejected",
+    "approved",
+    "distributed",
+    "learned",
+  ]),
+  owner: z.literal("Strategist"),
+  stage: z.string(),
+  diagnosis: z.string(),
+  hypothesis: z.string(),
+  targetBehavior: z.string(),
+  successSignal: z.string(),
+  timebox: z.string(),
+  confidence: z.number().min(0).max(100),
+  evidence: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string(),
+    detail: z.string(),
+    source: z.string(),
+    strength: z.enum(["strong", "directional"]),
+  }).strict()),
+  alternatives: z.array(z.object({
+    title: z.string(),
+    reasonNotChosen: z.string(),
+  }).strict()),
+  uncertainty: z.string(),
+  falsifier: z.string(),
+  plan: z.array(z.object({
+    step: z.number().int().positive(),
+    role: z.enum(["Strategist", "Scout", "Producer", "Analyst"]),
+    action: z.string(),
+    state: z.enum(["complete", "waiting"]),
+  }).strict()),
+  outputs: z.array(outputSchema),
+  // A response projection may have been captured by an early prototype. It is accepted
+  // for migration, then removed so stale manifest data never becomes durable state.
+  pipelineOutputs: z.array(outputSchema).optional(),
+  decision: z.object({
+    id: z.string().min(1),
+    action: z.enum(["approve", "reject", "request_change"]),
+    revision: z.number().int().positive(),
+    feedback: z.string().optional(),
+    decidedAt: z.string(),
+  }).strict().optional(),
+  receipts: z.array(z.object({
+    id: z.string().min(1),
+    experimentId: z.string().min(1),
+    outputId: z.string().min(1),
+    platform: z.enum(["YouTube Shorts", "TikTok", "Instagram Reels"]),
+    simulated: z.literal(true),
+    state: z.literal("accepted"),
+    scheduledFor: z.string(),
+  }).strict()),
+  result: z.object({
+    disclosure: z.literal("synthetic_sample_data"),
+    causalClaim: z.literal(false),
+    metrics: z.object({
+      views: z.number().int().nonnegative(),
+      returningViewerRate: z.number().min(0).max(100),
+      repeatCommenters: z.number().int().nonnegative(),
+      trackedLiveVisits: z.number().int().nonnegative(),
+      nextStreamAverageConcurrency: z.number().nonnegative(),
+    }).strict(),
+    perClip: z.array(perClipResultSchema).optional(),
+  }).strict().optional(),
+  learning: z.object({
+    conclusion: z.string(),
+    confidence: z.number().min(0).max(100),
+    evidence: z.array(z.string()),
+    limitations: z.array(z.string()),
+    nextMove: z.string(),
+  }).strict().optional(),
+  nextExperiment: z.object({
+    id: z.string().min(1),
+    name: z.literal("Name the Builder"),
+    status: z.literal("proposed"),
+    hypothesis: z.string(),
+  }).strict().optional(),
+}).strict();
+
+type PersistedExperimentStore = {
+  /** Missing only in the unversioned prototype format. */
+  creatorId?: string;
+  experiment: GrowthExperiment;
+};
+
+const experimentStoreSchema: VersionedJsonSchema<PersistedExperimentStore> = {
+  name: "afterplay.experiment-store",
+  version: 1,
+  acceptLegacy: true,
+  accepts: (value): value is PersistedExperimentStore => z.object({
+    creatorId: z.string().trim().min(1).max(100).optional(),
+    experiment: growthExperimentSchema,
+  }).strict().safeParse(value).success,
+};
+
+function experimentRoot(): string {
+  const configured = process.env.AFTERPLAY_EXPERIMENT_DIR?.trim();
+  if (!configured) return join(process.cwd(), ".afterplay", "experiments");
+  return isAbsolute(configured) ? configured : resolve(process.cwd(), configured);
 }
 
-function cloneInitialStore(): ExperimentStore {
-  return { experiment: structuredClone(initialExperiment) };
+function normalizeCreatorId(creatorId?: string): string {
+  const normalized = (creatorId ?? defaultCreatorId()).trim();
+  if (!normalized || normalized.length > 100) {
+    throw new ExperimentError("invalid_creator_id", "The creator id is invalid.", 400);
+  }
+  return normalized;
 }
 
-function store(): ExperimentStore {
-  globalThis.__afterplayExperimentStore ??= cloneInitialStore();
-  return globalThis.__afterplayExperimentStore;
+function experimentStorePath(creatorId: string): string {
+  // Creator ids can originate in configuration. A digest makes traversal impossible
+  // while the envelope retains the original id for ownership checks and diagnostics.
+  const key = createHash("sha256").update(creatorId).digest("hex").slice(0, 32);
+  return join(experimentRoot(), `${key}.json`);
+}
+
+function persistenceError(error: unknown): never {
+  if (!(error instanceof PersistenceError)) throw error;
+
+  const incompatible = error.code === "schema_mismatch" || error.code === "unsupported_version";
+  const unavailable = error.code === "read_failed" || error.code === "write_failed";
+  throw new ExperimentError(
+    incompatible
+      ? "experiment_state_incompatible"
+      : unavailable
+        ? "experiment_state_unavailable"
+        : "experiment_state_corrupt",
+    incompatible
+      ? "The saved experiment state uses an unsupported format."
+      : unavailable
+        ? "Experiment state could not be read or written."
+        : "The saved experiment state is invalid and was not reset.",
+    500,
+  );
+}
+
+function writeStore(value: ExperimentStore): void {
+  const durable = structuredClone(value);
+  delete durable.experiment.pipelineOutputs;
+  try {
+    writeVersionedJson(experimentStorePath(value.creatorId), experimentStoreSchema, durable);
+  } catch (error) {
+    persistenceError(error);
+  }
+}
+
+function cloneInitialStore(creatorId: string): ExperimentStore {
+  return { creatorId, experiment: structuredClone(initialExperiment) };
+}
+
+function store(creatorId?: string): ExperimentStore {
+  const resolvedCreatorId = normalizeCreatorId(creatorId);
+  const path = experimentStorePath(resolvedCreatorId);
+  let persisted: PersistedExperimentStore | null;
+  try {
+    persisted = readVersionedJson(path, experimentStoreSchema);
+  } catch (error) {
+    persistenceError(error);
+  }
+
+  if (!persisted) {
+    const initial = cloneInitialStore(resolvedCreatorId);
+    writeStore(initial);
+    return initial;
+  }
+  if (persisted.creatorId && persisted.creatorId !== resolvedCreatorId) {
+    throw new ExperimentError(
+      "experiment_creator_mismatch",
+      "The saved experiment state belongs to a different creator and was not loaded.",
+      500,
+    );
+  }
+
+  const migrated: ExperimentStore = {
+    creatorId: resolvedCreatorId,
+    experiment: structuredClone(persisted.experiment),
+  };
+  delete migrated.experiment.pipelineOutputs;
+  if (!persisted.creatorId || persisted.experiment.pipelineOutputs) writeStore(migrated);
+  return migrated;
 }
 
 function assertExperimentId(id: string): asserts id is GrowthExperiment["id"] {
@@ -269,9 +490,10 @@ function assertCurrentRevision(experiment: GrowthExperiment, revision: number) {
   }
 }
 
-export function resetExperimentStore(): GrowthExperiment {
-  globalThis.__afterplayExperimentStore = cloneInitialStore();
-  return getExperiment(initialExperiment.id);
+export function resetExperimentStore(creatorId?: string): GrowthExperiment {
+  const initial = cloneInitialStore(normalizeCreatorId(creatorId));
+  writeStore(initial);
+  return toResponse(initial.experiment);
 }
 
 /** Clone for return, with the pipeline projection attached.
@@ -286,9 +508,9 @@ function toResponse(experiment: GrowthExperiment): GrowthExperiment {
   return clone;
 }
 
-export function getExperiment(id: string): GrowthExperiment {
+export function getExperiment(id: string, creatorId?: string): GrowthExperiment {
   assertExperimentId(id);
-  return toResponse(store().experiment);
+  return toResponse(store(creatorId).experiment);
 }
 
 /** Real clipper output, presented as its own approvable set.
@@ -356,9 +578,11 @@ export function recordDecision(input: {
   action: "approve" | "reject" | "request_change";
   revision: number;
   feedback?: string;
+  creatorId?: string;
 }): { experiment: GrowthExperiment; decision: NonNullable<GrowthExperiment["decision"]> } {
   assertExperimentId(input.id);
-  const experiment = store().experiment;
+  const state = store(input.creatorId);
+  const experiment = state.experiment;
   assertCurrentRevision(experiment, input.revision);
 
   if (experiment.status !== "awaiting_approval") {
@@ -389,6 +613,7 @@ export function recordDecision(input: {
     experiment.stage = "Creator changes requested";
   }
 
+  writeStore(state);
   return { experiment: toResponse(experiment), decision: structuredClone(decision) };
 }
 
@@ -403,12 +628,13 @@ function simulatedSlot(index: number): string {
   return new Date(DISPATCH_EPOCH + index * (24 * 60 * 60 * 1000 - 30 * 60 * 1000)).toISOString();
 }
 
-export function dispatchExperiment(input: { id: string; revision: number }): {
+export function dispatchExperiment(input: { id: string; revision: number; creatorId?: string }): {
   experiment: GrowthExperiment;
   receipts: DistributionReceipt[];
 } {
   assertExperimentId(input.id);
-  const experiment = store().experiment;
+  const state = store(input.creatorId);
+  const experiment = state.experiment;
   assertCurrentRevision(experiment, input.revision);
 
   if (experiment.status === "distributed" || experiment.status === "learned") {
@@ -438,17 +664,24 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
   experiment.status = "distributed";
   experiment.stage = "Observing sample results";
 
+  writeStore(state);
   return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
 }
 
-export function recordResults(input: { id: string; result: ExperimentResult; perClip?: PerClipResult[] }): {
+export function recordResults(input: {
+  id: string;
+  result: ExperimentResult;
+  perClip?: PerClipResult[];
+  creatorId?: string;
+}): {
   experiment: GrowthExperiment;
   result: ExperimentResult;
   learning: ExperimentLearning;
   nextExperiment: NonNullable<GrowthExperiment["nextExperiment"]>;
 } {
   assertExperimentId(input.id);
-  const experiment = store().experiment;
+  const state = store(input.creatorId);
+  const experiment = state.experiment;
 
   if (experiment.status === "learned" && experiment.result && experiment.learning && experiment.nextExperiment) {
     return {
@@ -551,6 +784,7 @@ export function recordResults(input: { id: string; result: ExperimentResult; per
   experiment.status = "learned";
   experiment.stage = "Learning recorded";
 
+  writeStore(state);
   return {
     experiment: toResponse(experiment),
     result: structuredClone(experiment.result),

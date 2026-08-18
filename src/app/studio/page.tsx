@@ -4,6 +4,7 @@ import Image from "next/image";
 import { StudioDecisionPanel } from "@/components/studio-decision-panel";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { getLatestClipManifest } from "@/domain/clip-manifest";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment } from "@/domain/experiment";
 
 export const dynamic = "force-dynamic";
@@ -67,8 +68,9 @@ function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-export default function StudioPage() {
-  const experiment = getExperiment("exp_one_more_rule");
+export default async function StudioPage() {
+  const creator = await currentCreator();
+  const experiment = getExperiment("exp_one_more_rule", creator.id);
   const manifest = getLatestClipManifest();
   const realClips = manifest?.clips ?? [];
   const pipelineOutputs = experiment.pipelineOutputs ?? [];

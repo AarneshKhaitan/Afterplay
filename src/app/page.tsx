@@ -9,6 +9,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment, resultMovement } from "@/domain/experiment";
 import { getDemoWorkspace } from "@/domain/workspace";
 
@@ -22,11 +23,12 @@ const roleTone = {
   Analyst: "role--analyst",
 } as const;
 
-export default function GrowthHqPage() {
+export default async function GrowthHqPage() {
   // `meta` and `creator` moved into the shared shell with the sidebar and footer.
   const { workspace } = getDemoWorkspace();
   const { diagnosis, activeExperiment, teamActivity, decision, learning } = workspace;
-  const experiment = getExperiment("exp_one_more_rule");
+  const creator = await currentCreator();
+  const experiment = getExperiment("exp_one_more_rule", creator.id);
   const movement = resultMovement(experiment.result);
   const learnedState = experiment.status === "learned" && experiment.learning && experiment.nextExperiment
     ? { learning: experiment.learning, nextExperiment: experiment.nextExperiment }

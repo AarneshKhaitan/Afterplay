@@ -4,12 +4,13 @@ import { notFound } from "next/navigation";
 
 import { StrategyModePanel } from "@/components/strategy-mode-panel";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment } from "@/domain/experiment";
 
 export default async function ExperimentPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const [{ id }, creator] = await Promise.all([params, currentCreator()]);
   if (id !== "exp_one_more_rule") notFound();
-  const experiment = getExperiment(id);
+  const experiment = getExperiment(id, creator.id);
 
   return (
     <WorkspaceShell active="Experiments" pageName="Experiment detail">

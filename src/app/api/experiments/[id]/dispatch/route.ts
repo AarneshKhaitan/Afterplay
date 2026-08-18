@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { experimentErrorResponse, invalidRequest } from "@/app/api/http";
+import { currentCreator } from "@/domain/creators";
 import { dispatchExperiment } from "@/domain/experiment";
 
 const dispatchSchema = z.object({
@@ -22,8 +23,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
-    const { id } = await context.params;
-    return NextResponse.json(dispatchExperiment({ id, revision: parsed.data.revision }));
+    const [{ id }, creator] = await Promise.all([context.params, currentCreator()]);
+    return NextResponse.json(dispatchExperiment({
+      id,
+      revision: parsed.data.revision,
+      creatorId: creator.id,
+    }));
   } catch (error) {
     return experimentErrorResponse(error);
   }

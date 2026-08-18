@@ -26,5 +26,8 @@ __pycache__/
 # Competitive intelligence store (scans, cache, memory)
 .intel/
 
+# Durable local product state (experiments and later creator-scoped stores)
+.afterplay/
+
 # Local Claude Code settings (per-developer, may contain permission overrides)
 .claude/settings.local.json
