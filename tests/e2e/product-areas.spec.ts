@@ -34,7 +34,7 @@ test("Memory exposes durable identity, boundaries, and learned updates", async (
   await expect(page.getByRole("heading", { name: "Working beliefs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Approval rules" })).toBeVisible();
   await expect(page.getByText("Never publish, contact, spend, or change an account without approval.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Viewer ingenuity beats creator perfection", { exact: true })).toBeVisible();
+  await expect(page.getByText("Recurring bits outperform one-off spectacle", { exact: true })).toBeVisible();
 });
 
 test("Integrations makes mode, permissions, and simulation visible", async ({ page }) => {

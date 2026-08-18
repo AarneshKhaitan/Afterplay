@@ -20,6 +20,9 @@ __pycache__/
 # Never commit: these are transcripts of other people's videos.
 .demo-cache/
 
+# Local demo workdir with third-party media renders. Never commit.
+.demo-final/
+
 # Competitive intelligence store (scans, cache, memory)
 .intel/
 

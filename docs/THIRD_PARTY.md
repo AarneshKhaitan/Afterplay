@@ -65,6 +65,8 @@ environment.
 ## External services
 
 - OpenAI Responses API in optional live strategy mode and optional callback-memory mode.
+- Apify (YouTube channel/video scrapers) in the optional competitive-intelligence engine (`/intel`); requires `APIFY_API_TOKEN` and is disabled without it. Scanned data stays in the local `.intel/` store.
+- OpenAI Responses API (`AFTERPLAY_INTEL_MODEL`) for intel analysis and the grounded strategist chat.
 - Simulated YouTube Shorts, TikTok, and Instagram Reels distribution adapters in demo mode.
 - No real social account credentials, public posting, or private creator archive leaves the judge environment by default.
 
