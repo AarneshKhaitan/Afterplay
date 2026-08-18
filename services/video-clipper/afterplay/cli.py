@@ -201,8 +201,17 @@ def cmd_backfill(a) -> int:
 
     memory = ChannelMemory(a.creator)
     extracted = memory.backfill(a.stream_id, sents)
+    counts = getattr(
+        memory,
+        "verification_counts",
+        {"verified": len(extracted), "repaired": 0, "unverified": 0},
+    )
     out = {"creator": a.creator, "stream_id": a.stream_id,
-           "threads_added": len(extracted), "path": str(memory.path)}
+           "threads_suggested": len(extracted),
+           "threads_added": counts["verified"],
+           "citations_repaired": counts["repaired"],
+           "citations_rejected": counts["unverified"],
+           "path": str(memory.path)}
     print(json.dumps(out, indent=2))
     return 0
 

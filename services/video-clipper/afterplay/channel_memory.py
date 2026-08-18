@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
+from .citations import verify_citation
 from .memory import memory_root
 
 log = logging.getLogger("afterplay")
@@ -25,8 +26,13 @@ THREAD_KINDS = {"running_joke", "rivalry", "person", "unfinished_story", "recurr
 @dataclass
 class StreamMention:
     stream_id: str
-    t: float
+    t: float | None
     quote: str
+    verified: bool = False
+    match_ratio: float = 0.0
+    repair: str | None = None
+    t_reported: float | None = None
+    quote_display: str = ""
 
 
 @dataclass
@@ -62,11 +68,27 @@ class ThreadRecord:
         return d
 
     def text_for_embedding(self) -> str:
-        quote = ""
-        first = mention_dict(self.first_seen)
-        if first:
-            quote = first.get("quote", "")
+        first = self.first_verified_mention()
+        quote = first.get("quote", "") if first else ""
         return f"{self.kind}: {self.label}\n{self.summary}\n{quote}"
+
+    def verified_mentions(self) -> list[dict]:
+        values = [mention_dict(self.first_seen), *map(mention_dict, self.mentions)]
+        out = []
+        seen = set()
+        for value in values:
+            key = (value.get("stream_id"), value.get("t"), value.get("quote"))
+            if value.get("verified") is True and key not in seen:
+                out.append(value)
+                seen.add(key)
+        return out
+
+    def first_verified_mention(self) -> dict:
+        mentions = self.verified_mentions()
+        return mentions[0] if mentions else {}
+
+    def has_verified_evidence(self) -> bool:
+        return bool(self.first_verified_mention())
 
 
 def mention_dict(value) -> dict:
@@ -108,6 +130,7 @@ class ChannelMemory:
         self.dir = Path(root or memory_root()) / creator_id
         self.path = self.dir / "threads.json"
         self.embedder = embedder
+        self.verification_counts = {"verified": 0, "repaired": 0, "unverified": 0}
         self.threads = self._load()
 
     def _load(self) -> list[ThreadRecord]:
@@ -123,23 +146,28 @@ class ChannelMemory:
         return self.path
 
     def add_or_merge(self, thread: ThreadRecord, threshold: float = 0.86) -> ThreadRecord:
+        if not thread.has_verified_evidence():
+            raise ValueError("unverified threads cannot enter active channel memory")
         if not thread.embedding:
             thread.embedding = self.embed([thread.text_for_embedding()])[0]
         best = None
         best_score = 0.0
         for existing in self.threads:
+            if not existing.has_verified_evidence():
+                continue
             score = cosine(existing.embedding, thread.embedding)
             if score > best_score:
                 best, best_score = existing, score
         if best and best_score >= threshold:
             best.summary = merge_summary(best.summary, thread.summary)
             best.status = thread.status if thread.status == "paid_off" else best.status
-            seen = {(m.get("stream_id"), m.get("t"), m.get("quote")) for m in map(mention_dict, best.mentions)}
-            for mention in thread.mentions:
-                md = mention_dict(mention)
+            seen = {(m.get("stream_id"), m.get("t"), m.get("quote"))
+                    for m in best.verified_mentions()}
+            for md in thread.verified_mentions():
                 key = (md.get("stream_id"), md.get("t"), md.get("quote"))
                 if key not in seen:
                     best.mentions.append(StreamMention(**md))
+                    seen.add(key)
             best.updated = time.time()
             return best
         self.threads.append(thread)
@@ -154,7 +182,9 @@ class ChannelMemory:
         d = thread.to_dict()
         d.pop("embedding", None)
         d.pop("updated", None)
-        d["mentions"] = d.get("mentions", [])[:3]
+        verified = thread.verified_mentions()
+        d["first_seen"] = verified[0]
+        d["mentions"] = verified[:3]
         d["similarity"] = round(score, 4)
         return d
 
@@ -165,7 +195,7 @@ class ChannelMemory:
     def retrieve_many(self, texts: list[str], k: int = 3, top_windows: int = 10) -> dict[int, list[dict]]:
         if not self.threads:
             return {}
-        eligible = [t for t in self.threads if t.embedding]
+        eligible = [t for t in self.threads if t.embedding and t.has_verified_evidence()]
         if not eligible or not texts:
             return {}
 
@@ -185,10 +215,19 @@ class ChannelMemory:
 
     def backfill(self, stream_id: str, sents, extractor=None) -> list[ThreadRecord]:
         extracted = extract_threads(stream_id, sents, extractor=extractor)
-        texts = [t.text_for_embedding() for t in extracted]
+        verified = [thread for thread in extracted if thread.has_verified_evidence()]
+        self.verification_counts = {
+            "verified": len(verified),
+            "repaired": sum(
+                1 for thread in verified
+                if thread.first_verified_mention().get("repair")
+            ),
+            "unverified": len(extracted) - len(verified),
+        }
+        texts = [t.text_for_embedding() for t in verified]
         if texts:
             vectors = self.embed(texts)
-            for thread, vector in zip(extracted, vectors):
+            for thread, vector in zip(verified, vectors):
                 thread.embedding = vector
                 self.add_or_merge(thread)
             self.save()
@@ -227,10 +266,18 @@ def extract_threads(stream_id: str, sents, extractor=None) -> list[ThreadRecord]
             if kind not in THREAD_KINDS:
                 kind = "recurring_bit"
             first = item.get("first_seen") or {}
+            reported_quote = str(first.get("quote") or item.get("quote") or "")[:500]
+            reported_t = first.get("t", chunk[0].start)
+            citation = verify_citation(reported_quote, reported_t, chunk)
             mention = StreamMention(
                 stream_id=stream_id,
-                t=float(first.get("t", chunk[0].start)),
-                quote=str(first.get("quote") or item.get("quote") or "")[:500],
+                t=citation.t,
+                quote=citation.quote,
+                verified=citation.verified,
+                match_ratio=citation.match_ratio,
+                repair=citation.repair,
+                t_reported=citation.t_reported,
+                quote_display=citation.quote_display,
             )
             record = ThreadRecord(
                 id=str(item.get("id") or stable_thread_id(item)),

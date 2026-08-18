@@ -359,6 +359,10 @@ class MemoryReasoner(Reasoner):
                                "questions": cs.questions, "wpm": round(cs.wpm, 1)}
 
                 retrieved = retrieved_by_idx.get(idx, [])
+                retrieved = [
+                    thread for thread in retrieved
+                    if (thread.get("first_seen") or {}).get("verified") is True
+                ]
                 if retrieved and judge:
                     try:
                         verdict = judge(text, retrieved)
@@ -385,6 +389,7 @@ class MemoryReasoner(Reasoner):
                             "source_stream": first.get("stream_id"),
                             "source_t": first.get("t"),
                             "source_quote": first.get("quote"),
+                            "citation_verified": True,
                         })
 
                 moments.append(Moment(start, end, score, text, why, signals))

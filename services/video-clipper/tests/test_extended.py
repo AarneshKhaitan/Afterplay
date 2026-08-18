@@ -59,6 +59,60 @@ class TestChannelMemory:
         assert hits[0]["similarity"] > 0.9
         assert "embedding" not in hits[0]
         assert "updated" not in hits[0]
+        assert hits[0]["first_seen"]["verified"] is True
+        assert memory.verification_counts == {
+            "verified": 1,
+            "repaired": 1,
+            "unverified": 0,
+        }
+
+    def test_legacy_unverified_threads_are_not_retrievable(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory
+
+        creator_dir = tmp_path / "legacy"
+        creator_dir.mkdir()
+        (creator_dir / "threads.json").write_text(json.dumps([{
+            "id": "authored_on_demo_night",
+            "kind": "running_joke",
+            "label": "unsupported claim",
+            "summary": "This record predates citation verification.",
+            "first_seen": {"stream_id": "old", "t": 12.0, "quote": "not checked"},
+            "mentions": [],
+            "embedding": [1.0, 0.0, 0.1],
+        }]), encoding="utf-8")
+
+        memory = ChannelMemory("legacy", root=tmp_path, embedder=_fake_embed)
+
+        assert memory.threads[0].first_seen.verified is False
+        assert memory.retrieve("unsupported claim") == []
+
+    def test_backfill_rejects_unmatched_model_citation(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory
+
+        def extractor(stream_id, transcript):
+            return {"threads": [{
+                "kind": "running_joke",
+                "label": "fabricated callback",
+                "summary": "Model output with no transcript support.",
+                "first_seen": {"t": 12.0, "quote": "this quote is invented"},
+            }]}
+
+        memory = ChannelMemory("creator", root=tmp_path, embedder=_fake_embed)
+        extracted = memory.backfill(
+            "stream_a",
+            [Sentence(10.0, 20.0, "the actual transcript says something else")],
+            extractor=extractor,
+        )
+
+        assert len(extracted) == 1
+        assert extracted[0].has_verified_evidence() is False
+        assert memory.threads == []
+        assert not memory.path.exists()
+        assert memory.verification_counts == {
+            "verified": 0,
+            "repaired": 0,
+            "unverified": 1,
+        }
 
     def test_memory_reasoner_boosts_clear_callbacks_and_carries_signals(self):
         class Memory:
@@ -71,6 +125,7 @@ class TestChannelMemory:
                         "stream_id": "stream_a",
                         "t": 12.0,
                         "quote": "the cursed sniper is back",
+                        "verified": True,
                     },
                 }]
 
@@ -109,6 +164,31 @@ class TestChannelMemory:
         )
         assert "callback" not in moments[0].signals
 
+    def test_memory_reasoner_does_not_judge_unverified_threads(self):
+        class LegacyMemory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {0: [{
+                    "id": "legacy_thread",
+                    "label": "unsupported",
+                    "first_seen": {
+                        "stream_id": "old",
+                        "t": 1.0,
+                        "quote": "not checked",
+                    },
+                }]}
+
+        def judge(text, retrieved):
+            raise AssertionError("judge must not receive unverified evidence")
+
+        moments = MemoryReasoner(LegacyMemory(), judge=judge).rank(
+            [Sentence(0.0, 10.0, "a possible callback")],
+            target=10.0,
+            n=1,
+            tol=1.0,
+        )
+
+        assert "callback" not in moments[0].signals
+
     def test_memory_reasoner_falls_back_when_memory_fails(self):
         class BrokenMemory:
             def retrieve(self, text, k=3):
@@ -135,8 +215,8 @@ class TestChannelMemory:
             kind="running_joke",
             label="target thread",
             summary="A callback target.",
-            first_seen=StreamMention("prior", 3.0, "target quote"),
-            mentions=[StreamMention("prior", 3.0, "target quote")],
+            first_seen=StreamMention("prior", 3.0, "target quote", verified=True),
+            mentions=[StreamMention("prior", 3.0, "target quote", verified=True)],
             embedding=[1.0, 0.0],
         )]
         judged = []
@@ -164,7 +244,7 @@ class TestChannelMemory:
             def retrieve_many(self, texts, k=3, top_windows=10):
                 return {0: [{"id": "real_thread", "label": "Real thread",
                              "first_seen": {"stream_id": "prior", "t": 1.0,
-                                            "quote": "real quote"}}]}
+                                             "quote": "real quote", "verified": True}}]}
 
         def judge(text, retrieved):
             return {"is_callback": True, "thread_id": "invented_thread",
@@ -180,7 +260,7 @@ class TestChannelMemory:
             def retrieve_many(self, texts, k=3, top_windows=10):
                 return {0: [{"id": "thread_1", "label": "Thread",
                              "first_seen": {"stream_id": "prior", "t": 1.0,
-                                            "quote": "quote"}}]}
+                                             "quote": "quote", "verified": True}}]}
 
         def judge(text, retrieved):
             return {"is_callback": True, "thread_id": "thread_1",
@@ -864,7 +944,7 @@ class TestCallbackFoundReflectsShippedClips:
             def retrieve_many(self, texts, k=3, top_windows=10):
                 return {i: [{"id": "thread_1", "label": "the thread",
                              "first_seen": {"stream_id": "prior", "t": 1.0,
-                                            "quote": "the setup"}}]
+                                             "quote": "the setup", "verified": True}}]
                         for i in range(len(texts))}
 
         def judge(text, retrieved):
