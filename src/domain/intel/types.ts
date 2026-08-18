@@ -154,13 +154,13 @@ export type IntelAnalysis = {
 
 // ── memory ───────────────────────────────────────────────────────────────────
 
-export type BeliefStatus = "emerging" | "confirmed" | "weakening" | "contradicted";
+export type BeliefStatus = "emerging" | "confirmed" | "weakening";
 
 /** One durable thing the system believes about this creator's competitive position.
  *
  * Beliefs are the memory. They survive scans, gain confidence when re-observed, and
- * decay when a later scan stops supporting them — so the UI can show intelligence
- * accumulating rather than a fresh report every time. */
+ * decay when a later scan covers the same supporting channels but stops supporting
+ * them — so an unrelated competitor set cannot weaken standing knowledge. */
 export type Belief = {
   key: string;
   scope: "own" | "competitive" | "market";
@@ -173,6 +173,9 @@ export type Belief = {
   lastScanId: string;
   status: BeliefStatus;
   evidence: string[];
+  /** Channels whose corpus directly supported the latest observations. Optional only
+   * for legacy records; records without coverage do not decay until re-observed. */
+  supportingChannelIds?: string[];
   /** Confidence change attributable to the most recent scan. Drives the "what moved"
    * strip in the UI. */
   lastDelta: number;
@@ -182,7 +185,7 @@ export type Belief = {
 export type MemoryEvent = {
   at: string;
   scanId: string;
-  kind: "belief_new" | "belief_confirmed" | "belief_weakened" | "belief_contradicted" | "scan";
+  kind: "belief_new" | "belief_confirmed" | "belief_weakened" | "scan";
   summary: string;
   detail?: string;
 };
@@ -290,7 +293,6 @@ export type ScanJob = {
     newBeliefs: number;
     confirmed: number;
     weakened: number;
-    contradicted: number;
   };
   cost?: { videosScraped: number; estimatedUsd: number };
   error?: { code: string; message: string };

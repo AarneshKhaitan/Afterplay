@@ -19,6 +19,7 @@ import {
   writeVersionedJson,
   type VersionedJsonSchema,
 } from "@/domain/persist";
+import { normalizeLegacyMemory } from "./belief-evolution";
 import type { IntelMemory, ScanJob } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -172,7 +173,8 @@ export function emptyMemory(creatorId: string): IntelMemory {
 }
 
 export function loadMemory(creatorId: string): IntelMemory {
-  return readVersionedJson(memoryPath(creatorId), memorySchema) ?? emptyMemory(creatorId);
+  const memory = readVersionedJson(memoryPath(creatorId), memorySchema) ?? emptyMemory(creatorId);
+  return normalizeLegacyMemory(memory);
 }
 
 export function saveMemory(memory: IntelMemory): void {

@@ -196,9 +196,9 @@ function buildCorpus(
         examples: l.exampleVideoIds,
       })),
     themeGaps: themeGaps(channels, 10),
-    /** What we already believed going in. The model is asked to confirm, extend or
-     * contradict these by key — that is the mechanism by which memory compounds rather
-     * than resetting each scan. */
+    /** What we already believed going in. The model is asked to confirm or extend these
+     * by key — that is the mechanism by which memory compounds rather than resetting
+     * each scan. Omission only weakens a belief when scan coverage is equivalent. */
     priorBeliefs: priorBeliefs.map((b) => ({
       key: b.key,
       statement: b.statement,
@@ -450,9 +450,18 @@ const ANALYSIS_JSON_SCHEMA = {
  * Only `working` / `notWorking` / `whitespace` become beliefs. Recommendations are
  * actions, not beliefs — they expire once acted on, and a memory full of stale to-dos
  * would drown the things that are actually known. */
-export function analysisToObservations(analysis: IntelAnalysis) {
+export function analysisToObservations(analysis: IntelAnalysis, channels: ChannelRecord[]) {
   const scopeFor = (list: "working" | "notWorking" | "whitespace"): Belief["scope"] =>
     list === "whitespace" ? "market" : list === "working" ? "own" : "competitive";
+  const coveredChannels = channels
+    .filter((channel) => !channel.error && channel.videos.length > 0)
+    .map((channel) => channel.channelId);
+  const channelByEvidence = new Map<string, string>();
+  for (const channel of channels) {
+    channelByEvidence.set(channel.channelId, channel.channelId);
+    channelByEvidence.set(channel.name, channel.channelId);
+    for (const video of channel.videos) channelByEvidence.set(video.id, channel.channelId);
+  }
 
   return [
     ...analysis.working.map((i) => ({ ...i, list: "working" as const })),
@@ -465,5 +474,16 @@ export function analysisToObservations(analysis: IntelAnalysis) {
     detail: insight.detail,
     confidence: insight.confidence,
     evidence: insight.evidence,
+    // Video/channel citations carry precise ownership. Aggregate metrics, packaging
+    // lifts and theme gaps derive from the complete successful corpus, so they retain
+    // all covered channel ids rather than pretending they came from one channel.
+    supportingChannelIds: [
+      ...new Set(
+        insight.evidence.flatMap((item) => {
+          const channelId = channelByEvidence.get(item);
+          return channelId ? [channelId] : coveredChannels;
+        }),
+      ),
+    ],
   }));
 }

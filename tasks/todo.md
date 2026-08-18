@@ -26,13 +26,13 @@ Status document, not a history. Anything checked here has an evidence entry in
 
 ## Finals implementation execution
 
-- [ ] Baseline verification recorded before runtime changes.
+- [x] Baseline verification recorded before runtime changes — E-027.
 - [ ] Shared citation, provenance, ablation, creator-scope, and Riff contracts frozen.
 - [ ] F1 provenance accepted and committed.
 - [ ] F2 measured detection quality accepted and committed.
 - [ ] F3 memory ablation accepted and committed.
 - [ ] F4 durability, isolation, and live-run safety accepted and committed.
-- [ ] F5 Intelligence integrity accepted and committed.
+- [x] F5 Intelligence integrity accepted and committed — E-030.
 - [ ] F6 product surface accepted and committed.
 - [ ] F7 shared evidence contract accepted and committed.
 - [ ] F8 narrative, docs, and stage package accepted and committed.
@@ -41,6 +41,48 @@ Status document, not a history. Anything checked here has an evidence entry in
 
 Implementation details and acceptance gates live in `docs/finals/README.md` and its four
 workstream plans. Check an item only after its documented verification has run.
+
+### Verified citation boundary
+
+- [x] Match model-reported quotes to contiguous transcript spans and derive source times.
+- [x] Default legacy evidence to unverified and exclude it from retrieval and judging.
+- [x] Report verified, repaired, and rejected evidence from backfill.
+- [x] Cover exact, repaired, rejected, repeated, Unicode, legacy, and judge-boundary cases.
+
+### Language provenance foundation
+
+- [x] Select only configured subtitle languages in deterministic priority order.
+- [x] Pin caption-less ASR language and record language, source, and exact track in manifests.
+- [x] Preserve source-script quotes and test a Hindi transcript path.
+- [ ] Inspect and permission the actual second creator corpus; run the bounded case study.
+
+### F5 Intel integrity - complete
+
+- [x] Retain supporting channel ids and decay beliefs only after equivalent scan coverage.
+- [x] Preserve legacy beliefs without coverage until they are re-observed.
+- [x] Remove the unreachable contradiction state and product claims.
+- [x] Tighten challenge and all-caps feature detectors with adversarial coverage.
+- [x] Disclose sample sizes and bound recommendation language for thin corpora.
+- [x] Run focused Intel tests, typecheck, lint, and review the final diff — E-030.
+
+### F4 storage foundation
+
+- [x] Read the repository rules, backend/product workstream, and relevant bundled Next 16
+      server-only guidance.
+- [x] Capture the current Intel persistence behavior before changing it.
+- [x] Add server-only, versioned JSON persistence with explicit missing/corrupt states.
+- [x] Use unique temporary files and retry one Windows `EPERM`/`EBUSY` rename failure.
+- [x] Migrate Intel persistence while retaining legacy-file compatibility.
+- [x] Add isolated tests and run focused verification, typecheck, and lint — E-029.
+
+### Implementation review - 2026-08-19
+
+- Citation verification and language provenance are committed foundations; the real corpus
+  rebuild, eval, ablation, and second-creator case study remain open.
+- Atomic storage is committed, but F4 remains open for creator isolation, durable experiments,
+  structured job controls, and manifest v2.
+- F5 acceptance is complete: scoped decay, contradiction removal, detector calibration,
+  low-sample disclosure, grounding tests, typecheck, and lint all pass.
 
 ## Phase 0 - Truth and submission integrity — complete except G1
 

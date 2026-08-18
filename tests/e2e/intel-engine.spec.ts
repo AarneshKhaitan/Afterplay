@@ -1,9 +1,13 @@
 import { expect, test } from "@playwright/test";
 
 import { toChannelVideosUrl, toFormat } from "@/domain/intel/apify";
-import { groundAnalysis } from "@/domain/intel/analyst";
+import { analysisToObservations, groundAnalysis } from "@/domain/intel/analyst";
 import { extractFeatures } from "@/domain/intel/features";
-import { mergeBeliefs, statusFor } from "@/domain/intel/memory";
+import {
+  mergeBeliefs,
+  normalizeLegacyMemory,
+  statusFor,
+} from "@/domain/intel/belief-evolution";
 import {
   channelStats,
   featureLifts,
@@ -16,7 +20,7 @@ import {
   uploadsPerWeek,
 } from "@/domain/intel/metrics";
 import { durationToSeconds, parseDate, srtToText, toChannelRecord } from "@/domain/intel/normalize";
-import type { IntelAnalysis, VideoRecord } from "@/domain/intel/types";
+import type { ChannelRecord, IntelAnalysis, VideoRecord } from "@/domain/intel/types";
 
 /** Adversarial tests for the intelligence engine's pure layer.
  *
@@ -177,6 +181,33 @@ test.describe("packaging features", () => {
   test("empty strings do not throw", () => {
     expect(() => extractFeatures("", "", null)).not.toThrow();
   });
+
+  test("challenge framing requires an explicit challenge or constraint", () => {
+    expect(extractFeatures("A good run but a rough ending", "", 600)).not.toContain(
+      "title_challenge",
+    );
+    expect(extractFeatures("Only the beginning", "", 600)).not.toContain("title_challenge");
+    expect(extractFeatures("No one saw this coming", "", 600)).not.toContain("title_challenge");
+    expect(extractFeatures("Ten minutes without question", "", 600)).not.toContain(
+      "title_challenge",
+    );
+    expect(extractFeatures("Only one thing matters", "", 600)).not.toContain(
+      "title_challenge",
+    );
+    expect(extractFeatures("Minecraft but only one block", "", 600)).toContain(
+      "title_challenge",
+    );
+    expect(extractFeatures("Can I win without healing?", "", 600)).toContain(
+      "title_challenge",
+    );
+  });
+
+  test("common gaming acronyms are not mistaken for all-caps emphasis", () => {
+    expect(extractFeatures("Best GTA FPS settings for COD", "", 600)).not.toContain(
+      "title_caps",
+    );
+    expect(extractFeatures("GTA combat is INSANE", "", 600)).toContain("title_caps");
+  });
 });
 
 test.describe("belief memory", () => {
@@ -190,10 +221,11 @@ test.describe("belief memory", () => {
     detail: "detail",
     confidence: 0.9,
     evidence: ["v1"],
+    supportingChannelIds: ["ch_own"],
   });
 
   test("a first sighting is capped, however confident the model sounds", () => {
-    const result = mergeBeliefs([], [observation("a"), observation("b")], "s1", T1);
+    const result = mergeBeliefs([], [observation("a"), observation("b")], "s1", T1, ["ch_own"]);
     expect(result.delta.newBeliefs).toBe(2);
     for (const belief of result.beliefs) {
       expect(belief.confidence).toBeLessThanOrEqual(0.55);
@@ -202,8 +234,8 @@ test.describe("belief memory", () => {
   });
 
   test("re-observation reinforces and absence decays, in the same pass", () => {
-    const first = mergeBeliefs([], [observation("a"), observation("b")], "s1", T1);
-    const second = mergeBeliefs(first.beliefs, [observation("a")], "s2", T2);
+    const first = mergeBeliefs([], [observation("a"), observation("b")], "s1", T1, ["ch_own"]);
+    const second = mergeBeliefs(first.beliefs, [observation("a")], "s2", T2, ["ch_own"]);
 
     const a = second.beliefs.find((b) => b.key === "a")!;
     const b = second.beliefs.find((b) => b.key === "b")!;
@@ -215,9 +247,9 @@ test.describe("belief memory", () => {
   });
 
   test("repeated decay converges to a floor and never goes negative", () => {
-    let carry = mergeBeliefs([], [observation("a")], "s1", T1).beliefs;
+    let carry = mergeBeliefs([], [observation("a")], "s1", T1, ["ch_own"]).beliefs;
     for (let i = 0; i < 15; i += 1) {
-      carry = mergeBeliefs(carry, [], `s${i + 2}`, T3).beliefs;
+      carry = mergeBeliefs(carry, [], `s${i + 2}`, T3, ["ch_own"]).beliefs;
     }
     for (const belief of carry) {
       expect(belief.confidence).toBeGreaterThanOrEqual(0.02);
@@ -225,34 +257,66 @@ test.describe("belief memory", () => {
     }
   });
 
-  test("a contradicted belief is marked and then left alone", () => {
-    const first = mergeBeliefs([], [observation("a")], "s1", T1);
-    const contradicted = mergeBeliefs(
-      first.beliefs,
-      [{ ...observation("a"), contradicts: true }],
-      "s2",
-      T2,
+  test("a different competitor set cannot decay an unrelated belief", () => {
+    const first = mergeBeliefs(
+      [],
+      [{ ...observation("a"), supportingChannelIds: ["ch_own", "rival_a"] }],
+      "s1",
+      T1,
+      ["ch_own", "rival_a"],
     );
-    const a = contradicted.beliefs.find((b) => b.key === "a")!;
-    expect(a.status).toBe("contradicted");
-    expect(a.confidence).toBeGreaterThanOrEqual(0.05);
-    expect(contradicted.delta.contradicted).toBe(1);
+    const later = mergeBeliefs(first.beliefs, [], "s2", T2, ["ch_own", "rival_b"]);
 
-    // Must not then decay on top of the contradiction: that would double-punish it and
-    // eventually hide the fact that it was contradicted at all.
-    const later = mergeBeliefs(contradicted.beliefs, [], "s3", T3);
-    expect(later.beliefs.find((b) => b.key === "a")!.status).toBe("contradicted");
+    expect(later.beliefs[0].confidence).toBe(first.beliefs[0].confidence);
+    expect(later.beliefs[0].history).toHaveLength(1);
+    expect(later.delta.weakened).toBe(0);
+  });
+
+  test("legacy beliefs do not decay until re-observation establishes coverage", () => {
+    const first = mergeBeliefs([], [observation("a")], "s1", T1, ["ch_own"]);
+    const legacy = { ...first.beliefs[0], supportingChannelIds: undefined };
+    const preserved = mergeBeliefs([legacy], [], "s2", T2, ["ch_own"]);
+    expect(preserved.beliefs[0].confidence).toBe(legacy.confidence);
+
+    const observed = mergeBeliefs(preserved.beliefs, [observation("a")], "s3", T3, ["ch_own"]);
+    expect(observed.beliefs[0].supportingChannelIds).toEqual(["ch_own"]);
+    const decayed = mergeBeliefs(observed.beliefs, [], "s4", T3, ["ch_own"]);
+    expect(decayed.beliefs[0].confidence).toBeLessThan(observed.beliefs[0].confidence);
+  });
+
+  test("legacy contradiction records are retained but cannot become active beliefs", () => {
+    const first = mergeBeliefs([], [observation("a")], "s1", T1, ["ch_own"]);
+    const memory = normalizeLegacyMemory({
+      creatorId: "creator",
+      beliefs: [{ ...first.beliefs[0], status: "contradicted" as never, confidence: 0.8 }],
+      events: [
+        {
+          at: T1,
+          scanId: "s1",
+          kind: "belief_contradicted" as never,
+          summary: "Contradicted: old claim",
+        },
+      ],
+      scans: [],
+      totals: { scans: 0, videosAnalyzed: 0, transcriptsRead: 0, channelsTracked: 0 },
+    });
+
+    expect(memory.beliefs[0]).toMatchObject({ status: "weakening", confidence: 0.24 });
+    expect(memory.events[0]).toMatchObject({
+      kind: "belief_weakened",
+      summary: "Legacy disputed belief: old claim",
+    });
   });
 
   test("status floor is respected regardless of observation count", () => {
-    expect(statusFor(0.1, 5, false)).toBe("weakening");
-    expect(statusFor(0.9, 1, true)).toBe("contradicted");
+    expect(statusFor(0.1, 5)).toBe("weakening");
+    expect(statusFor(0.9, 1)).toBe("emerging");
   });
 
   test("history is bounded so memory cannot grow without limit", () => {
-    let carry = mergeBeliefs([], [observation("a")], "s1", T1).beliefs;
+    let carry = mergeBeliefs([], [observation("a")], "s1", T1, ["ch_own"]).beliefs;
     for (let i = 0; i < 40; i += 1) {
-      carry = mergeBeliefs(carry, [observation("a")], `s${i + 2}`, T2).beliefs;
+      carry = mergeBeliefs(carry, [observation("a")], `s${i + 2}`, T2, ["ch_own"]).beliefs;
     }
     expect(carry[0].history.length).toBeLessThanOrEqual(20);
   });
@@ -271,6 +335,29 @@ test.describe("analysis grounding", () => {
   };
   const citable = new Set(["real1", "real2", "Question in title"]);
   const videoIds = new Set(["real1", "real2"]);
+
+  test("belief observations retain the channels behind direct and aggregate evidence", () => {
+    const analysis: IntelAnalysis = {
+      ...base,
+      working: [
+        { key: "direct", title: "Direct", detail: "d", evidence: ["real1"], confidence: 0.7, impact: "high" },
+        { key: "aggregate", title: "Aggregate", detail: "d", evidence: ["Question in title"], confidence: 0.7, impact: "medium" },
+      ],
+    };
+    const channels = [
+      { channelId: "own", name: "Own", videos: [{ id: "real1" }] },
+      { channelId: "rival", name: "Rival", videos: [{ id: "real2" }] },
+    ] as ChannelRecord[];
+
+    const observations = analysisToObservations(analysis, channels);
+    expect(observations.find((item) => item.key === "direct")?.supportingChannelIds).toEqual([
+      "own",
+    ]);
+    expect(observations.find((item) => item.key === "aggregate")?.supportingChannelIds).toEqual([
+      "own",
+      "rival",
+    ]);
+  });
 
   test("invented citations are stripped and evidence-less findings are dropped", () => {
     const result = groundAnalysis(

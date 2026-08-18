@@ -197,6 +197,8 @@ export type Standing = {
   ratio: number;
   betterThan: number;
   of: number;
+  ownSampledVideos: number;
+  competitorSampledVideos: number;
   direction: "ahead" | "behind" | "level";
 };
 
@@ -242,6 +244,11 @@ export function standings(channels: ChannelRecord[]): Standing[] {
       ratio,
       betterThan,
       of: rivals.length,
+      ownSampledVideos: own.stats.sampledVideos,
+      competitorSampledVideos: rivals.reduce(
+        (total, rival) => total + rival.stats.sampledVideos,
+        0,
+      ),
       direction: ratio > 1.1 ? "ahead" : ratio < 0.9 ? "behind" : "level",
     };
   });

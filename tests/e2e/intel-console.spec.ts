@@ -150,7 +150,7 @@ test.beforeAll(() => {
       ],
       blindSpots: ["Public data cannot show retention or click-through rate."],
     },
-    memoryDelta: { newBeliefs: 1, confirmed: 2, weakened: 0, contradicted: 0 },
+    memoryDelta: { newBeliefs: 1, confirmed: 2, weakened: 0 },
     cost: { videosScraped: 3, estimatedUsd: 0.015 },
   };
 
@@ -165,6 +165,7 @@ test.beforeAll(() => {
         detail: "Held across three scans.", confidence: 0.82, observations: 3,
         firstSeen: "2026-06-01T00:00:00.000Z", lastConfirmed: "2026-08-08T10:00:00.000Z",
         lastScanId: "scan_fixture", status: "confirmed", evidence: ["own_hit"], lastDelta: 0.12,
+        supportingChannelIds: ["ch_own"],
         history: [
           { scanId: "s1", at: "2026-06-01T00:00:00.000Z", confidence: 0.55 },
           { scanId: "s2", at: "2026-07-01T00:00:00.000Z", confidence: 0.7 },
@@ -177,6 +178,7 @@ test.beforeAll(() => {
         detail: "Not re-observed since the first scan.", confidence: 0.18, observations: 1,
         firstSeen: "2026-06-01T00:00:00.000Z", lastConfirmed: "2026-06-01T00:00:00.000Z",
         lastScanId: "scan_fixture", status: "weakening", evidence: ["own_flop"], lastDelta: -0.12,
+        supportingChannelIds: ["ch_own", "ch_rival"],
         history: [
           { scanId: "s1", at: "2026-06-01T00:00:00.000Z", confidence: 0.55 },
           { scanId: "scan_fixture", at: "2026-08-08T10:00:00.000Z", confidence: 0.18 },
@@ -210,6 +212,9 @@ test("the console leads with the finding and shows what it is built from", async
   // Memory totals are the claim that this accumulates; they must be on screen at once.
   await expect(page.getByText("72 videos analysed")).toBeVisible();
   await expect(page.getByText("60 transcripts read")).toBeVisible();
+  await expect(page.getByText(/Directional sample: 2 of 2 channels/)).toBeVisible();
+  await expect(page.getByText("What to test next")).toBeVisible();
+  await expect(page.getByText("Directional hypotheses from a thin public-data sample")).toBeVisible();
 
   // Both sides of the picture, not just the flattering one.
   await expect(page.getByText("Constraint framing carries your best videos").first()).toBeVisible();
@@ -217,6 +222,8 @@ test("the console leads with the finding and shows what it is built from", async
 
   // A recommendation is only useful if it says what to actually do.
   await expect(page.getByText("Ship two constraint videos a week for four weeks.")).toBeVisible();
+  await expect(page.getByText("n=2 yours vs n=1 competitor videos").first()).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Sample" })).toBeVisible();
 });
 
 test("head-to-head puts a real competitor video against the creator's own", async ({ page }) => {
@@ -275,6 +282,7 @@ test("memory shows beliefs strengthening and decaying, not a flat list", async (
     page.getByRole("heading", { name: "Shorts were going to be the growth lever" }),
   ).toBeVisible();
   await expect(page.locator(".belief-status--weakening")).toBeVisible();
+  await expect(page.getByText("1 supporting channel")).toBeVisible();
   await expect(page.getByText(/Confidence 70% → 82%/)).toBeVisible();
 
   await page.getByLabel("Filter by status").selectOption("weakening");

@@ -22,9 +22,39 @@ export type FeatureDef = {
 
 /** Words that signal a reaction/first-time framing across gaming content. */
 const REACTION = /\b(reacts?|reaction|first time|blind|playing for the first time)\b/i;
-const CHALLENGE = /\b(challenge|but|only|no |100 days|24 hours|speedrun|impossible|hardcore|nightmare)\b/i;
+const CHALLENGE =
+  /\b(challenges?|100\s*days?|24\s*hours?|speedruns?|impossible|hardcore|nightmare)\b/i;
+const EXPLICIT_CONSTRAINT =
+  /\bbut\s+only\b|\bonly\s+(?:using|with|allowed)\b|\bonly\s+one\s+(?:block|life|weapon|item|chance)\b|\bwithout\s+(?:weapons?|guns?|healing|taking\s+damage|dying|jumping|building|armor|upgrades?|items?|kills?)\b|\bno\s+(?:weapons?|guns?|healing|damage|deaths?|dying|jumping|building|armor|upgrades?|items?|kills?)\b/i;
 const SUPERLATIVE = /\b(best|worst|greatest|craziest|insane|epic|ultimate|perfect|fastest)\b/i;
 const CURIOSITY = /\b(secret|nobody|no one|why|how|what happens|truth|mistake|actually|finally)\b/i;
+const COMMON_TITLE_ACRONYMS = new Set([
+  "COD",
+  "CPU",
+  "DLC",
+  "FPS",
+  "GPU",
+  "GTA",
+  "HUD",
+  "MMO",
+  "MMORPG",
+  "NPC",
+  "OBS",
+  "PC",
+  "PS5",
+  "PVP",
+  "PVE",
+  "RAM",
+  "RPG",
+  "RTX",
+  "UFC",
+  "WWE",
+]);
+
+function hasCapsEmphasis(title: string): boolean {
+  const tokens = title.match(/\b[A-Z][A-Z0-9]{2,}\b/g) ?? [];
+  return tokens.some((token) => !COMMON_TITLE_ACRONYMS.has(token));
+}
 
 export const FEATURES: FeatureDef[] = [
   {
@@ -43,8 +73,7 @@ export const FEATURES: FeatureDef[] = [
     id: "title_caps",
     label: "ALL-CAPS emphasis",
     hint: "Put one word in caps to carry the emphasis.",
-    // Two-plus consecutive capitals, at least 3 chars, ignoring common acronyms alone.
-    test: ({ title }) => /\b[A-Z]{3,}\b/.test(title),
+    test: ({ title }) => hasCapsEmphasis(title),
   },
   {
     id: "title_bracket",
@@ -68,7 +97,7 @@ export const FEATURES: FeatureDef[] = [
     id: "title_challenge",
     label: "Constraint or challenge",
     hint: "Impose a rule: 'but only…', 'no…', a time limit.",
-    test: ({ lower }) => CHALLENGE.test(lower),
+    test: ({ lower }) => CHALLENGE.test(lower) || EXPLICIT_CONSTRAINT.test(lower),
   },
   {
     id: "title_superlative",

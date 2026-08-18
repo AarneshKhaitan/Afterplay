@@ -823,3 +823,73 @@ banner: Creator memory degraded
 Regression test `tests/e2e/manifest-states.spec.ts` seeds exactly this combination and
 fails against the chained version (verified by reverting: `1 failed, 1 passed`). It also
 asserts the degraded run is never presented as the valid no-callback outcome.
+
+---
+
+## e-027-finals-baseline-and-verified-citation-boundary
+
+Claim: model-authored quotes cannot enter active channel memory or affect a clip decision unless
+they resolve to a contiguous transcript span.
+
+- Date: 2026-08-19
+- Commit: `da9bc2a` (`feat(clipper): verify memory citations`).
+- Verification before the change: `pytest tests/test_extended.py tests/test_units.py -q`
+  returned `99 passed, 1 skipped`.
+- Focused verification after the change returned `20 passed`. It covers exact matches, fuzzy
+  caption repair, rejected quotes, repeated-quote timestamp tie-breaking, Devanagari text,
+  legacy unverified records, and the rule that the callback judge is never called with
+  unverified evidence.
+- The broader clipper regression suite returned `107 passed, 1 skipped` for the citation commit.
+- Backfill now reports suggestions separately from verified additions, repaired citations, and
+  rejected citations. Missing verification metadata defaults to unverified.
+
+---
+
+## e-028-transcript-language-provenance
+
+Claim: the clipper selects only configured subtitle languages and discloses the actual transcript
+language, source, and track in its manifest.
+
+- Date: 2026-08-19
+- Commit: `307399f` (`feat(clipper): record transcript language provenance`).
+- Focused language plus end-to-end manifest verification returned `6 passed`.
+- Full clipper verification returned `134 passed, 1 skipped` in `625.79s`.
+- Tested paths include Hindi-first subtitle selection, refusal to fall back to an unlisted
+  English track, manual versus automatic YouTube provenance, provided VTT provenance, pinned ASR
+  language, and source-script VTT round-trip.
+- This proves the language-provenance foundation only. It does not prove the second creator case
+  study and does not support a general multilingual-product claim.
+
+---
+
+## e-029-versioned-atomic-storage
+
+Claim: Intel persistence distinguishes missing from corrupt data, preserves legacy JSON, and
+writes versioned state atomically with bounded Windows contention handling.
+
+- Date: 2026-08-19
+- Commit: `39648eb` (`feat(storage): add versioned atomic persistence`).
+- `playwright test --config=playwright.persistence.config.ts` returned `5 passed`.
+- Cases cover corrupt JSON, malformed envelopes, schema/version mismatch, legacy migration,
+  re-entrant writes with unique temporary names, one `EPERM` retry, and non-retryable failures.
+- `npm run typecheck` and `npm run lint` both exit zero for the app. The nested `demo-video`
+  package is excluded from the app `tsconfig` because it owns a separate toolchain and config.
+- This is the storage foundation, not completion of F4 creator isolation and job durability.
+
+---
+
+## e-030-intelligence-integrity
+
+Claim: competitive beliefs decay only under equivalent supporting-channel coverage, title
+detectors no longer make the documented bare-word/acronym errors, and thin samples are disclosed
+as hypotheses rather than recommendations presented as facts.
+
+- Date: 2026-08-19
+- Focused command:
+  `playwright test tests/e2e/intel-engine.spec.ts tests/e2e/intel-console.spec.ts`.
+- Result: `35 passed` in `71.7s` after correcting one fixture expectation exposed by the first
+  run (`34 passed, 1 failed`).
+- Tests cover same-scope decay, different-competitor preservation, legacy coverage behavior,
+  retirement of the unreachable contradiction state, evidence-to-channel provenance, GTA/FPS/COD
+  adversarial titles, explicit constraints, sample denominators, bounded copy, and rendered UI.
+- `npm run typecheck` and `npm run lint` both exit zero.

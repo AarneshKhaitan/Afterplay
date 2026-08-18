@@ -104,7 +104,7 @@ export function PositionMap({ channels }: { channels: ChannelRecord[] }) {
       <div className="section-heading">
         <h3 id={titleId}>Competitive position</h3>
         <span className="sample-note">
-          Both axes are size-normalised, so a bigger channel cannot win by being bigger
+          Both axes are size-normalised · n={points.reduce((sum, point) => sum + point.sampled, 0)} videos across {points.length} channels
         </span>
       </div>
 
@@ -166,7 +166,7 @@ export function PositionMap({ channels }: { channels: ChannelRecord[] }) {
                 onMouseLeave={() => setHover(null)}
                 tabIndex={0}
                 role="button"
-                aria-label={`${point.name}: ${point.efficiency.toFixed(3)} views per subscriber, ${(point.hitRate * 100).toFixed(0)}% hit rate, median ${formatViews(point.medianViews)} views`}
+                aria-label={`${point.name}: ${point.efficiency.toFixed(3)} views per subscriber, ${(point.hitRate * 100).toFixed(0)}% hit rate, median ${formatViews(point.medianViews)} views, sampled ${point.sampled} videos`}
                 onFocus={() => setHover(point)}
                 onBlur={() => setHover(null)}
               >
@@ -187,6 +187,7 @@ export function PositionMap({ channels }: { channels: ChannelRecord[] }) {
 
           <figcaption>
             Bubble area is median views. Guides mark the competitor median on each axis.
+            {` Based on ${points.reduce((sum, point) => sum + point.sampled, 0)} sampled videos.`}
             {own
               ? ` You sit ${own.efficiency >= (guideX ?? 0) ? "ahead of" : "behind"} the field on conversion and ${own.hitRate >= (guideY ?? 0) ? "ahead on" : "behind on"} consistency.`
               : ""}
@@ -251,6 +252,7 @@ export function PositionMap({ channels }: { channels: ChannelRecord[] }) {
               <th scope="col">Hit rate</th>
               <th scope="col">Median views</th>
               <th scope="col">Subscribers</th>
+              <th scope="col">Sample</th>
             </tr>
           </thead>
           <tbody>
@@ -264,6 +266,7 @@ export function PositionMap({ channels }: { channels: ChannelRecord[] }) {
                 <td>{(point.hitRate * 100).toFixed(0)}%</td>
                 <td>{formatViews(point.medianViews)}</td>
                 <td>{formatViews(point.subscribers)}</td>
+                <td>n={point.sampled}</td>
               </tr>
             ))}
           </tbody>
