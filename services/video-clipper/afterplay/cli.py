@@ -107,6 +107,7 @@ def cmd_run(a) -> int:
     job_id = a.job_id or f"job_{uuid.uuid4().hex[:10]}"
     try:
         job = orch.run(url=a.url, local=a.local, info_json=a.info_json, vtt=a.vtt,
+                       footage_rights=a.rights,
                        platforms=plats, n_clips=a.clips, target=a.target,
                        job_id=job_id, webhook=a.webhook)
     except Exception as e:                                      # noqa: BLE001
@@ -385,7 +386,7 @@ def main(argv=None) -> int:
     sp = sub.add_parser("run", help="full pipeline: extract, render, QC, deliver")
     common(sp)
     sp.add_argument("--platforms", default="shorts")
-    sp.add_argument("--creator", help="creator id for local JSON memory")
+    sp.add_argument("--creator", required=True, help="creator id and manifest owner")
     sp.add_argument("--workers", type=int, default=4)
     sp.add_argument("--max-repairs", dest="max_repairs", type=int, default=3)
     sp.add_argument("--encoder", help="force an encoder (default: auto-detect)")
@@ -394,6 +395,10 @@ def main(argv=None) -> int:
     sp.add_argument("--webhook", help="POST the manifest here on completion")
     sp.add_argument("--memory", action="store_true",
                     help="use OpenAI creator-memory callback detection")
+    sp.add_argument("--rights", required=True,
+                    choices=["project_owned", "creator_owned", "permission_granted",
+                             "licensed", "not_cleared"],
+                    help="explicit footage-rights attestation for the output manifest")
     sp.set_defaults(fn=cmd_run)
 
     sp = sub.add_parser("backfill", help="extract callback memory from a past stream")

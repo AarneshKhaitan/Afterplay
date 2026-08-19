@@ -72,13 +72,13 @@ presence in `-encoders` does not mean the hardware exists.
 afterplay plan "https://youtu.be/VIDEO_ID" --clips 5
 
 # full pipeline
-afterplay run "https://youtu.be/VIDEO_ID" --clips 5 --platforms shorts,reels --workers 6
+afterplay run "https://youtu.be/VIDEO_ID" --rights not_cleared --clips 5 --platforms shorts,reels --workers 6
 
 # a file you own (preferred path: faster, and no platform-ToS question)
-afterplay run --local episode.mp4 --vtt episode.en.vtt --clips 5 --creator ksi
+afterplay run --local episode.mp4 --vtt episode.en.vtt --rights creator_owned --clips 5 --creator ksi
 
 # headless: JSON to stdout, webhook on completion, exit code carries the verdict
-afterplay run "URL" --json --webhook https://your.app/callback
+afterplay run "URL" --rights permission_granted --json --webhook https://your.app/callback
 
 afterplay doctor          # environment + detected encoder
 afterplay memory ksi      # what the agent learned about this creator
@@ -130,7 +130,7 @@ support.
 Run the current stream with memory enabled:
 
 ```bash
-afterplay run --memory --creator ksi --local current.mp4 --vtt current.en.vtt --clips 3 --platforms shorts
+afterplay run --memory --creator ksi --local current.mp4 --vtt current.en.vtt --rights permission_granted --clips 3 --platforms shorts
 ```
 
 The manifest includes `memory: { degraded, reason, threads_considered, callback_found }`.

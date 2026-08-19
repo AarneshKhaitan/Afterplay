@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { TEST_CLIPPER_WORKDIR } from "./clipper-workdir";
 
 const JOB_DIR = join(TEST_CLIPPER_WORKDIR, "ui_callback");
+test.setTimeout(90_000);
 
 /** Remove the fixture manifest after this file finishes.
  *
@@ -25,15 +26,22 @@ test.beforeAll(() => {
   writeFileSync(
     join(jobDir, "manifest.json"),
     JSON.stringify({
+      schema: "afterplay.clip-manifest",
+      schema_version: 2,
       job_id: "ui_callback",
       creator_id: "creator_mika_rigged",
-      source: { title: "Callback smoke stream", url: null, duration: 52 },
+      source: {
+        title: "Callback smoke stream", url: null, duration: 52,
+        footage_rights: "permission_granted",
+        transcript_language: "en", transcript_source: "provided_vtt", subtitle_track: "fixture.en.vtt",
+      },
       clips: [{
         clip_id: "clip01_shorts",
         platform: "shorts",
         start: 20,
         end: 32,
         duration: 12,
+        decision_window: { start: 20, end: 32 },
         path: clipPath,
         score: 2.88,
         why: "callback[the cursed sniper]: payoff line",
@@ -46,10 +54,34 @@ test.beforeAll(() => {
           confidence: 0.91,
           source_stream: "prior_001",
           source_t: 12,
+          source_t_reported: 15,
           source_quote: "bro Ravi is the cursed sniper, he cannot hit anything",
+          source_quote_display: "Ravi is still the cursed sniper.",
+          source_match_ratio: 0.97,
+          source_repair: "timestamp_corrected",
           citation_verified: true,
         },
       }],
+      ablation: {
+        schema_version: 1, available: true, unavailable_reason: null,
+        comparison_point: "post_scoring_pre_sponsor_pre_analytics", candidate_count: 3,
+        moments: [{
+          start: 20, end: 32, baseline_rank: 3, memory_rank: 1, rank_delta: 2,
+          base_percentile: 0, base_score: 1.06, final_score: 2.88, boost: 1.82,
+          score_scale: "cold_start_points_plus_additive_memory_boost",
+          baseline_selected: false, memory_selected: true, callback: true,
+        }, {
+          start: 0, end: 10, baseline_rank: 1, memory_rank: 2, rank_delta: -1,
+          base_percentile: 100, base_score: 2.5, final_score: 2.5, boost: 0,
+          score_scale: "cold_start_points_plus_additive_memory_boost",
+          baseline_selected: true, memory_selected: false, callback: false,
+        }, {
+          start: 35, end: 45, baseline_rank: 2, memory_rank: 3, rank_delta: -1,
+          base_percentile: 50, base_score: 1.8, final_score: 1.8, boost: 0,
+          score_scale: "cold_start_points_plus_additive_memory_boost",
+          baseline_selected: false, memory_selected: false, callback: false,
+        }],
+      },
       encoder: "h264_qsv",
     }),
     "utf-8",
@@ -69,6 +101,13 @@ test("Studio renders callback citation and media route from latest manifest", as
         sourceT: 12,
         sourceQuote: "bro Ravi is the cursed sniper, he cannot hit anything",
         citationVerified: true,
+        evidence: {
+          sourceTReported: 15,
+          footageRights: "permission_granted",
+          memoryImpact: {
+            baselineRank: 3, memoryRank: 1, rankDelta: 2, boost: 1.82, basePercentile: 0,
+          },
+        },
       }],
     },
   });
@@ -80,9 +119,17 @@ test("Studio renders callback citation and media route from latest manifest", as
   await page.goto("/studio", { waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("Latest clipper manifest")).toBeVisible();
   await expect(page.getByText("Callback smoke stream")).toBeVisible();
-  await expect(page.getByText("the cursed sniper · confidence 0.91")).toBeVisible();
-  await expect(page.getByText("prior_001 · 0:12")).toBeVisible();
-  await expect(page.getByText("bro Ravi is the cursed sniper, he cannot hit anything")).toBeVisible();
+  const receipt = page.getByRole("complementary", { name: "Verified callback evidence" });
+  await expect(receipt).toBeVisible();
+  await expect(receipt.getByText("the cursed sniper", { exact: true })).toBeVisible();
+  await expect(receipt.getByText("prior_001 · 0:12")).toBeVisible();
+  await expect(receipt.getByText("bro Ravi is the cursed sniper, he cannot hit anything")).toBeVisible();
+  await expect(receipt.getByText("3 → 1")).toBeVisible();
+  await expect(receipt.getByText("0.0%")).toBeVisible();
+  await expect(receipt.getByText("2 ranks · +1.82")).toBeVisible();
+  await expect(receipt.getByText("cold start points plus additive memory boost")).toBeVisible();
+  await expect(receipt.getByText(/Reported at 0:15/)).toBeVisible();
+  await expect(receipt.getByText("permission granted", { exact: true })).toBeVisible();
   await expect(page.locator('video[aria-label="clip01_shorts preview"]')).toHaveAttribute(
     "src",
     /\/api\/clips\/clip01_shorts\/media/,

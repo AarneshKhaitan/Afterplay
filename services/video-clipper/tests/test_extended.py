@@ -124,7 +124,11 @@ class TestChannelMemory:
                     "first_seen": {
                         "stream_id": "stream_a",
                         "t": 12.0,
+                        "t_reported": 15.0,
                         "quote": "the cursed sniper is back",
+                        "quote_display": "The sniper is back.",
+                        "match_ratio": 0.96,
+                        "repair": "timestamp_corrected",
                         "verified": True,
                     },
                 }]
@@ -145,6 +149,10 @@ class TestChannelMemory:
         assert moments[0].signals["callback"] is True
         assert moments[0].signals["thread_id"] == "thread_1"
         assert moments[0].signals["source_stream"] == "stream_a"
+        assert moments[0].signals["source_t_reported"] == 15.0
+        assert moments[0].signals["source_quote_display"] == "The sniper is back."
+        assert moments[0].signals["source_match_ratio"] == 0.96
+        assert moments[0].signals["source_repair"] == "timestamp_corrected"
         assert moments[0].score >= 2.4
 
     def test_memory_reasoner_does_not_judge_without_retrieved_threads(self):
@@ -272,10 +280,16 @@ class TestChannelMemory:
         assert "callback" not in moments[0].signals
 
     def test_clip_manifest_includes_signals(self):
-        job = JobResult(job_id="job", source={},
+        job = JobResult(
+                        job_id="job", creator_id="manifest-owner",
+                        source={"footage_rights": "project_owned",
+                                "transcript_language": "en",
+                                "transcript_source": "provided_vtt",
+                                "subtitle_track": "fixture.en.vtt"},
                         clips=[ClipResult(clip_id="c1", platform="shorts",
                                           start=0.0, end=20.0, duration=20.0,
-                                          signals={"callback": True})])
+                                          signals={"callback": True},
+                                          decision_window={"start": 0.0, "end": 20.0})])
         assert job.to_dict()["clips"][0]["signals"] == {"callback": True}
 
 
@@ -606,6 +620,7 @@ class TestMCP:
         # the expensive tool must warn a model off casual use
         mk = next(t for t in s if t["name"] == "make_clips")
         assert "EXPENSIVE" in mk["description"]
+        assert set(mk["schema"]["required"]) == {"creator", "rights"}
 
     def test_unknown_tool_returns_json_error_not_exception(self):
         from afterplay.mcp_server import call
@@ -623,8 +638,15 @@ class TestMCP:
 
     def test_make_clips_validates_platforms(self):
         from afterplay.mcp_server import call
-        out = json.loads(call("make_clips", url="x", platforms="myspace"))
+        out = json.loads(call("make_clips", url="x", platforms="myspace",
+                              creator="owner", rights="not_cleared"))
         assert "error" in out and "known" in out
+
+    def test_make_clips_requires_explicit_owner_and_rights(self):
+        from afterplay.mcp_server import call
+        assert "creator is required" in json.loads(call("make_clips", url="x"))["error"]
+        out = json.loads(call("make_clips", url="x", creator="owner"))
+        assert "rights" in out["error"]
 
     def test_creator_report_works_on_an_unknown_creator(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
@@ -666,8 +688,9 @@ class TestCopyWiring:
                        "Nobody refuses a plate like that. Really?\n", encoding="utf-8")
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o",
                      max_repair_attempts=0)
-        job = Orchestrator(settings=s, workers=1).run(
-            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+        job = Orchestrator(settings=s, workers=1, creator="copy-owner").run(
+            local=str(src), vtt=str(vtt), footage_rights="project_owned",
+            platforms=["shorts"], n_clips=1,
             target=8.0, job_id="copy1")
         done = [c for c in job.clips if c.ok]
         assert done, [c.error for c in job.clips]
@@ -800,7 +823,8 @@ class TestJobStatus:
 
         monkeypatch.setattr(orch, "_write_status", capture_status)
         orch.run(
-            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+            local=str(src), vtt=str(vtt), footage_rights="project_owned",
+            platforms=["shorts"], n_clips=1,
             target=8.0, job_id="statusok")
         status = _json.loads((tmp_path / "w" / "statusok" / "status.json").read_text())
         assert status["state"] == "complete"
@@ -822,6 +846,7 @@ class TestJobStatus:
 
     def test_status_and_manifest_explicitly_mark_unscoped_runs(self, tmp_path):
         import json as _json
+        import pytest
         from afterplay import Orchestrator, Settings
         from afterplay.agent import JobResult
 
@@ -836,7 +861,11 @@ class TestJobStatus:
         assert status["state"] == "started"
         assert status["stage"] == "resolve"
         assert status["creator_id"] is None
-        assert JobResult(job_id="unscoped", source={}).to_dict()["creator_id"] is None
+        with pytest.raises(ValueError, match="creator_id"):
+            JobResult(job_id="unscoped", source={
+                "footage_rights": "project_owned", "transcript_language": "en",
+                "transcript_source": "provided_vtt", "subtitle_track": "fixture.en.vtt",
+            }).to_dict()
 
     def test_cli_failure_status_preserves_creator(self, tmp_path, monkeypatch):
         import argparse
@@ -873,6 +902,7 @@ class TestJobStatus:
             clips=1,
             target=8.0,
             webhook=None,
+            rights="project_owned",
             json=False,
         )
 

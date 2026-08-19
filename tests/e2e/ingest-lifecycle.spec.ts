@@ -52,6 +52,7 @@ test("a real local clipper process reaches the public cancelled terminal state",
       clips: 1,
       platforms: "shorts",
       memory: false,
+      footageRights: "project_owned",
     };
     const started = await request.post("/api/ingest", { data: startInput });
     expect(started.status()).toBe(202);
@@ -151,9 +152,13 @@ test("poll failure is announced, retries recover, and Stop renders cancellation"
   });
 
   await page.goto("/ingest", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("textbox", { name: /^Creator/ })).toHaveValue("creator_mika_rigged");
+  await expect(page.getByRole("textbox", { name: /^Creator/ })).toHaveValue(
+    "creator_mika_rigged",
+    { timeout: 15_000 },
+  );
   await page.getByRole("radio", { name: /YouTube URL/ }).click();
   await page.getByLabel("YouTube URL").fill("https://www.youtube.com/watch?v=poll_test");
+  await page.getByLabel("Footage rights").selectOption("not_cleared");
   await page.getByRole("button", { name: "Start clipping" }).click();
 
   const progress = page.getByRole("region", { name: "Run progress" });
@@ -180,4 +185,40 @@ test("poll failure is announced, retries recover, and Stop renders cancellation"
     body: document.body.scrollWidth,
   }));
   expect(widths).toEqual({ viewport: 390, document: 390, body: 390 });
+});
+
+test("failed clip outputs remain visibly failed in the ingest result", async ({ page }) => {
+  await page.route("**/api/ingest", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        jobId: "ui_failed_clip",
+        network: "Mocked local run.",
+        job: {
+          ...mockedJob("cancelled"),
+          jobId: "ui_failed_clip",
+          state: "complete",
+          message: "No clip passed quality checks.",
+          clips: [{ clipId: "failed_clip", ok: false, callback: false }],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/ingest", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("textbox", { name: /^Creator/ })).toHaveValue(
+    "creator_mika_rigged",
+    { timeout: 15_000 },
+  );
+  await page.getByRole("radio", { name: /YouTube URL/ }).click();
+  await page.getByLabel("YouTube URL").fill("https://www.youtube.com/watch?v=failed_clip_test");
+  await page.getByLabel("Footage rights").selectOption("not_cleared");
+  await page.getByRole("button", { name: "Start clipping" }).click();
+
+  const result = page.locator(".ingest-result");
+  await expect(result.getByText("failed quality gate", { exact: true })).toBeVisible();
+  await expect(result.getByRole("link", { name: "Inspect failure in Studio" })).toBeVisible();
+  await expect(result.getByText("standalone", { exact: true })).toHaveCount(0);
 });

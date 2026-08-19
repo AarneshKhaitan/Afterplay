@@ -80,10 +80,16 @@ def tool_plan_clips(url: str = "", local: str = "", vtt: str = "", clips: int = 
 
 def tool_make_clips(url: str = "", local: str = "", vtt: str = "", clips: int = 3,
                     platforms: str = "shorts", creator: str = "", workers: int = 4,
-                    target: float = 30.0) -> str:
+                    target: float = 30.0, rights: str = "") -> str:
     """Render finished clips. EXPENSIVE: fetches video ranges and encodes. Minutes."""
     from .agent import HeuristicPolicy, Orchestrator
     from .core import PLATFORMS, Settings
+    from .agent import FOOTAGE_RIGHTS
+    if not creator:
+        return _json({"error": "creator is required for manifest v2"})
+    if rights not in FOOTAGE_RIGHTS:
+        return _json({"error": "rights must be an explicit valid footage-rights status",
+                      "known": sorted(FOOTAGE_RIGHTS)})
     plats = [p.strip() for p in platforms.split(",") if p.strip()]
     bad = [p for p in plats if p not in PLATFORMS]
     if bad:
@@ -91,6 +97,7 @@ def tool_make_clips(url: str = "", local: str = "", vtt: str = "", clips: int = 
     orch = Orchestrator(settings=Settings(), policy=HeuristicPolicy(),
                         workers=workers, creator=creator or None)
     job = orch.run(url=url or None, local=local or None, vtt=vtt or None,
+                   footage_rights=rights,
                    platforms=plats, n_clips=clips, target=target)
     return _json({"job_id": job.job_id, "ok": job.ok, "timings": job.timings,
                   "encoder": job.encoder,
@@ -171,8 +178,13 @@ TOOL_SPECS = [
                        "description": "comma-separated: shorts,reels,tiktok,linkedin,x",
                        "default": "shorts"},
          "creator": {"type": "string", "description": "creator id for memory"},
-         "workers": {"type": "integer", "default": 4},
-         "target": {"type": "number", "default": 30}}}},
+          "rights": {"type": "string",
+                     "enum": ["project_owned", "creator_owned", "permission_granted",
+                              "licensed", "not_cleared"],
+                     "description": "explicit footage-rights attestation"},
+          "workers": {"type": "integer", "default": 4},
+          "target": {"type": "number", "default": 30}},
+       "required": ["creator", "rights"]}},
     {"name": "inspect_clip",
      "description": "Measure a rendered clip file: geometry, black/frozen frames, "
                     "subject framing, caption safe zone, audio loudness and hook.",

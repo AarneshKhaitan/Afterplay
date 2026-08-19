@@ -323,6 +323,7 @@ class MemoryReasoner(Reasoner):
         self.memory_degradation_reason = None
         self.callback_found = False
         self.callbacks_ranked_out = 0
+        self.callbacks_filtered_out = 0
         self.threads_considered = 0
         from .baseline import unavailable_ablation
         self.ablation = unavailable_ablation("not_run")
@@ -333,6 +334,7 @@ class MemoryReasoner(Reasoner):
         self.memory_degradation_reason = None
         self.callback_found = False
         self.callbacks_ranked_out = 0
+        self.callbacks_filtered_out = 0
         self.threads_considered = 0
         from .baseline import compare_rankings, unavailable_ablation
         self.ablation = unavailable_ablation("not_run")
@@ -396,7 +398,11 @@ class MemoryReasoner(Reasoner):
                             "why": verdict.get("why", ""),
                             "source_stream": first.get("stream_id"),
                             "source_t": first.get("t"),
+                            "source_t_reported": first.get("t_reported"),
                             "source_quote": first.get("quote"),
+                            "source_quote_display": first.get("quote_display"),
+                            "source_match_ratio": first.get("match_ratio"),
+                            "source_repair": first.get("repair"),
                             "citation_verified": True,
                         })
 

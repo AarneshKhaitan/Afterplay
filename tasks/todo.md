@@ -107,25 +107,43 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Cover start, structured progress, failure, cancellation, active-workspace filtering, dropped
       polls, desktop/mobile layout, and process/artifact cleanup.
 
+### B6 manifest v2 and truthful Studio evidence
+
+- [x] Version new clipper manifests and carry explicit footage rights plus transcript provenance.
+- [x] Require rights attestation in browser-started ingest; never infer rights from a URL, path, or
+      creator id.
+- [x] Validate manifest v2 at the Next boundary, reject invalid rights values, and keep legacy
+      manifests visible but out of the approval projection when rights are missing.
+- [x] Match each returned clip to its same-pipeline ablation row and expose rank/boost evidence.
+- [x] Extract the Studio callback receipt into a reusable evidence card that renders only verified
+      citations and labels missing comparison evidence honestly.
+- [x] Bind approval to a digest of the exact reviewed creator/manifest/output projection; reject
+      dispatch after same-id or identity drift.
+- [x] Cover producer serialization, legacy compatibility, invalid-rights rejection, explicit-rights
+      approval projection, callback evidence, media controls, and desktop/mobile layout.
+
 ### Implementation review - 2026-08-19
 
 - Citation verification and language provenance are committed foundations; the real corpus
   rebuild, eval, ablation, and second-creator case study remain open.
 - The same-pipeline ablation contract is implemented and tested — E-032; F3 remains open until
   its stage result comes from the rebuilt verified corpus.
-- Atomic storage is committed, but F4 remains open for complete creator isolation, structured job
-  controls, and manifest v2.
-- Experiment lifecycle durability and request-level creator isolation are committed — E-033;
-  F4 remains open for the other stores, structured job controls, and manifest v2.
+- Atomic versioned storage is committed — E-029 and E-031.
+- Experiment lifecycle durability and request-level creator isolation are committed — E-033.
 - Clipper manifests, media, pipeline projections, result feedback, ingest launch, and job status
   now share one creator ownership boundary — E-034.
 - Structured progress, real process-tree cancellation, idempotent Stop, lost-handle disclosure,
   durable duplicate-run admission, visible poll/failed-Stop recovery, and responsive terminal
   states are complete on the configured Windows finale host — E-035. The POSIX group-kill branch is
-  reviewed but unexecuted here. F4 remains open for manifest v2 and bounded transient retries.
-- The production build is not green: Turbopack exhausted the system drive (`os error 112`).
-  Typecheck, focused lint, Python status tests, and focused Chromium pass; rerun build after at least
-  1-2 GB more working space is available.
+  reviewed but unexecuted here. F4 remains open for bounded transient retries inside the
+  media/model pipeline.
+- Manifest v2, explicit rights/transcript provenance, strict same-pipeline ablation joins, verified
+  evidence receipts, invalid-newest disclosure, and approval-to-dispatch binding are complete —
+  E-036. This closes B6; canonical F7 remains the separate Afterplay/Riff evidence-packet contract.
+- After storage was recovered, the production Next.js build completed successfully. Typecheck,
+  focused lint, the complete Python service suite, and the unified 19-test Chromium B6 matrix also
+  pass. Review rejected treating a vanished Windows parent PID as proof that its descendants are
+  gone; unresolved `taskkill /T` races remain nonterminal and continue to block another ingest.
 - F5 acceptance is complete: scoped decay, contradiction removal, detector calibration,
   low-sample disclosure, grounding tests, typecheck, and lint all pass.
 

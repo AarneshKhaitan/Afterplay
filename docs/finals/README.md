@@ -52,8 +52,8 @@ The integration owner freezes these shapes before downstream implementation begi
 2. **Source provenance**
    - Includes explicit footage rights; rights are never inferred from a URL or creator id.
    - Includes `transcript_language`, `transcript_source`, and `subtitle_track`.
-   - `transcript_source` distinguishes `provided_vtt`, `youtube_manual`, `youtube_auto`, and
-     `asr`.
+   - `transcript_source` distinguishes `provided_vtt`, `youtube_manual`, `youtube_auto`,
+     `youtube_unknown`, and `asr`; the unknown state is visible rather than guessed.
 3. **Memory ablation**
    - Carries baseline and memory ranks, rank delta, base percentile, boost, final score, scale,
      comparison point, and a disabled reason when comparison is unavailable.
@@ -143,4 +143,3 @@ The final manual path must prove:
 6. Ingest cancellation and poll failure reach visible terminal states.
 7. Creator switching changes all creator-dependent data or is disabled.
 8. The second-channel result, if retained, uses an untouched proof source and bounded wording.
-

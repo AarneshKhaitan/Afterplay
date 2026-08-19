@@ -19,6 +19,9 @@ const startSchema = z.object({
   clips: z.number().int().min(1).max(10).default(3),
   platforms: z.enum(["shorts", "reels", "tiktok"]).default("shorts"),
   memory: z.boolean().default(true),
+  footageRights: z.enum([
+    "project_owned", "creator_owned", "permission_granted", "licensed", "not_cleared",
+  ]),
 });
 
 /** What can be ingested right now, and honestly under what conditions. */
@@ -89,6 +92,7 @@ export async function POST(request: Request) {
       clips: input.clips,
       platforms: input.platforms,
       memory: input.memory,
+      footageRights: input.footageRights,
       source,
     });
 

@@ -15,7 +15,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+    command: "node ./node_modules/next/dist/bin/next dev -H 127.0.0.1 -p 3100",
     url: "http://127.0.0.1:3100/api/workspace",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

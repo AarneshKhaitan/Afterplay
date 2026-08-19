@@ -38,6 +38,11 @@ log = logging.getLogger("afterplay")
 SKILLS_DIR = Path(__file__).parent / "skills"
 STATUS_STATES = frozenset({"started", "running", "complete", "failed"})
 STATUS_STAGES = frozenset({"resolve", "transcript", "memory", "render", "done"})
+MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA = "afterplay.clip-manifest"
+FOOTAGE_RIGHTS = frozenset({
+    "project_owned", "creator_owned", "permission_granted", "licensed", "not_cleared",
+})
 
 
 # ── tool registry (what the agent is allowed to do) ──────────────────────────
@@ -303,12 +308,15 @@ class ClipResult:
     copy: dict = field(default_factory=dict)
     text_for_copy: str = ""
     signals: dict = field(default_factory=dict)
+    decision_window: dict = field(default_factory=dict)
 
 
 @dataclass
 class JobResult:
     job_id: str
     source: dict
+    schema: str = MANIFEST_SCHEMA
+    schema_version: int = MANIFEST_SCHEMA_VERSION
     creator_id: str | None = None
     clips: list[ClipResult] = field(default_factory=list)
     timings: dict = field(default_factory=dict)
@@ -321,8 +329,22 @@ class JobResult:
     ok: bool = False
 
     def to_dict(self):
+        if self.schema != MANIFEST_SCHEMA or self.schema_version != MANIFEST_SCHEMA_VERSION:
+            raise ValueError("invalid clip manifest schema identity")
+        if not self.creator_id:
+            raise ValueError("manifest v2 requires a creator_id")
+        rights = self.source.get("footage_rights")
+        if rights not in FOOTAGE_RIGHTS:
+            raise ValueError("manifest source requires explicit footage rights")
+        required_source = {"transcript_language", "transcript_source", "subtitle_track"}
+        if not required_source.issubset(self.source):
+            raise ValueError("manifest v2 source provenance is incomplete")
         d = asdict(self)
         d["clips"] = [asdict(c) if not isinstance(c, dict) else c for c in self.clips]
+        if any(not isinstance(clip.get("decision_window"), dict)
+               or set(clip["decision_window"]) != {"start", "end"}
+               for clip in d["clips"]):
+            raise ValueError("manifest v2 clips require immutable decision windows")
         return d
 
 
@@ -347,7 +369,8 @@ class ClipAgent:
                          why=moment.why,
                          # the clip's own transcript, for per-platform copy generation
                          text_for_copy=(moment.text or "")[:4000],
-                         signals=dict(moment.signals or {}))
+                         signals=dict(moment.signals or {}),
+                         decision_window={"start": moment.start, "end": moment.end})
         try:
             dur = min(moment.dur, plat.max_dur)
             pad = 2.0                       # keyframe slack for the copy-cut
@@ -537,7 +560,8 @@ class Orchestrator:
         if not isinstance(reasoner, MemoryReasoner):
             return {"enabled": False, "degraded": False,
                     "reason": None, "threads_considered": 0,
-                    "callback_found": False, "callbacks_ranked_out": 0}
+                    "callback_found": False, "callbacks_ranked_out": 0,
+                    "callbacks_filtered_out": 0}
         return {
             "enabled": True,
             "degraded": bool(reasoner.memory_degraded),
@@ -547,7 +571,24 @@ class Orchestrator:
             # the top-n cut is reported separately rather than silently claimed.
             "callback_found": bool(reasoner.callback_found),
             "callbacks_ranked_out": int(getattr(reasoner, "callbacks_ranked_out", 0) or 0),
+            "callbacks_filtered_out": int(
+                getattr(reasoner, "callbacks_filtered_out", 0) or 0
+            ),
         }
+
+    @staticmethod
+    def _reconcile_memory_selection(reasoner: Reasoner, callbacks_before: int,
+                                    final_moments: list[Moment]) -> None:
+        """Make memory state describe the moments that survive post-ranking filters."""
+        if not isinstance(reasoner, MemoryReasoner):
+            return
+        callbacks_after = sum(1 for moment in final_moments
+                              if moment.signals.get("callback"))
+        removed = max(0, callbacks_before - callbacks_after)
+        reasoner.callback_found = callbacks_after > 0
+        reasoner.callbacks_filtered_out = int(
+            getattr(reasoner, "callbacks_filtered_out", 0) or 0
+        ) + removed
 
     @staticmethod
     def _ablation_manifest(reasoner: Reasoner, *, transcript_available: bool) -> dict:
@@ -566,6 +607,11 @@ class Orchestrator:
         if memory.get("degraded"):
             return f"Creator memory degraded: {memory.get('reason') or 'unknown reason'}"
         if not memory.get("callback_found"):
+            filtered_out = memory.get("callbacks_filtered_out") or 0
+            if filtered_out:
+                return (f"No memory-dependent callback made the final cut. {filtered_out} "
+                        f"callback moment(s) were removed by post-ranking safety filters. "
+                        f"Showing highest-quality standalone clips.")
             ranked_out = memory.get("callbacks_ranked_out") or 0
             if ranked_out:
                 return (f"No memory-dependent callback made this cut. {ranked_out} "
@@ -578,8 +624,13 @@ class Orchestrator:
 
     def run(self, url: str | None = None, *, local: str | None = None,
             info_json: str | None = None, vtt: str | None = None,
+            footage_rights: str,
             platforms=("shorts",), n_clips=5, target=30.0, job_id=None,
             webhook: str | None = None) -> JobResult:
+        if footage_rights not in FOOTAGE_RIGHTS:
+            raise ValueError(
+                f"footage_rights must be one of {sorted(FOOTAGE_RIGHTS)}"
+            )
         job_id = job_id or f"job_{uuid.uuid4().hex[:10]}"
         job_dir = self.settings.workdir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -660,6 +711,9 @@ class Orchestrator:
                                    detail="Ranking candidate moments from audio signals.")
                 moments = audio_moments(audio_path, target=target, n=n_clips,
                                         duration=src.duration or None)
+        callbacks_before_postfilters = sum(
+            1 for moment in moments if moment.signals.get("callback")
+        )
         # never clip a sponsor read; free, one HTTP call, a 404 means "none"
         from .insights import (Analytics, drop_sponsored, sponsor_segments,
                                video_id_from_url)
@@ -673,6 +727,9 @@ class Orchestrator:
         self.analytics = (Analytics(self.memory.creator_id) if self.memory else None)
         if self.analytics:
             moments = self.analytics.apply_to_moments(moments)
+        self._reconcile_memory_selection(
+            reasoner, callbacks_before_postfilters, moments
+        )
         if not moments:
             raise AfterplayError("no clip-worthy moments found in this source")
         timings["understand"] = round(time.time() - t0, 2)
@@ -704,15 +761,22 @@ class Orchestrator:
         results: list[ClipResult] = []
         agent = ClipAgent(job_dir, src_ref, words, self.settings, self.brand, self.policy)
         with cf.ThreadPoolExecutor(max_workers=self.workers) as pool:
-            futs = {pool.submit(agent.run, m, p, cid): cid for m, p, cid in jobs}
+            futs = {pool.submit(agent.run, m, p, cid): (cid, m, p)
+                    for m, p, cid in jobs}
             for fut in cf.as_completed(futs):
                 try:
                     results.append(fut.result())
                 except Exception as e:                       # noqa: BLE001
-                    cid = futs[fut]
+                    cid, moment, platform = futs[fut]
                     log.exception("subagent %s crashed", cid)
-                    results.append(ClipResult(clip_id=cid, platform="?", start=0, end=0,
-                                              duration=0, error=str(e)))
+                    results.append(ClipResult(
+                        clip_id=cid, platform=platform.name,
+                        start=moment.start, end=moment.end, duration=moment.dur,
+                        score=moment.score, why=moment.why, error=str(e),
+                        text_for_copy=(moment.text or "")[:4000],
+                        signals=dict(moment.signals or {}),
+                        decision_window={"start": moment.start, "end": moment.end},
+                    ))
         timings["produce"] = round(time.time() - t0, 2)
         timings["total"] = round(time.time() - t_all, 2)
 
@@ -744,9 +808,10 @@ class Orchestrator:
                         source={"url": src.url, "title": src.title,
                                 "uploader": src.uploader, "duration": src.duration,
                                 "local": str(src.local_path) if src.local_path else None,
-                                "transcript_language": src.transcript_language,
-                                "transcript_source": src.transcript_source,
-                                "subtitle_track": src.subtitle_track},
+                                 "transcript_language": src.transcript_language,
+                                 "transcript_source": src.transcript_source,
+                                 "subtitle_track": src.subtitle_track,
+                                 "footage_rights": footage_rights},
                         creator_id=self.creator_id,
                         clips=results, timings=timings,
                         encoder=detect_encoder(self.settings),

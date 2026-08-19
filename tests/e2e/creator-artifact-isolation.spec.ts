@@ -21,16 +21,23 @@ function writeManifest(dir: string, creatorId: string | undefined, clipId: strin
   const clipPath = join(dir, `${clipId}.mp4`);
   writeFileSync(clipPath, Buffer.from(`media:${clipId}`));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+    schema: "afterplay.clip-manifest",
+    schema_version: 2,
     ...(creatorId ? { creator_id: creatorId } : {}),
     job_id: dir.split(/[\\/]/).at(-1),
     status: "complete",
-    source: { title: `${creatorId ?? "legacy"} stream`, url: null, duration: 90 },
+    source: {
+      title: `${creatorId ?? "legacy"} stream`, url: null, duration: 90,
+      footage_rights: "project_owned",
+      transcript_language: "en", transcript_source: "provided_vtt", subtitle_track: "fixture.en.vtt",
+    },
     clips: [{
       clip_id: clipId,
       platform: "shorts",
       start: 10,
       end: 30,
       duration: 20,
+      decision_window: { start: 10, end: 30 },
       path: clipPath,
       ok: true,
       why: "standalone",
@@ -109,7 +116,7 @@ test("creator-owned manifests, media, projections, and job status never cross wo
     headers: guestHeaders,
   })).json();
   expect(guestExperiment.experiment.pipelineOutputs.map((row: { id: string }) => row.id))
-    .toEqual(["guest_clip"]);
+    .toEqual([]);
 
   const configuredJob = await request.get("/api/ingest/owner_configured_job");
   expect(configuredJob.status()).toBe(200);
@@ -137,6 +144,7 @@ test("creator-owned manifests, media, projections, and job status never cross wo
       clips: 1,
       platforms: "shorts",
       memory: false,
+      footageRights: "not_cleared",
     },
   });
   expect(duplicateAfterRestart.status()).toBe(409);
@@ -166,8 +174,21 @@ test("creator-owned manifests, media, projections, and job status never cross wo
       clips: 1,
       platforms: "shorts",
       memory: true,
+      footageRights: "not_cleared",
     },
   });
   expect(mismatchedStart.status()).toBe(409);
   expect(await mismatchedStart.json()).toMatchObject({ error: { code: "creator_mismatch" } });
+
+  const missingRights = await request.post("/api/ingest", {
+    data: {
+      source: { kind: "url", url: "https://www.youtube.com/watch?v=missing_rights" },
+      creator: CONFIGURED,
+      clips: 1,
+      platforms: "shorts",
+      memory: false,
+    },
+  });
+  expect(missingRights.status()).toBe(400);
+  expect(await missingRights.json()).toMatchObject({ error: { code: "invalid_request" } });
 });

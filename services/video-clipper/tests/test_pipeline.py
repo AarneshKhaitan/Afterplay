@@ -244,7 +244,8 @@ class TestOrchestratorEndToEnd:
 
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=1)
         orch = Orchestrator(settings=s, policy=None, workers=2, creator="tester")
-        job = orch.run(local=str(source), vtt=str(vtt), platforms=["shorts"],
+        job = orch.run(local=str(source), vtt=str(vtt), footage_rights="project_owned",
+                       platforms=["shorts"],
                        n_clips=2, target=8.0, job_id="t1")
 
         assert job.job_id == "t1"
@@ -253,7 +254,11 @@ class TestOrchestratorEndToEnd:
         assert manifest.exists()
         data = json.loads(manifest.read_text(encoding="utf-8"))
         assert data["clips"] and data["encoder"]
+        assert all(clip["decision_window"] for clip in data["clips"])
         assert data["source"]["transcript_source"] == "provided_vtt"
+        assert data["schema_version"] == 2
+        assert data["schema"] == "afterplay.clip-manifest"
+        assert data["source"]["footage_rights"] == "project_owned"
         assert "transcript_language" in data["source"]
         assert "subtitle_track" in data["source"]
 
@@ -278,8 +283,9 @@ class TestOrchestratorEndToEnd:
                        ">> hello there this is a test. [laughter] really? yes.\n",
                        encoding="utf-8")
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=0)
-        job = Orchestrator(settings=s, workers=2).run(
-            local=str(source), vtt=str(vtt), platforms=["shorts", "linkedin"],
+        job = Orchestrator(settings=s, workers=2, creator="pipeline-owner").run(
+            local=str(source), vtt=str(vtt), footage_rights="project_owned",
+            platforms=["shorts", "linkedin"],
             n_clips=1, target=8.0, job_id="t2")
         plats = {c.platform for c in job.clips}
         assert plats == {"shorts", "linkedin"}
@@ -289,12 +295,15 @@ class TestOrchestratorEndToEnd:
                 want = PLATFORMS[c.platform]
                 assert (mi.width, mi.height) == (want.width, want.height)
 
-    def test_missing_captions_fails_loudly(self, source, tmp_path):
+    def test_missing_captions_fails_loudly(self, source, tmp_path, monkeypatch):
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
         from afterplay import Orchestrator
         from afterplay.core import AfterplayError
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o")
         with pytest.raises(AfterplayError):
-            Orchestrator(settings=s).run(local=str(source), platforms=["shorts"],
+            Orchestrator(settings=s, creator="pipeline-owner").run(
+                                         local=str(source), footage_rights="project_owned",
+                                         platforms=["shorts"],
                                          n_clips=1, job_id="t3")
 
 

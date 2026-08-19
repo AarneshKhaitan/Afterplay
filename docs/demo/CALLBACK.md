@@ -110,6 +110,7 @@ The clip manifest should include:
 - `memory.threads_considered`
 - `memory.callback_found` — true only when a CLIPPED moment carries the callback
 - `memory.callbacks_ranked_out` — callbacks that scored below the clips returned
+- `memory.callbacks_filtered_out` — selected callbacks removed by post-ranking safety filters
 - `message` for no-callback or degraded outcomes
 
 ### Callback outcome states
@@ -128,6 +129,9 @@ The clip manifest should include:
   clips. `callback_found` previously described every candidate scored rather than the
   clips shipped, so this case claimed a callback the manifest could not cite —
   [E-024](../prd/EVIDENCE.md#e-024-callback-found-reflects-shipped-clips).
+- **Callback removed by a safety filter (valid, and distinct):** `callback_found: false` with
+  `callbacks_filtered_out > 0`; the message says the candidate did not make the final cut after
+  post-ranking filtering and does not claim it merely lost on score.
 - **Failure/degraded states (invalid):** `memory.degraded: true` with a reason; UI must still keep
   a visible error path (model id/key/IO/auth/network problems, parsing errors, etc.) instead of
   rendering an empty callback success. Distinguish this from the no-callback but valid fallback message:
@@ -142,7 +146,7 @@ $env:AFTERPLAY_MEMORY="$PWD\.memory"
 $env:OPENAI_API_KEY="<set outside git>"
 
 python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
-python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
+python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --rights permission_granted --clips 3 --platforms shorts
 ```
 
 ## Review Notes

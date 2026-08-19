@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { getClipManifestForJob } from "../clip-manifest";
 import { clipperRoot, type CachedSource } from "./sources";
 
 /** Server-only. Spawns the Python clipper and reads its progress off disk. */
@@ -252,6 +253,7 @@ export type StartOptions = {
   clips: number;
   platforms: string;
   memory: boolean;
+  footageRights: "project_owned" | "creator_owned" | "permission_granted" | "licensed" | "not_cleared";
   source: { kind: "url"; url: string } | { kind: "cached"; source: CachedSource };
 };
 
@@ -283,7 +285,7 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
 
   const args = ["-m", "afterplay.cli", "--json", "run", "--job-id", options.jobId,
     "--creator", options.creator, "--clips", String(options.clips),
-    "--platforms", options.platforms];
+    "--platforms", options.platforms, "--rights", options.footageRights];
   if (options.memory) args.push("--memory");
 
   if (options.source.kind === "url") {
@@ -416,9 +418,6 @@ async function waitForProcessGroupExit(pid: number, timeoutMs: number): Promise<
 async function terminateProcessTree(child: ChildProcess): Promise<void> {
   if (!child.pid) return;
   if (process.platform === "win32") {
-    if (child.exitCode !== null) {
-      throw new Error("The clipper parent exited before its Windows process tree was confirmed stopped.");
-    }
     await new Promise<void>((resolve, reject) => {
       const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
         shell: false,
@@ -512,24 +511,14 @@ export async function cancelIngestJob(jobId: string, creatorId: string): Promise
       writeStatus(path, completed);
       return readIngestJob(jobId, creatorId) ?? job;
     }
-    if (running.child.exitCode !== null) {
-      writeStatus(path, {
-        ...previous,
-        creator_id: creatorId,
-        state: "cancelling",
-        updated: Date.now() / 1000,
-        message: "The parent exited, but process-tree termination could not be confirmed. Resolve the host process before starting another ingest.",
-      });
-      throw new IngestError("The job's process tree could not be confirmed stopped.", 500);
-    }
     writeStatus(path, {
       ...previous,
       creator_id: creatorId,
-      state: previous?.state === "started" ? "started" : "running",
+      state: "cancelling",
       updated: Date.now() / 1000,
-      message: `Cancellation failed: ${(error as Error).message}. Retry Stop.`,
+      message: `Process-tree termination could not be confirmed: ${(error as Error).message}. Resolve the host process before starting another ingest.`,
     });
-    throw new IngestError("The job could not be stopped. Check the host process list.", 500);
+    throw new IngestError("The job's process tree could not be confirmed stopped.", 500);
   }
   return readIngestJob(jobId, creatorId) ?? job;
 }
@@ -631,13 +620,18 @@ export function readIngestJob(jobId: string, creatorId: string): IngestJob | nul
   if (status?.creator_id !== creatorId || (manifest && manifest.creator_id !== creatorId)) {
     return null;
   }
+  const validatedManifest = getClipManifestForJob(jobId, creatorId);
+  const artifactValidationFailed = !validatedManifest
+    && (Boolean(manifest) || status?.state === "complete");
 
   const legacy = parseProgress(log);
   const progress = structuredProgress(status) ?? legacy;
   const { states, details } = progress;
   const { lines } = legacy;
-  const manifestComplete = manifest?.status === "complete" && Array.isArray(manifest.clips);
-  const state: IngestJobState = manifestComplete
+  const manifestComplete = validatedManifest?.status === "complete";
+  const state: IngestJobState = artifactValidationFailed
+    ? "failed"
+    : manifestComplete
     ? "complete"
     : status?.state ?? (manifest ? "complete" : "started");
 
@@ -649,28 +643,32 @@ export function readIngestJob(jobId: string, creatorId: string): IngestJob | nul
   if (state === "complete") {
     for (const stage of Object.keys(states) as StageId[]) states[stage] = "complete";
   }
+  if (artifactValidationFailed) states.done = "failed";
 
   return {
     jobId,
     creatorId,
     state,
-    message: manifest?.message ?? status?.message,
+    message: artifactValidationFailed
+      ? "The clipper wrote an invalid manifest. Its outputs are excluded from review."
+      : validatedManifest?.message ?? status?.message,
     stages: STAGE_TEMPLATE.map((stage) => ({
       ...stage,
       state: states[stage.id],
       detail: details[stage.id],
     })),
     log: lines.slice(-40),
-    clips: (manifest?.clips ?? []).map((clip) => ({
+    clips: (validatedManifest?.clips ?? []).map((clip) => ({
       clipId: clip.clip_id,
-      ok: clip.ok !== false,
-      callback: (clip.signals as { callback?: boolean } | undefined)?.callback === true,
-      threadLabel: (clip.signals as { thread_label?: string } | undefined)?.thread_label,
+      ok: clip.ok === true,
+      callback: clip.callback === true,
+      threadLabel: clip.callback ? clip.threadLabel : undefined,
     })),
-    callbackFound: manifest?.memory?.callback_found,
-    callbacksRankedOut: manifest?.memory?.callbacks_ranked_out,
-    degraded: manifest?.memory?.degraded,
-    degradedReason: manifest?.memory?.reason ?? null,
+    callbackFound: validatedManifest?.memory?.callback_found === true
+      && validatedManifest.clips.some((clip) => clip.callback === true),
+    callbacksRankedOut: validatedManifest?.memory?.callbacks_ranked_out,
+    degraded: validatedManifest?.memory?.degraded,
+    degradedReason: validatedManifest?.memory?.reason ?? null,
   };
 }
 

@@ -1,11 +1,12 @@
 ﻿// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
 // node:fs imports into client bundles. The value-side call lives in the API route.
 import { createHash } from "node:crypto";
+import { closeSync, openSync, readSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { z } from "zod";
 
-import { getLatestClipManifest } from "./clip-manifest";
+import { getLatestClipManifest, type ClipperManifest } from "./clip-manifest";
 import { defaultCreatorId } from "./creators";
 import { BASELINE, formatDelta } from "./experiment-metrics";
 import {
@@ -44,10 +45,8 @@ export type ExperimentOutput = {
   provenance: {
     media: "generated_fixture" | "pipeline_manifest";
     source: string;
-    /** Never assert ownership the system cannot substantiate. A clip produced from a
-     * platform URL was extracted from third-party content; only `--local` media is
-     * known to be creator-owned. */
-    rights: "project_owned" | "creator_owned" | "third_party_extracted";
+    /** Explicit operator attestation from manifest v2. Never infer rights from URL or path. */
+    rights: "project_owned" | "creator_owned" | "permission_granted" | "licensed";
   };
 };
 
@@ -124,6 +123,11 @@ export type GrowthExperiment = {
     revision: number;
     feedback?: string;
     decidedAt: string;
+    pipelineBinding?: {
+      manifestJobId: string | null;
+      manifestDigest: string | null;
+      clipIds: string[];
+    };
   };
   receipts: DistributionReceipt[];
   result?: ExperimentResult;
@@ -267,7 +271,7 @@ const outputSchema = z.object({
   provenance: z.object({
     media: z.enum(["generated_fixture", "pipeline_manifest"]),
     source: z.string(),
-    rights: z.enum(["project_owned", "creator_owned", "third_party_extracted"]),
+    rights: z.enum(["project_owned", "creator_owned", "permission_granted", "licensed"]),
   }).strict(),
 }).strict();
 
@@ -334,6 +338,11 @@ const growthExperimentSchema = z.object({
     revision: z.number().int().positive(),
     feedback: z.string().optional(),
     decidedAt: z.string(),
+    pipelineBinding: z.object({
+      manifestJobId: z.string().min(1).nullable(),
+      manifestDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+      clipIds: z.array(z.string().min(1)),
+    }).strict().optional(),
   }).strict().optional(),
   receipts: z.array(z.object({
     id: z.string().min(1),
@@ -504,7 +513,13 @@ export function resetExperimentStore(creatorId?: string): GrowthExperiment {
  * response made the pipeline-clips section disappear after approval. */
 function toResponse(experiment: GrowthExperiment, creatorId: string): GrowthExperiment {
   const clone = structuredClone(experiment);
-  clone.pipelineOutputs = projectPipelineOutputs(clone, creatorId);
+  const projection = currentPipelineProjection(clone, creatorId);
+  const binding = clone.decision?.pipelineBinding;
+  const approvedProjectionIsCurrent = binding
+    ? matchesPipelineBinding(binding, projection)
+    : projection.outputs.length === 0;
+  clone.pipelineOutputs = clone.decision?.action === "approve" && !approvedProjectionIsCurrent
+    ? [] : projection.outputs;
   return clone;
 }
 
@@ -522,15 +537,25 @@ export function getExperiment(id: string, creatorId?: string): GrowthExperiment 
  * own section and carry the same approval status, so approving the experiment approves
  * real clips too — which is what closes the loop (G7).
  */
-function projectPipelineOutputs(experiment: GrowthExperiment, creatorId: string): ExperimentOutput[] {
-  const manifest = getLatestClipManifest(creatorId);
-  const clips = (manifest?.clips ?? []).filter((clip) => clip.ok !== false);
-  if (!manifest || clips.length === 0) return [];
+type PipelineProjection = {
+  manifestJobId: string | null;
+  manifestDigest: string | null;
+  outputs: ExperimentOutput[];
+};
 
-  // A platform URL means the media was extracted from third-party content; only local
-  // media is known to be creator-owned. Never assert ownership we cannot substantiate.
-  const rights: ExperimentOutput["provenance"]["rights"] =
-    manifest.source?.url ? "third_party_extracted" : "creator_owned";
+type PipelineBinding = NonNullable<NonNullable<GrowthExperiment["decision"]>["pipelineBinding"]>;
+
+function projectManifestOutputs(
+  experiment: GrowthExperiment,
+  manifest: ClipperManifest | null,
+): ExperimentOutput[] {
+  const clips = (manifest?.clips ?? []).filter((clip) => clip.ok === true);
+  if (!manifest || !manifest.approvalReady || !manifest.source.footage_rights
+      || manifest.source.footage_rights === "not_cleared" || clips.length === 0) return [];
+
+  // This value is an explicit operator attestation in manifest v2. URL and path are
+  // intentionally ignored: neither proves ownership or permission.
+  const rights: ExperimentOutput["provenance"]["rights"] = manifest.source.footage_rights;
   const status: OutputStatus =
     experiment.status === "distributed" || experiment.status === "learned"
       ? "distributed"
@@ -574,6 +599,72 @@ function projectPipelineOutputs(experiment: GrowthExperiment, creatorId: string)
   }));
 }
 
+function currentPipelineProjection(experiment: GrowthExperiment, creatorId: string): PipelineProjection {
+  const manifest = getLatestClipManifest(creatorId);
+  const mediaDigests = (manifest?.clips ?? []).map((clip) => ({
+    clipId: clip.clip_id,
+    digest: clip.path ? digestFile(clip.path) : null,
+  }));
+  const projected = projectManifestOutputs(experiment, manifest);
+  const readableIds = new Set(
+    mediaDigests.filter((row) => row.digest).map((row) => row.clipId),
+  );
+  const outputs = projected.every((output) => readableIds.has(output.id)) ? projected : [];
+  const manifestDigest = manifest ? createHash("sha256").update(JSON.stringify({
+    creatorId,
+    schema: manifest.schema,
+    schemaVersion: manifest.schema_version,
+    jobId: manifest.job_id,
+    source: manifest.source,
+    clips: manifest.clips,
+    ablation: manifest.ablation,
+    memory: manifest.memory,
+    message: manifest.message,
+    approvalReady: manifest.approvalReady,
+    approvalBlockedReasons: manifest.approvalBlockedReasons,
+    mediaDigests,
+  })).digest("hex") : null;
+  return {
+    manifestJobId: manifest?.job_id ?? null,
+    manifestDigest,
+    outputs,
+  };
+}
+
+function digestFile(path: string): string | null {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, "r");
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let bytesRead = 0;
+    do {
+      bytesRead = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (bytesRead) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead);
+    return hash.digest("hex");
+  } catch {
+    return null;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function projectionBinding(projection: PipelineProjection): PipelineBinding {
+  return {
+    manifestJobId: projection.manifestJobId,
+    manifestDigest: projection.manifestDigest,
+    clipIds: projection.outputs.map((output) => output.id),
+  };
+}
+
+function matchesPipelineBinding(binding: PipelineBinding, projection: PipelineProjection): boolean {
+  return binding.manifestJobId === projection.manifestJobId
+    && binding.manifestDigest === projection.manifestDigest
+    && binding.clipIds.length === projection.outputs.length
+    && binding.clipIds.every((id, index) => id === projection.outputs[index]?.id);
+}
+
 export function recordDecision(input: {
   id: string;
   action: "approve" | "reject" | "request_change";
@@ -593,13 +684,17 @@ export function recordDecision(input: {
     throw new ExperimentError("decision_not_allowed", "This experiment is no longer awaiting a decision.", 409);
   }
 
-  const decision = {
+  const pipelineBinding = input.action === "approve"
+    ? projectionBinding(currentPipelineProjection(experiment, state.creatorId))
+    : undefined;
+  const decision: NonNullable<GrowthExperiment["decision"]> = {
     id: `decision_${input.action}_r${input.revision}`,
     action: input.action,
     revision: input.revision,
     feedback: input.feedback,
     decidedAt: "2026-08-05T09:44:00.000Z",
-  } as const;
+    pipelineBinding,
+  };
 
   experiment.decision = decision;
   if (input.action === "approve") {
@@ -649,9 +744,20 @@ export function dispatchExperiment(input: { id: string; revision: number; creato
     );
   }
 
-  // Receipts cover the curated package AND the pipeline clips: approving the
-  // experiment approves both, so distribution must account for both.
-  const dispatched = [...experiment.outputs, ...projectPipelineOutputs(experiment, state.creatorId)];
+  const projection = currentPipelineProjection(experiment, state.creatorId);
+  const binding = experiment.decision?.pipelineBinding;
+  const legacyDecisionCanDispatch = !binding && projection.outputs.length === 0;
+  if ((!binding && !legacyDecisionCanDispatch) || (binding && !matchesPipelineBinding(binding, projection))) {
+    throw new ExperimentError(
+      "approved_outputs_changed",
+      "The clip manifest changed after approval. Review and approve the current outputs before distribution.",
+      409,
+    );
+  }
+
+  // Receipts cover the curated package and only the exact pipeline clips reviewed at
+  // approval. A changed manifest must go through a new decision instead of inheriting it.
+  const dispatched = [...experiment.outputs, ...projection.outputs];
   experiment.receipts = dispatched.map((output, index) => ({
     id: `sim_receipt_${index + 1}`,
     experimentId: experiment.id,

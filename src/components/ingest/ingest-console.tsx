@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type CachedSource = { id: string; title: string; mode: "local" | "replay" };
+type FootageRights = "project_owned" | "creator_owned" | "permission_granted" | "licensed" | "not_cleared";
 
 type Stage = {
   id: string; label: string; truth: string;
@@ -39,6 +40,7 @@ export function IngestConsole() {
   const [creator, setCreator] = useState("");
   const [clips, setClips] = useState(3);
   const [memory, setMemory] = useState(true);
+  const [footageRights, setFootageRights] = useState<FootageRights | "">("");
   const [job, setJob] = useState<Job | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +113,7 @@ export function IngestConsole() {
       const response = await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, creator, clips, memory }),
+        body: JSON.stringify({ source, creator, clips, memory, footageRights }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -215,6 +217,19 @@ export function IngestConsole() {
               onChange={(e) => setClips(Number(e.target.value))} />
             <small>A callback that ranks below this cut is reported, not hidden.</small>
           </label>
+          <label className="ingest-field">
+            <span>Footage rights</span>
+            <select value={footageRights}
+              onChange={(event) => setFootageRights(event.target.value as FootageRights | "")}>
+              <option value="">Choose attestation…</option>
+              <option value="creator_owned">Creator owned</option>
+              <option value="permission_granted">Permission granted</option>
+              <option value="licensed">Licensed</option>
+              <option value="project_owned">Project owned / generated</option>
+              <option value="not_cleared">Not cleared — analysis only</option>
+            </select>
+            <small>Required. This is never inferred from the link or file path.</small>
+          </label>
           <label className="ingest-check">
             <input type="checkbox" checked={memory} onChange={(e) => setMemory(e.target.checked)} />
             <span>Use channel memory<small>Finds moments whose meaning depends on earlier streams.</small></span>
@@ -222,7 +237,7 @@ export function IngestConsole() {
         </div>
 
         <button className="ingest-start" onClick={start}
-          disabled={!config || !creator || starting || running || (kind === "url" ? !url : !sourceId)}>
+          disabled={!config || !creator || !footageRights || starting || running || (kind === "url" ? !url : !sourceId)}>
           {running ? <><Spinner className="spin" /> Clipping… {elapsed}s</> : <>Start clipping <ArrowRight weight="bold" /></>}
         </button>
 
@@ -281,14 +296,18 @@ export function IngestConsole() {
               {job.message && !job.degraded ? <p className="ingest-note">{job.message}</p> : null}
               <ul className="clip-results">
                 {job.clips.map((clip) => (
-                  <li key={clip.clipId} className={clip.callback ? "is-callback" : ""}>
+                  <li key={clip.clipId}
+                    className={!clip.ok ? "is-failed" : clip.callback ? "is-callback" : ""}>
                     <strong>{clip.clipId}</strong>
-                    <span>{clip.callback ? `callback · ${clip.threadLabel ?? "thread"}` : "standalone"}</span>
+                    <span>{!clip.ok
+                      ? "failed quality gate"
+                      : clip.callback ? `callback · ${clip.threadLabel ?? "thread"}` : "standalone"}</span>
                   </li>
                 ))}
               </ul>
               <Link className="ingest-next" href="/studio">
-                Review in Studio <ArrowRight weight="bold" />
+                {job.clips.some((clip) => clip.ok) ? "Review in Studio" : "Inspect failure in Studio"}
+                <ArrowRight weight="bold" />
               </Link>
             </div>
           ) : null}

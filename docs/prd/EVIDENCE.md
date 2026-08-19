@@ -1011,9 +1011,9 @@ through the public API; and reaches a durable cancelled state without poll or ex
 - This is local single-operator workspace scoping, not authentication or tenant isolation. The
   creator cookie selects a workspace; it is not an authorization credential.
 - A completed, owner-matched manifest wins over stale status on reads, process exit, and Stop.
-  Failed termination leaves a live process handle registered and restores a nonterminal, retryable
-  status. If the parent exited but descendants cannot be ruled out, status remains unresolved
-  `cancelling`. Durable active status blocks a second ingest for the creator even if a server
+  Failed termination remains unresolved `cancelling` regardless of parent-exit event ordering; it
+  never restores `running` or publishes terminal `failed` without process-tree proof. Durable active
+  status blocks a second ingest for the creator even if a server
   restart lost the process handle.
 - Windows tree termination uses bounded `taskkill /T /F`. POSIX runs use a dedicated process group,
   wait for the full group to disappear after `SIGTERM`, then wait again after `SIGKILL` if needed.
@@ -1024,9 +1024,10 @@ through the public API; and reaches a durable cancelled state without poll or ex
 - If a server restart loses the unprovable process handle, cancellation returns an explicit `409`
   rather than claiming to stop the job. Synchronous log-open/spawn failures write failed status.
 - Client polling uses one scheduled request at a time. A dropped poll is announced, retries after
-  three seconds, clears on recovery, and never overwrites a later cancellation. A failed Stop keeps
-  polling through `cancelling`, restores a retryable Stop control, and does not strand a false
-  terminal state. Progress uses `aria-live=polite`.
+  three seconds, clears on recovery, and never overwrites a later cancellation. A transient failed
+  Stop keeps polling and restores the control only while the server still reports a retryable state;
+  unresolved host termination stays `cancelling` and never becomes a false terminal. Progress uses
+  `aria-live=polite`.
 - Focused Python status tests returned `3 passed`; `npm run typecheck` and focused ESLint exit zero.
   The final combined Chromium run returned `3 passed` in `1.2m`: durable admission after handle
   loss, completed-manifest status repair, a required prepared local clipper cancelled through the
@@ -1042,3 +1043,53 @@ through the public API; and reaches a durable cancelled state without poll or ex
   as a passing build.
 - This closes B4 for the configured Windows finale host. Bounded retries inside the media/model
   pipeline and the versioned manifest schema remain separate work.
+
+---
+
+## e-036-manifest-v2-and-bound-approval
+
+Claim: Studio admits pipeline clips to approval only from a creator-owned manifest-v2 document
+with explicit rights and transcript provenance, verified callback evidence, and internally
+consistent same-pipeline ablation proof; distribution cannot inherit an approval after output
+drift.
+
+- Date: 2026-08-19
+- Python emits `afterplay.clip-manifest` schema version 2 with a required creator id, explicit
+  operator-attested footage rights, transcript language/source/track, and immutable decision
+  windows captured before render repair. CLI and MCP entry points both require and validate rights.
+- The Next boundary parses manifests with Zod, rejects unknown versions/rights and incomplete v2
+  clips, keeps legacy manifests inspectable but out of approval, and exposes an explicit stale
+  warning when a newer creator-owned artifact is invalid. Stale and `not_cleared` runs are review
+  only.
+- Callback receipts require a verified citation, thread label, source stream, corrected timestamp,
+  and transcript-verbatim quote. Rejected callback fields and rationales are scrubbed. Ablation rows
+  validate candidate bounds, rank/score arithmetic, selection flags, callback agreement, and exact
+  decision-window joins before rank or lift appears in Studio.
+- Approval persists the reviewed manifest job id, ordered pipeline clip ids, and SHA-256 digest of
+  the creator-scoped manifest projection and approvable media bytes. Dispatch re-reads current
+  output and returns `409 approved_outputs_changed` for identity drift, same-id manifest changes,
+  or in-place MP4 replacement; the response also suppresses changed pipeline output instead of
+  presenting it under the prior approval.
+- The reusable evidence card separates historical citation from current-clip rights and labels the
+  score scale. Studio renders every returned clip, preserves review-only warnings, and uses a
+  warning icon rather than a clearance icon for blocked manifests.
+- Complete ablation proof requires every unique candidate, rank permutations in both arms,
+  reproducible base percentiles, and valid arithmetic. Successful clips require unique ids, valid
+  windows, in-job readable media, and a dispatch-supported platform. Creator stamp disagreement
+  fails closed, and callback receipts require the full verified-mention audit keys.
+- Each returned clip must map to an ablation row selected by the memory arm with callback state that
+  agrees with the verified receipt. Post-ranking sponsor removal recomputes `callback_found` and is
+  disclosed separately from score-ranked-out callbacks. A worker crash retains the real platform
+  and decision window as a failed, inspectable clip instead of invalidating successful siblings.
+- Windows cancellation accepts only a successful `taskkill /T /F` result as process-tree proof. A
+  parent-exit race is not promoted to `cancelled`: the job remains nonterminal, discloses that host
+  cleanup is unresolved, and continues to block another ingest.
+- Verification: complete Python service suite `151 passed, 1 skipped`; `npm run typecheck` and
+  focused ESLint exit zero; the optimized Next.js production build completes successfully. The
+  focused Chromium matrix exercised callback evidence, range media, creator isolation, invalid and
+  uncleared rights, complete ablation proof, duplicate identities, path containment, platform
+  blocking, verified-mention audit suppression, creator stamp disagreement, approval/dispatch, and
+  same-id manifest drift and in-place media replacement. The final unified Chromium B6 matrix
+  returned `19 passed`, including invalid-artifact and failed-clip Ingest rendering.
+- This closes B6. Canonical F7 remains the separate versioned Afterplay/Riff evidence-packet
+  contract and is not claimed complete here.

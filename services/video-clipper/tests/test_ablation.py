@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 import pytest
 
-from afterplay.agent import JobResult, Orchestrator
+from afterplay.agent import ClipResult, JobResult, Orchestrator
 from afterplay.baseline import COMPARISON_POINT, compare_rankings
 from afterplay.understand import (
     HeuristicReasoner,
@@ -253,18 +253,62 @@ def test_manifest_ablation_is_frozen_before_downstream_score_mutation():
 
 
 def test_job_manifest_serializes_structured_ablation():
-    proof = {
-        "schema_version": 1,
-        "available": True,
-        "unavailable_reason": None,
-        "comparison_point": COMPARISON_POINT,
-        "candidate_count": 1,
-        "moments": [],
-    }
+    baseline = Moment(0.0, 10.0, 1.0, "candidate", "quality")
+    memory = Moment(0.0, 10.0, 1.0, "candidate", "quality")
+    proof = compare_rankings([baseline], [memory], [baseline], [memory])
 
-    manifest = JobResult(job_id="job", source={}, ablation=proof).to_dict()
+    manifest = JobResult(
+        job_id="job", creator_id="manifest-owner", source={
+            "footage_rights": "project_owned", "transcript_language": "en",
+            "transcript_source": "provided_vtt", "subtitle_track": "fixture.en.vtt",
+        }, ablation=proof
+    ).to_dict()
 
     assert manifest["ablation"] == proof
+
+
+def test_manifest_rejects_missing_or_unknown_footage_rights():
+    with pytest.raises(ValueError, match="explicit footage rights"):
+        JobResult(job_id="missing", creator_id="owner", source={
+            "transcript_language": "en", "transcript_source": "provided_vtt",
+            "subtitle_track": "fixture.en.vtt",
+        }).to_dict()
+    with pytest.raises(ValueError, match="explicit footage rights"):
+        JobResult(job_id="unknown", creator_id="owner", source={
+            "footage_rights": "invented", "transcript_language": "en",
+            "transcript_source": "provided_vtt", "subtitle_track": "fixture.en.vtt",
+        }).to_dict()
+
+
+def test_postfilter_reconciliation_moves_removed_callback_to_ranked_out():
+    reasoner = MemoryReasoner(_OneThreadMemory())
+    reasoner.callback_found = True
+    reasoner.callbacks_ranked_out = 2
+    remaining = [Moment(20.0, 30.0, 1.0, "standalone", "quality", {})]
+
+    Orchestrator._reconcile_memory_selection(reasoner, 1, remaining)
+
+    assert reasoner.callback_found is False
+    assert reasoner.callbacks_ranked_out == 2
+    assert reasoner.callbacks_filtered_out == 1
+    memory = Orchestrator._memory_manifest(reasoner)
+    assert "post-ranking safety filters" in Orchestrator._job_message(memory)
+
+
+def test_failed_worker_record_remains_valid_manifest_v2_data():
+    failed = ClipResult(
+        clip_id="clip01_shorts", platform="shorts", start=10.0, end=20.0,
+        duration=10.0, error="worker crashed",
+        decision_window={"start": 10.0, "end": 20.0},
+    )
+    manifest = JobResult(job_id="failed-worker", creator_id="owner", source={
+        "footage_rights": "project_owned", "transcript_language": "en",
+        "transcript_source": "provided_vtt", "subtitle_track": "fixture.en.vtt",
+    }, clips=[failed]).to_dict()
+
+    assert manifest["clips"][0]["platform"] == "shorts"
+    assert manifest["clips"][0]["decision_window"] == {"start": 10.0, "end": 20.0}
+    assert manifest["clips"][0]["ok"] is False
 
 
 def test_candidate_mismatch_is_not_presented_as_a_valid_comparison():

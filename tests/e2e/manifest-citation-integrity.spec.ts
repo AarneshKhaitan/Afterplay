@@ -58,13 +58,18 @@ test("legacy callback claims without verified citations are suppressed", async (
       callback_found: false,
     },
     clips: [{ callback: false, citationVerified: false }],
+    approvalReady: false,
   });
   expect(manifest.memory.reason).toContain("lacks complete verified citation metadata");
+  expect(manifest.clips[0].why).toBe("Standalone clip; an unverified callback claim was omitted.");
+  expect(manifest.approvalBlockedReasons).toContain("Footage rights were not attested.");
+  const experiment = await (await request.get("/api/experiments/exp_one_more_rule")).json();
+  expect(experiment.experiment.pipelineOutputs).toEqual([]);
 
   await page.goto("/studio");
   const panel = page.getByRole("region", { name: "Latest clipper manifest" });
   await expect(panel.getByText("Creator memory degraded")).toBeVisible();
-  await expect(panel.getByText(/callback claim was omitted/)).toBeVisible();
+  await expect(panel.getByText(/^1 callback claim was omitted/)).toBeVisible();
   await expect(panel.getByText("Callback evidence")).toHaveCount(0);
   await expect(panel.getByText("callback clip")).toHaveCount(0);
 });
