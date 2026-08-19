@@ -91,8 +91,21 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Stamp Python job manifests and status documents with their creator owner - E-034.
 - [x] Scope manifest selection, media reads, experiment projection, result feedback, and ingest
       status reads to the request's active creator.
-- [x] Reject unscoped legacy artifacts at creator-scoped app boundaries and cover cross-creator
-      isolation with Python and browser tests.
+- [x] Reject unscoped legacy artifacts at creator-scoped app boundaries and cover active-workspace
+      filtering with Python and browser tests. This is not authentication or tenant isolation.
+
+### F4 ingest trustworthiness
+
+- [x] Emit owner-stamped structured `resolve`, `transcript`, `memory`, `render`, and `done`
+      progress from Python; retain log parsing only for legacy status files.
+- [x] Retain workspace-scoped child handles and expose idempotent cancellation through the selected
+      local creator workspace.
+- [x] Record nonterminal `cancelling` while stopping the process tree; publish `cancelled` only
+      after termination is confirmed, and leave unresolved termination nonterminal.
+- [x] Render stages from the first poll, expose polling/network failures, and announce progress and
+      terminal states through `aria-live`.
+- [x] Cover start, structured progress, failure, cancellation, active-workspace filtering, dropped
+      polls, desktop/mobile layout, and process/artifact cleanup.
 
 ### Implementation review - 2026-08-19
 
@@ -105,8 +118,14 @@ workstream plans. Check an item only after its documented verification has run.
 - Experiment lifecycle durability and request-level creator isolation are committed — E-033;
   F4 remains open for the other stores, structured job controls, and manifest v2.
 - Clipper manifests, media, pipeline projections, result feedback, ingest launch, and job status
-  now share one creator ownership boundary — E-034. F4 remains open for retries, cancellation,
-  structured progress, and a versioned manifest schema.
+  now share one creator ownership boundary — E-034.
+- Structured progress, real process-tree cancellation, idempotent Stop, lost-handle disclosure,
+  durable duplicate-run admission, visible poll/failed-Stop recovery, and responsive terminal
+  states are complete on the configured Windows finale host — E-035. The POSIX group-kill branch is
+  reviewed but unexecuted here. F4 remains open for manifest v2 and bounded transient retries.
+- The production build is not green: Turbopack exhausted the system drive (`os error 112`).
+  Typecheck, focused lint, Python status tests, and focused Chromium pass; rerun build after at least
+  1-2 GB more working space is available.
 - F5 acceptance is complete: scoped decay, contradiction removal, detector calibration,
   low-sample disclosure, grounding tests, typecheck, and lint all pass.
 

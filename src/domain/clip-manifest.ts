@@ -42,7 +42,7 @@ export type ClipperMemoryState = {
 
 export type ClipperJobStatus = {
   creator_id?: string | null;
-  state?: "started" | "complete" | "failed";
+  state?: "started" | "running" | "cancelling" | "complete" | "failed" | "cancelled";
   updated?: number;
   message?: string;
   manifest?: string;

@@ -13,6 +13,7 @@ const ROOTS = {
   legacy: join(TEST_CLIPPER_WORKDIR, "owner_legacy_unscoped"),
   guestRunning: join(TEST_CLIPPER_WORKDIR, "owner_guest_running"),
   configuredJob: join(TEST_CLIPPER_WORKDIR, "owner_configured_job"),
+  completionRace: join(TEST_CLIPPER_WORKDIR, "owner_completion_race"),
 };
 
 function writeManifest(dir: string, creatorId: string | undefined, clipId: string) {
@@ -22,6 +23,7 @@ function writeManifest(dir: string, creatorId: string | undefined, clipId: strin
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
     ...(creatorId ? { creator_id: creatorId } : {}),
     job_id: dir.split(/[\\/]/).at(-1),
+    status: "complete",
     source: { title: `${creatorId ?? "legacy"} stream`, url: null, duration: 90 },
     clips: [{
       clip_id: clipId,
@@ -55,11 +57,24 @@ test.beforeAll(() => {
   mkdirSync(ROOTS.configuredJob, { recursive: true });
   writeFileSync(join(ROOTS.configuredJob, "status.json"), JSON.stringify({
     creator_id: CONFIGURED,
-    state: "started",
+    state: "running",
+    stage: "memory",
+    detail: "Ranking candidate moments with channel context.",
     updated: Date.now() / 1000,
     message: "Configured job is running.",
   }), "utf-8");
   utimesSync(join(ROOTS.configuredJob, "status.json"), new Date(0), new Date(0));
+
+  writeManifest(ROOTS.completionRace, CONFIGURED, "race_clip");
+  writeFileSync(join(ROOTS.completionRace, "status.json"), JSON.stringify({
+    creator_id: CONFIGURED,
+    state: "running",
+    stage: "render",
+    detail: "Finishing the render.",
+    updated: Date.now() / 1000,
+  }), "utf-8");
+  utimesSync(join(ROOTS.completionRace, "manifest.json"), new Date(0), new Date(0));
+  utimesSync(join(ROOTS.completionRace, "status.json"), new Date(0), new Date(0));
 });
 
 test.afterAll(() => {
@@ -96,8 +111,52 @@ test("creator-owned manifests, media, projections, and job status never cross wo
   expect(guestExperiment.experiment.pipelineOutputs.map((row: { id: string }) => row.id))
     .toEqual(["guest_clip"]);
 
-  expect((await request.get("/api/ingest/owner_configured_job")).status()).toBe(200);
+  const configuredJob = await request.get("/api/ingest/owner_configured_job");
+  expect(configuredJob.status()).toBe(200);
+  expect(await configuredJob.json()).toMatchObject({
+    job: {
+      creatorId: CONFIGURED,
+      state: "running",
+      stages: [
+        { id: "resolve", state: "complete" },
+        { id: "transcript", state: "complete" },
+        { id: "memory", state: "running", detail: "Ranking candidate moments with channel context." },
+        { id: "render", state: "pending" },
+        { id: "done", state: "pending" },
+      ],
+    },
+  });
   expect((await request.get("/api/ingest/owner_configured_job", { headers: guestHeaders })).status()).toBe(404);
+  expect((await request.delete("/api/ingest/owner_configured_job")).status()).toBe(409);
+  expect((await request.delete("/api/ingest/owner_configured_job", { headers: guestHeaders })).status()).toBe(404);
+
+  const duplicateAfterRestart = await request.post("/api/ingest", {
+    data: {
+      source: { kind: "url", url: "https://www.youtube.com/watch?v=durable_admission" },
+      creator: CONFIGURED,
+      clips: 1,
+      platforms: "shorts",
+      memory: false,
+    },
+  });
+  expect(duplicateAfterRestart.status()).toBe(409);
+  expect(await duplicateAfterRestart.json()).toMatchObject({
+    error: { code: "ingest_rejected", message: /owner_configured_job still reports active/ },
+  });
+
+  const completedBeforeStop = await request.get("/api/ingest/owner_completion_race");
+  expect(completedBeforeStop.status()).toBe(200);
+  expect(await completedBeforeStop.json()).toMatchObject({ job: { state: "complete" } });
+  const completedDuringStop = await request.delete("/api/ingest/owner_completion_race");
+  expect(completedDuringStop.status()).toBe(200);
+  expect(await completedDuringStop.json()).toMatchObject({
+    job: {
+      creatorId: CONFIGURED,
+      state: "complete",
+      stages: [{ state: "complete" }, { state: "complete" }, { state: "complete" },
+        { state: "complete" }, { state: "complete" }],
+    },
+  });
 
   const mismatchedStart = await request.post("/api/ingest", {
     headers: guestHeaders,

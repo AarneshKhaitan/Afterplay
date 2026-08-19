@@ -55,13 +55,13 @@ Expected files:
 
 ### B4. Make ingest state trustworthy
 
-- [ ] Emit structured progress from Python and keep log-regex parsing only as a fallback.
-- [ ] Render stages immediately when a job starts.
-- [ ] Retain the process handle required for cancellation and add a stop endpoint.
-- [ ] Produce an explicit cancelled terminal state.
-- [ ] Surface polling and network errors instead of swallowing them.
-- [ ] Mark progress updates with `aria-live`.
-- [ ] Test start, progress, failure, cancellation, and dropped-poll behavior.
+- [x] Emit structured progress from Python and keep log-regex parsing only as a fallback.
+- [x] Render stages immediately when a job starts.
+- [x] Retain the process handle required for cancellation and add a stop endpoint.
+- [x] Produce an explicit cancelled terminal state.
+- [x] Surface polling and network errors instead of swallowing them.
+- [x] Mark progress updates with `aria-live`.
+- [x] Test start, progress, failure, cancellation, and dropped-poll behavior.
 
 Expected files:
 
@@ -120,8 +120,8 @@ Expected files:
 - [ ] Cross-creator Intel access is rejected.
 - [ ] Approval through learning survives restart.
 - [ ] Concurrent writes complete without `EPERM`.
-- [ ] Ingest cancellation reaches the correct terminal state.
-- [ ] Poll failure is visible and recoverable.
+- [x] Ingest cancellation reaches the correct terminal state.
+- [x] Poll failure is visible and recoverable.
 - [ ] Creator switching changes every dependent artifact or is disabled.
 - [ ] Every Studio evidence card is backed by a verified manifest receipt.
 - [ ] New workspace creation is available only if end-to-end creator scoping passes.
@@ -135,4 +135,3 @@ Provide Demo/QA with:
 - A cancellation and poll-failure drill.
 - The cached-source inventory and preflight output.
 - Desktop and mobile screenshots of Studio, Memory, Intel, and cold/failure states.
-

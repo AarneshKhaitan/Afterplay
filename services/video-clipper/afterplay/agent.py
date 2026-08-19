@@ -36,6 +36,8 @@ from .understand import (HeuristicReasoner, LLMReasoner, MemoryReasoner, Moment,
 
 log = logging.getLogger("afterplay")
 SKILLS_DIR = Path(__file__).parent / "skills"
+STATUS_STATES = frozenset({"started", "running", "complete", "failed"})
+STATUS_STAGES = frozenset({"resolve", "transcript", "memory", "render", "done"})
 
 
 # ── tool registry (what the agent is allowed to do) ──────────────────────────
@@ -487,16 +489,48 @@ class Orchestrator:
         self.memory = CreatorMemory.load(creator) if creator else None
         self.brand = brand or (self.memory.effective_brand() if self.memory else Brand())
 
-    def _write_status(self, job_dir: Path, state: str, *, message: str | None = None,
+    def _write_status(self, job_dir: Path, state: str, *, stage: str | None = None,
+                      detail: str | None = None, message: str | None = None,
                       manifest: Path | None = None) -> None:
+        if state not in STATUS_STATES:
+            raise ValueError(f"invalid job state: {state}")
         job_dir.mkdir(parents=True, exist_ok=True)
-        payload = {"state": state, "creator_id": self.creator_id,
+        status_path = job_dir / "status.json"
+        previous = {}
+        if status_path.exists():
+            try:
+                previous = json.loads(status_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                previous = {}
+
+        # Failure writers can omit the stage and retain the last durable pipeline
+        # boundary. This is important when the CLI catches an exception outside run().
+        if stage is None:
+            prior_stage = previous.get("stage")
+            stage = prior_stage if prior_stage in STATUS_STAGES else (
+                "done" if state == "complete" else "resolve"
+            )
+        if stage not in STATUS_STAGES:
+            raise ValueError(f"invalid job stage: {stage}")
+        if detail is None and previous.get("stage") == stage:
+            previous_detail = previous.get("detail")
+            if isinstance(previous_detail, str):
+                detail = previous_detail
+
+        payload = {"state": state, "stage": stage, "creator_id": self.creator_id,
                    "updated": time.time()}
+        if detail:
+            payload["detail"] = detail
         if message:
             payload["message"] = message
         if manifest:
             payload["manifest"] = str(manifest)
-        jdump(payload, job_dir / "status.json")
+        tmp = status_path.with_name(f".{status_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            jdump(payload, tmp)
+            os.replace(tmp, status_path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     @staticmethod
     def _memory_manifest(reasoner: Reasoner) -> dict:
@@ -552,7 +586,9 @@ class Orchestrator:
         timings, t_all = {}, time.time()
         log.info("=== job %s start (platforms=%s, n=%d) ===", job_id,
                  ",".join(platforms), n_clips)
-        self._write_status(job_dir, "started", message="Job started.")
+        self._write_status(job_dir, "started", stage="resolve",
+                           detail="Resolving source metadata and captions.",
+                           message="Job started.")
 
         # ── stage 1: resolve (kilobytes)
         t0 = time.time()
@@ -568,6 +604,8 @@ class Orchestrator:
         timings["resolve"] = round(time.time() - t0, 2)
 
         # ── stage 2: understand (still kilobytes)
+        self._write_status(job_dir, "running", stage="transcript",
+                           detail="Reading captions or transcribing source audio.")
         t0 = time.time()
         words, sents, detector = [], [], "transcript"
         from .baseline import unavailable_ablation
@@ -575,7 +613,14 @@ class Orchestrator:
         if src.vtt_path and Path(src.vtt_path).exists():
             words, sents = TOOLS.call("read_transcript", vtt_path=str(src.vtt_path))
         reasoner = self.policy.reasoner()
+        ranking_detail = (
+            "Ranking candidate moments with channel context."
+            if isinstance(reasoner, MemoryReasoner)
+            else "Ranking candidate moments without channel memory."
+        )
         if sents:
+            self._write_status(job_dir, "running", stage="memory",
+                               detail=ranking_detail)
             moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                  n=n_clips, target=target,
                                  reasoner=reasoner)
@@ -602,6 +647,8 @@ class Orchestrator:
                 src.transcript_source = "asr"
                 src.subtitle_track = None
                 detector = "asr:" + tr.model
+                self._write_status(job_dir, "running", stage="memory",
+                                   detail=ranking_detail)
                 moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
                                      n=n_clips, target=target,
                                      reasoner=reasoner)
@@ -609,6 +656,8 @@ class Orchestrator:
             except Exception as e:                            # noqa: BLE001
                 log.info("ASR unavailable (%s) -> audio-energy detection", e)
                 detector = "audio"
+                self._write_status(job_dir, "running", stage="memory",
+                                   detail="Ranking candidate moments from audio signals.")
                 moments = audio_moments(audio_path, target=target, n=n_clips,
                                         duration=src.duration or None)
         # never clip a sponsor read; free, one HTTP call, a 404 means "none"
@@ -633,6 +682,8 @@ class Orchestrator:
                  timings["resolve"] + timings["understand"])
 
         # ── stage 3 ref: what the extractor will range-fetch from
+        self._write_status(job_dir, "running", stage="render",
+                           detail="Cutting, reframing, captioning, and checking clips.")
         t0 = time.time()
         if src.is_local:
             src_ref = str(src.local_path)
@@ -717,9 +768,12 @@ class Orchestrator:
         # deliver: manifest next to the assets (PRD 13 job result shape)
         manifest = job_dir / "manifest.json"
         jdump(job.to_dict(), manifest)
-        self._write_status(job_dir, "complete", message=job.message, manifest=manifest)
+        clips_ok = sum(1 for r in results if r.ok)
+        self._write_status(job_dir, "complete", stage="done",
+                           detail=f"{clips_ok}/{len(results)} clips passed quality checks.",
+                           message=job.message, manifest=manifest)
         log.info("=== job %s done: %d/%d clips ok in %.1fs -> %s ===", job_id,
-                 sum(1 for r in results if r.ok), len(results), timings["total"],
+                 clips_ok, len(results), timings["total"],
                  manifest)
         if webhook:
             self._notify(webhook, job)

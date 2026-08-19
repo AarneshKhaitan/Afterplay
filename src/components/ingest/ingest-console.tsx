@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CheckCircle, Circle, FilmSlate, Link as LinkIcon, Spinner, WarningCircle } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, Circle, FilmSlate, Link as LinkIcon, Spinner, WarningCircle, XCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -8,12 +8,12 @@ type CachedSource = { id: string; title: string; mode: "local" | "replay" };
 
 type Stage = {
   id: string; label: string; truth: string;
-  state: "pending" | "running" | "complete" | "failed"; detail?: string;
+  state: "pending" | "running" | "complete" | "failed" | "cancelled"; detail?: string;
 };
 
 type Job = {
   jobId: string;
-  state: "started" | "complete" | "failed";
+  state: "started" | "running" | "cancelling" | "complete" | "failed" | "cancelled";
   message?: string;
   stages: Stage[];
   log: string[];
@@ -36,15 +36,18 @@ export function IngestConsole() {
   const [kind, setKind] = useState<"cached" | "url">("cached");
   const [sourceId, setSourceId] = useState("");
   const [url, setUrl] = useState("");
-  const [creator, setCreator] = useState("demo_live");
+  const [creator, setCreator] = useState("");
   const [clips, setClips] = useState(3);
   const [memory, setMemory] = useState(true);
   const [job, setJob] = useState<Job | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollGeneration = useRef(0);
 
   useEffect(() => {
     fetch("/api/ingest").then((r) => r.json()).then((data: Config) => {
@@ -56,21 +59,51 @@ export function IngestConsole() {
   }, []);
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    pollGeneration.current += 1;
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null; }
   }, []);
 
   useEffect(() => stopPolling, [stopPolling]);
 
   useEffect(() => {
-    if (!job || job.state !== "started") return;
+    if (!job || !["started", "running", "cancelling"].includes(job.state)) return;
     const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, [job]);
+
+  const schedulePolling = useCallback((jobId: string) => {
+    stopPolling();
+    const generation = pollGeneration.current;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/ingest/${jobId}`, { cache: "no-store" });
+        const status = await response.json().catch(() => null);
+        if (generation !== pollGeneration.current) return;
+        if (!response.ok || !status?.job) {
+          throw new Error(status?.error?.message ?? `Status request failed with ${response.status}.`);
+        }
+        const next = status.job as Job;
+        setJob(next);
+        setPollError(null);
+        if (next.state === "started" || next.state === "running" || next.state === "cancelling") {
+          pollRef.current = setTimeout(poll, 1500);
+        } else {
+          stopPolling();
+        }
+      } catch (caught) {
+        if (generation !== pollGeneration.current) return;
+        setPollError(`Status connection lost: ${(caught as Error).message} Retrying…`);
+        pollRef.current = setTimeout(poll, 3000);
+      }
+    };
+    pollRef.current = setTimeout(poll, 0);
+  }, [stopPolling]);
 
   async function start() {
     setError(null);
     setJob(null);
     setNetwork(null);
+    setPollError(null);
     setStarting(true);
     setElapsed(0);
     try {
@@ -86,14 +119,8 @@ export function IngestConsole() {
         return;
       }
       setNetwork(data.network);
-      stopPolling();
-      pollRef.current = setInterval(async () => {
-        const status = await fetch(`/api/ingest/${data.jobId}`).then((r) => r.json()).catch(() => null);
-        if (status?.job) {
-          setJob(status.job);
-          if (status.job.state !== "started") stopPolling();
-        }
-      }, 1500);
+      if (data.job) setJob(data.job as Job);
+      schedulePolling(data.jobId);
     } catch (caught) {
       setError((caught as Error).message);
     } finally {
@@ -101,8 +128,30 @@ export function IngestConsole() {
     }
   }
 
+  async function cancel() {
+    if (!job) return;
+    setError(null);
+    setPollError(null);
+    setCancelling(true);
+    try {
+      const response = await fetch(`/api/ingest/${job.jobId}`, { method: "DELETE" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.job) {
+        throw new Error(data?.error?.message ?? "The run could not be stopped.");
+      }
+      stopPolling();
+      setJob(data.job as Job);
+    } catch (caught) {
+      setError((caught as Error).message);
+      schedulePolling(job.jobId);
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const selected = config?.sources.find((s) => s.id === sourceId);
-  const running = job?.state === "started";
+  const running = job?.state === "started" || job?.state === "running" || job?.state === "cancelling";
+  const stopping = cancelling || job?.state === "cancelling";
 
   return (
     <div className="ingest-console">
@@ -157,7 +206,7 @@ export function IngestConsole() {
         <div className="ingest-options">
           <label className="ingest-field">
             <span>Creator</span>
-            <input value={creator} onChange={(e) => setCreator(e.target.value)} />
+            <input value={creator} readOnly aria-readonly="true" placeholder="Loading workspace…" />
             <small>Which channel memory to read and write.</small>
           </label>
           <label className="ingest-field">
@@ -173,7 +222,7 @@ export function IngestConsole() {
         </div>
 
         <button className="ingest-start" onClick={start}
-          disabled={starting || running || (kind === "url" ? !url : !sourceId)}>
+          disabled={!config || !creator || starting || running || (kind === "url" ? !url : !sourceId)}>
           {running ? <><Spinner className="spin" /> Clipping… {elapsed}s</> : <>Start clipping <ArrowRight weight="bold" /></>}
         </button>
 
@@ -184,13 +233,25 @@ export function IngestConsole() {
           </p>
         ) : null}
         {network ? <p className="ingest-network">{network}</p> : null}
+        {pollError ? (
+          <p className="ingest-error" role="alert"><WarningCircle weight="fill" /> {pollError}</p>
+        ) : null}
         {error ? (
           <p className="ingest-error" role="alert"><WarningCircle weight="fill" /> {error}</p>
         ) : null}
       </section>
 
       {job ? (
-        <section className="ingest-progress" aria-label="Run progress">
+        <section className="ingest-progress" aria-label="Run progress" aria-live="polite">
+          <div className="ingest-progress-heading">
+            <div><span>Active run</span><strong>{job.jobId}</strong></div>
+            {running ? (
+              <button type="button" className="ingest-cancel" onClick={cancel} disabled={stopping}>
+                {stopping ? <Spinner className="spin" /> : <XCircle weight="bold" />}
+                {stopping ? "Stopping…" : "Stop run"}
+              </button>
+            ) : null}
+          </div>
           <ol className="stage-list">
             {job.stages.map((stage) => (
               <li key={stage.id} className={`stage stage--${stage.state}`}>
@@ -198,6 +259,7 @@ export function IngestConsole() {
                   {stage.state === "complete" ? <CheckCircle weight="fill" />
                     : stage.state === "running" ? <Spinner className="spin" />
                       : stage.state === "failed" ? <WarningCircle weight="fill" />
+                        : stage.state === "cancelled" ? <XCircle weight="fill" />
                         : <Circle />}
                 </span>
                 <div>
@@ -237,6 +299,14 @@ export function IngestConsole() {
                 <WarningCircle weight="fill" /> {job.message ?? "The run failed."}
               </p>
               <details><summary>Run log</summary><pre>{job.log.join("\n")}</pre></details>
+            </div>
+          ) : null}
+
+          {job.state === "cancelled" ? (
+            <div className="ingest-result">
+              <p className="ingest-cancelled" role="status">
+                <XCircle weight="fill" /> {job.message ?? "The run was cancelled."}
+              </p>
             </div>
           ) : null}
         </section>

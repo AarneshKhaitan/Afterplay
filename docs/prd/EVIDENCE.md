@@ -966,8 +966,9 @@ and cannot be read or mutated through another active creator's request context.
 
 ## e-034-creator-owned-clipper-artifacts
 
-Claim: a creator workspace cannot select, display, approve, serve, or learn from another creator's
-clipper manifest, media, or job status, and ownerless legacy artifacts fail closed.
+Claim: inside the local single-operator app, active-workspace filtering keeps manifests, media,
+approvals, learning, and job status aligned to the selected creator; ownerless legacy artifacts
+fail closed.
 
 - Date: 2026-08-19
 - Python `JobResult` manifests and every started, complete, or failed `status.json` now carry a
@@ -975,8 +976,9 @@ clipper manifest, media, or job status, and ownerless legacy artifacts fail clos
 - Manifest selection and stale-job detection require an exact active-creator match. The latest API,
   Studio, media route, experiment projection, result bridge, ingest launch, and ingest status route
   all use the same request creator.
-- A client cannot submit an ingest job for a creator other than the active workspace; the route
-  returns `409 creator_mismatch` before checking Python or starting a process.
+- An ingest request whose creator does not match the selected workspace returns
+  `409 creator_mismatch` before checking Python or starting a process. The workspace cookie is a
+  local selector, not an authentication or authorization credential.
 - The adversarial browser fixture creates configured, guest, and newer ownerless manifests. It
   verifies per-creator latest selection, bidirectional media denial, per-creator experiment
   projection, same-owner stale state, cross-owner job-status denial, and ingest mismatch rejection.
@@ -988,3 +990,55 @@ clipper manifest, media, or job status, and ownerless legacy artifacts fail clos
   validation server were removed afterward.
 - This closes artifact ownership, not all of F4. Structured stage events, retry/cancellation, and a
   versioned manifest schema remain open.
+
+---
+
+## e-035-structured-progress-and-cancellation
+
+Claim: a browser-started clipper run exposes structured, creator-owned progress; can be stopped
+through the public API; and reaches a durable cancelled state without poll or exit-handler lies.
+
+- Date: 2026-08-19
+- Python atomically writes owner-stamped `resolve`, `transcript`, `memory`, `render`, and `done`
+  stages with `started`, `running`, `complete`, or `failed` state and a bounded human-readable
+  detail. CLI failure preserves the last durable stage and detail.
+- Next projects structured stages first and uses log regexes only for legacy status files. The POST
+  response includes the initial job so all five stages render before the first poll.
+- A hot-reload-stable process registry retains only ephemeral creator/child handles. Durable truth
+  remains in `status.json`. `DELETE /api/ingest/:jobId` scopes reads to the selected creator, is
+  idempotent after a terminal state, writes nonterminal `cancelling` during process termination,
+  and publishes `cancelled` only after the process tree is confirmed gone.
+- This is local single-operator workspace scoping, not authentication or tenant isolation. The
+  creator cookie selects a workspace; it is not an authorization credential.
+- A completed, owner-matched manifest wins over stale status on reads, process exit, and Stop.
+  Failed termination leaves a live process handle registered and restores a nonterminal, retryable
+  status. If the parent exited but descendants cannot be ruled out, status remains unresolved
+  `cancelling`. Durable active status blocks a second ingest for the creator even if a server
+  restart lost the process handle.
+- Windows tree termination uses bounded `taskkill /T /F`. POSIX runs use a dedicated process group,
+  wait for the full group to disappear after `SIGTERM`, then wait again after `SIGKILL` if needed.
+  The Windows branch is exercised on the finale host; the POSIX branch is implementation-reviewed
+  but was not executed on this Windows machine.
+- Node status transitions also use unique atomic replacements with one Windows rename retry, so a
+  poll cannot observe a partially written cancellation or launch failure.
+- If a server restart loses the unprovable process handle, cancellation returns an explicit `409`
+  rather than claiming to stop the job. Synchronous log-open/spawn failures write failed status.
+- Client polling uses one scheduled request at a time. A dropped poll is announced, retries after
+  three seconds, clears on recovery, and never overwrites a later cancellation. A failed Stop keeps
+  polling through `cancelling`, restores a retryable Stop control, and does not strand a false
+  terminal state. Progress uses `aria-live=polite`.
+- Focused Python status tests returned `3 passed`; `npm run typecheck` and focused ESLint exit zero.
+  The final combined Chromium run returned `3 passed` in `1.2m`: durable admission after handle
+  loss, completed-manifest status repair, a required prepared local clipper cancelled through the
+  public route, dropped-poll recovery, failed-Stop recovery, retry, and UI Stop. After tightening
+  Windows success criteria, the real process cancellation drill passed three consecutive repeats.
+- A separate visual Chromium pass inspected poll-error, recovered-running, and cancelled states at
+  `1440x1000` and `390x844`. The mobile document remained exactly `390px` wide; the only console
+  error was the intentionally aborted poll used to exercise recovery. Screenshots, logs, traces,
+  server processes, and real test job directories were removed afterward.
+- The production build reached Turbopack compilation but the host had only about 220 MB free and
+  failed with `os error 112` while writing `.next`; generated build/report/temp artifacts and
+  disposable npm/pip caches were removed. This is an environmental verification gap, not recorded
+  as a passing build.
+- This closes B4 for the configured Windows finale host. Bounded retries inside the media/model
+  pipeline and the versioned manifest schema remain separate work.

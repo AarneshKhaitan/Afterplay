@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { invalidRequest } from "@/app/api/http";
 import {
-  assertIngestableUrl, IngestError, newJobId, pythonConfigured, startIngestJob,
+  assertIngestableUrl, IngestError, newJobId, pythonConfigured, readIngestJob, startIngestJob,
 } from "@/domain/ingest/jobs";
 import { currentCreator } from "@/domain/creators";
 import { findCachedSource, listCachedSources, mediaDirConfigured } from "@/domain/ingest/sources";
@@ -94,6 +94,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       jobId,
+      job: readIngestJob(jobId, creator.id),
       // Say plainly whether this run will touch the network, so nobody demos a
       // YouTube-dependent path believing it is offline.
       network: source.kind === "url"

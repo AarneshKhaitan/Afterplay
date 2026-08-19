@@ -790,13 +790,31 @@ class TestJobStatus:
                        "A complete thought that ends cleanly. Another one here.\n",
                        encoding="utf-8")
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=0)
-        Orchestrator(settings=s, workers=1, creator="status-owner").run(
+        orch = Orchestrator(settings=s, workers=1, creator="status-owner")
+        transitions = []
+        write_status = orch._write_status
+
+        def capture_status(job_dir, state, **kwargs):
+            transitions.append((state, kwargs.get("stage"), kwargs.get("detail")))
+            return write_status(job_dir, state, **kwargs)
+
+        monkeypatch.setattr(orch, "_write_status", capture_status)
+        orch.run(
             local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
             target=8.0, job_id="statusok")
         status = _json.loads((tmp_path / "w" / "statusok" / "status.json").read_text())
         assert status["state"] == "complete"
+        assert status["stage"] == "done"
+        assert status["detail"] == "1/1 clips passed quality checks."
         assert status["creator_id"] == "status-owner"
         assert status.get("manifest")
+        assert transitions == [
+            ("started", "resolve", "Resolving source metadata and captions."),
+            ("running", "transcript", "Reading captions or transcribing source audio."),
+            ("running", "memory", "Ranking candidate moments without channel memory."),
+            ("running", "render", "Cutting, reframing, captioning, and checking clips."),
+            ("complete", "done", "1/1 clips passed quality checks."),
+        ]
         manifest = _json.loads(
             (tmp_path / "w" / "statusok" / "manifest.json").read_text()
         )
@@ -816,6 +834,7 @@ class TestJobStatus:
 
         status = _json.loads((job_dir / "status.json").read_text())
         assert status["state"] == "started"
+        assert status["stage"] == "resolve"
         assert status["creator_id"] is None
         assert JobResult(job_id="unscoped", source={}).to_dict()["creator_id"] is None
 
@@ -828,6 +847,12 @@ class TestJobStatus:
         monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
 
         def fail_run(self, **kwargs):
+            self._write_status(
+                self.settings.workdir / kwargs["job_id"],
+                "running",
+                stage="memory",
+                detail="Ranking candidate moments with channel context.",
+            )
             raise RuntimeError("deliberate failure")
 
         monkeypatch.setattr(cli.Orchestrator, "run", fail_run)
@@ -858,6 +883,8 @@ class TestJobStatus:
             (tmp_path / "w" / "failed-job" / "status.json").read_text()
         )
         assert status["state"] == "failed"
+        assert status["stage"] == "memory"
+        assert status["detail"] == "Ranking candidate moments with channel context."
         assert status["creator_id"] == "failure-owner"
         assert status["message"] == "RuntimeError: deliberate failure"
 

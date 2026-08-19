@@ -1726,6 +1726,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .ingest-error svg { flex: none; width: 15px; height: 15px; margin-top: 1px; }
 
 .ingest-progress { display: flex; flex-direction: column; gap: 16px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+.ingest-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.ingest-progress-heading > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.ingest-progress-heading span { color: var(--muted-2); font-size: var(--type-meta); font-weight: 720; text-transform: uppercase; }
+.ingest-progress-heading strong { overflow: hidden; color: var(--text); font-size: var(--type-body); text-overflow: ellipsis; white-space: nowrap; }
+.ingest-cancel { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 7px; padding: 8px 11px; border: 1px solid rgba(255,107,85,.35); border-radius: var(--radius-sm); background: var(--accent-soft); color: #ff9a89; font: inherit; font-size: var(--type-small); font-weight: 700; cursor: pointer; }
+.ingest-cancel:hover:not(:disabled) { border-color: var(--accent); }
+.ingest-cancel:disabled { opacity: .55; cursor: not-allowed; }
+.ingest-cancel svg { width: 15px; height: 15px; }
 .stage-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .stage { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .stage:last-child { border-bottom: none; }
@@ -1740,6 +1748,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .stage--running strong { color: var(--text); }
 .stage--running .stage-icon { color: var(--accent); }
 .stage--failed .stage-icon { color: #ff9a89; }
+.stage--cancelled strong, .stage--cancelled .stage-icon { color: #e8c98c; }
 
 .ingest-result { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
 .clip-results { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -1752,6 +1761,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .ingest-next:hover { border-color: var(--accent); color: #ff9a89; }
 .ingest-result details { color: var(--muted-2); font-size: var(--type-meta); }
 .ingest-result pre { overflow-x: auto; max-height: 240px; margin: 8px 0 0; padding: 10px; border-radius: var(--radius-sm); background: #0d0f11; font-size: 10.5px; line-height: 1.55; }
+.ingest-cancelled { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; border: 1px solid rgba(232,201,140,.28); border-radius: var(--radius-sm); background: rgba(232,201,140,.07); color: #e8c98c; font-size: var(--type-small); }
+.ingest-cancelled svg { width: 15px; height: 15px; }
+
+@media (max-width: 480px) {
+  .ingest-progress-heading { align-items: stretch; flex-direction: column; }
+  .ingest-cancel { width: 100%; }
+}
 
 /* ── creator switcher ────────────────────────────────────────────────────────
    Replaces a <details> that listed two accounts marked "not loaded". Creators
