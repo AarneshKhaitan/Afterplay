@@ -22,6 +22,7 @@ export default defineConfig({
     timeout: 300_000,
     env: {
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
+      AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_CREATOR_ID: "creator_mika_rigged",
       AFTERPLAY_ENABLE_LIVE_AI: "false",
       AFTERPLAY_EXPERIMENT_DIR: TEST_EXPERIMENT_DIR,

@@ -18,6 +18,7 @@ test.beforeAll(() => {
     join(JOB_DIR, "manifest.json"),
     JSON.stringify({
       job_id: "legacy_unverified_callback",
+      creator_id: "creator_mika_rigged",
       source: { title: "Legacy staged callback", url: null, duration: 60 },
       clips: [
         {

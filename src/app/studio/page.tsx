@@ -71,7 +71,7 @@ function plural(count: number, one: string, many: string) {
 export default async function StudioPage() {
   const creator = await currentCreator();
   const experiment = getExperiment("exp_one_more_rule", creator.id);
-  const manifest = getLatestClipManifest();
+  const manifest = getLatestClipManifest(creator.id);
   const realClips = manifest?.clips ?? [];
   const pipelineOutputs = experiment.pipelineOutputs ?? [];
   const memory = manifest?.memory;

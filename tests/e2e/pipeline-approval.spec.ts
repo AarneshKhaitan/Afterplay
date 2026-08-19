@@ -35,6 +35,7 @@ test.beforeAll(() => {
     join(JOB_DIR, "manifest.json"),
     JSON.stringify({
       job_id: "ui_pipeline_approval",
+      creator_id: "creator_mika_rigged",
       // A platform URL is what makes the rights third-party; asserted below.
       source: { title: "Pipeline approval stream", url: "https://youtu.be/testid", duration: 600 },
       clips: [clip(1), clip(2)],

@@ -30,14 +30,6 @@ export type PerClipResult = {
   metrics: PerClipMetrics;
 };
 
-/** Creator id the clipper stores memory under.
- *
- * MUST match the `--creator` passed to `afterplay run`, or results land in a directory
- * the clipper never reads and the feedback loop silently does nothing. */
-export function resultsCreatorId(): string {
-  return process.env.AFTERPLAY_CREATOR_ID ?? "demo_live";
-}
-
 function memoryRoot(): string {
   return process.env.AFTERPLAY_MEMORY ?? join(homedir(), ".afterplay", "memory");
 }
@@ -90,15 +82,21 @@ function featuresFor(clip: ClipperManifestClip | undefined, sourceDuration?: num
  *
  * No-op when nothing was submitted. Failure is swallowed and logged: recording results
  * must never fail the experiment lifecycle. */
-export function persistPerClipResults(perClip: PerClipResult[] | undefined): void {
+export function persistPerClipResults(
+  perClip: PerClipResult[] | undefined,
+  creatorId: string,
+): void {
   if (!perClip?.length) return;
 
   try {
-    const manifest = getLatestClipManifest();
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(creatorId)) {
+      throw new Error("The active creator id cannot be used as a memory directory.");
+    }
+    const manifest = getLatestClipManifest(creatorId);
     const clipsById = new Map((manifest?.clips ?? []).map((clip) => [clip.clip_id, clip]));
     const sourceDuration = manifest?.source?.duration;
 
-    const dir = join(memoryRoot(), resultsCreatorId());
+    const dir = join(memoryRoot(), creatorId);
     mkdirSync(dir, { recursive: true });
     const postsPath = join(dir, "posts.json");
     const metricsPath = join(dir, "metrics.json");

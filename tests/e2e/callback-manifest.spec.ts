@@ -26,6 +26,7 @@ test.beforeAll(() => {
     join(jobDir, "manifest.json"),
     JSON.stringify({
       job_id: "ui_callback",
+      creator_id: "creator_mika_rigged",
       source: { title: "Callback smoke stream", url: null, duration: 52 },
       clips: [{
         clip_id: "clip01_shorts",

@@ -307,6 +307,7 @@ class ClipResult:
 class JobResult:
     job_id: str
     source: dict
+    creator_id: str | None = None
     clips: list[ClipResult] = field(default_factory=list)
     timings: dict = field(default_factory=dict)
     encoder: str = ""
@@ -481,14 +482,16 @@ class Orchestrator:
         self.settings = settings or Settings()
         self.policy = policy or HeuristicPolicy()
         self.workers = max(1, workers)
+        self.creator_id = creator
         # Creator Memory conditions the brand and format defaults (PRD 8).
         self.memory = CreatorMemory.load(creator) if creator else None
         self.brand = brand or (self.memory.effective_brand() if self.memory else Brand())
 
-    @staticmethod
-    def _write_status(job_dir: Path, state: str, *, message: str | None = None,
+    def _write_status(self, job_dir: Path, state: str, *, message: str | None = None,
                       manifest: Path | None = None) -> None:
-        payload = {"state": state, "updated": time.time()}
+        job_dir.mkdir(parents=True, exist_ok=True)
+        payload = {"state": state, "creator_id": self.creator_id,
+                   "updated": time.time()}
         if message:
             payload["message"] = message
         if manifest:
@@ -693,6 +696,7 @@ class Orchestrator:
                                 "transcript_language": src.transcript_language,
                                 "transcript_source": src.transcript_source,
                                 "subtitle_track": src.subtitle_track},
+                        creator_id=self.creator_id,
                         clips=results, timings=timings,
                         encoder=detect_encoder(self.settings),
                         heatmap_available=src.has_heatmap,

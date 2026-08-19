@@ -493,7 +493,7 @@ function assertCurrentRevision(experiment: GrowthExperiment, revision: number) {
 export function resetExperimentStore(creatorId?: string): GrowthExperiment {
   const initial = cloneInitialStore(normalizeCreatorId(creatorId));
   writeStore(initial);
-  return toResponse(initial.experiment);
+  return toResponse(initial.experiment, initial.creatorId);
 }
 
 /** Clone for return, with the pipeline projection attached.
@@ -502,15 +502,16 @@ export function resetExperimentStore(creatorId?: string): GrowthExperiment {
  * projection in `getExperiment` alone meant a mutation response (approve, dispatch,
  * results) carried no `pipelineOutputs`, so a client that replaced its state from that
  * response made the pipeline-clips section disappear after approval. */
-function toResponse(experiment: GrowthExperiment): GrowthExperiment {
+function toResponse(experiment: GrowthExperiment, creatorId: string): GrowthExperiment {
   const clone = structuredClone(experiment);
-  clone.pipelineOutputs = projectPipelineOutputs(clone);
+  clone.pipelineOutputs = projectPipelineOutputs(clone, creatorId);
   return clone;
 }
 
 export function getExperiment(id: string, creatorId?: string): GrowthExperiment {
   assertExperimentId(id);
-  return toResponse(store(creatorId).experiment);
+  const state = store(creatorId);
+  return toResponse(state.experiment, state.creatorId);
 }
 
 /** Real clipper output, presented as its own approvable set.
@@ -521,8 +522,8 @@ export function getExperiment(id: string, creatorId?: string): GrowthExperiment 
  * own section and carry the same approval status, so approving the experiment approves
  * real clips too — which is what closes the loop (G7).
  */
-function projectPipelineOutputs(experiment: GrowthExperiment): ExperimentOutput[] {
-  const manifest = getLatestClipManifest();
+function projectPipelineOutputs(experiment: GrowthExperiment, creatorId: string): ExperimentOutput[] {
+  const manifest = getLatestClipManifest(creatorId);
   const clips = (manifest?.clips ?? []).filter((clip) => clip.ok !== false);
   if (!manifest || clips.length === 0) return [];
 
@@ -587,7 +588,7 @@ export function recordDecision(input: {
 
   if (experiment.status !== "awaiting_approval") {
     if (experiment.decision?.action === input.action && experiment.decision.revision === input.revision) {
-      return { experiment: toResponse(experiment), decision: structuredClone(experiment.decision) };
+      return { experiment: toResponse(experiment, state.creatorId), decision: structuredClone(experiment.decision) };
     }
     throw new ExperimentError("decision_not_allowed", "This experiment is no longer awaiting a decision.", 409);
   }
@@ -614,7 +615,7 @@ export function recordDecision(input: {
   }
 
   writeStore(state);
-  return { experiment: toResponse(experiment), decision: structuredClone(decision) };
+  return { experiment: toResponse(experiment, state.creatorId), decision: structuredClone(decision) };
 }
 
 /** Simulated publish slot for the nth dispatched output.
@@ -638,7 +639,7 @@ export function dispatchExperiment(input: { id: string; revision: number; creato
   assertCurrentRevision(experiment, input.revision);
 
   if (experiment.status === "distributed" || experiment.status === "learned") {
-    return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
+    return { experiment: toResponse(experiment, state.creatorId), receipts: structuredClone(experiment.receipts) };
   }
   if (experiment.status !== "approved") {
     throw new ExperimentError(
@@ -650,7 +651,7 @@ export function dispatchExperiment(input: { id: string; revision: number; creato
 
   // Receipts cover the curated package AND the pipeline clips: approving the
   // experiment approves both, so distribution must account for both.
-  const dispatched = [...experiment.outputs, ...projectPipelineOutputs(experiment)];
+  const dispatched = [...experiment.outputs, ...projectPipelineOutputs(experiment, state.creatorId)];
   experiment.receipts = dispatched.map((output, index) => ({
     id: `sim_receipt_${index + 1}`,
     experimentId: experiment.id,
@@ -665,7 +666,7 @@ export function dispatchExperiment(input: { id: string; revision: number; creato
   experiment.stage = "Observing sample results";
 
   writeStore(state);
-  return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
+  return { experiment: toResponse(experiment, state.creatorId), receipts: structuredClone(experiment.receipts) };
 }
 
 export function recordResults(input: {
@@ -685,7 +686,7 @@ export function recordResults(input: {
 
   if (experiment.status === "learned" && experiment.result && experiment.learning && experiment.nextExperiment) {
     return {
-      experiment: toResponse(experiment),
+      experiment: toResponse(experiment, state.creatorId),
       result: structuredClone(experiment.result),
       learning: structuredClone(experiment.learning),
       nextExperiment: structuredClone(experiment.nextExperiment),
@@ -786,7 +787,7 @@ export function recordResults(input: {
 
   writeStore(state);
   return {
-    experiment: toResponse(experiment),
+    experiment: toResponse(experiment, state.creatorId),
     result: structuredClone(experiment.result),
     learning: structuredClone(experiment.learning),
     nextExperiment: structuredClone(experiment.nextExperiment),

@@ -110,8 +110,8 @@ def cmd_run(a) -> int:
                        platforms=plats, n_clips=a.clips, target=a.target,
                        job_id=job_id, webhook=a.webhook)
     except Exception as e:                                      # noqa: BLE001
-        Orchestrator._write_status(settings.workdir / job_id, "failed",
-                                   message=f"{type(e).__name__}: {e}")
+        orch._write_status(settings.workdir / job_id, "failed",
+                           message=f"{type(e).__name__}: {e}")
         raise
 
     if a.json:

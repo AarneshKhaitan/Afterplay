@@ -88,6 +88,11 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Migrate valid legacy state and fail visibly without resetting corrupt state.
 - [x] Resolve the same active creator through experiment pages, reads, decisions, dispatch,
       results, and explicit demo reset.
+- [x] Stamp Python job manifests and status documents with their creator owner - E-034.
+- [x] Scope manifest selection, media reads, experiment projection, result feedback, and ingest
+      status reads to the request's active creator.
+- [x] Reject unscoped legacy artifacts at creator-scoped app boundaries and cover cross-creator
+      isolation with Python and browser tests.
 
 ### Implementation review - 2026-08-19
 
@@ -99,6 +104,9 @@ workstream plans. Check an item only after its documented verification has run.
   controls, and manifest v2.
 - Experiment lifecycle durability and request-level creator isolation are committed — E-033;
   F4 remains open for the other stores, structured job controls, and manifest v2.
+- Clipper manifests, media, pipeline projections, result feedback, ingest launch, and job status
+  now share one creator ownership boundary — E-034. F4 remains open for retries, cancellation,
+  structured progress, and a versioned manifest schema.
 - F5 acceptance is complete: scoped decay, contradiction removal, detector calibration,
   low-sample disclosure, grounding tests, typecheck, and lint all pass.
 

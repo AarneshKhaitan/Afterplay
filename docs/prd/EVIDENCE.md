@@ -911,6 +911,8 @@ memory-dependent clip unless it carries complete verified citation metadata.
   One unrelated dispatch test then timed out when Turbopack filled the system drive (`os error
   112`); this was an environmental failure after the integrity assertion had passed, not a green
   full-suite claim.
+- After storage was recovered, a clean combined Chromium run covering citation integrity, creator
+  isolation, media ranges, stale/degraded states, and approval returned `9 passed` in `2.5m`.
 
 ---
 
@@ -957,3 +959,32 @@ and cannot be read or mutated through another active creator's request context.
   first route compilation at the old 30-second limit, while the same results endpoint passed in
   the following test. A clean rerun could not be completed after the system drive fell to roughly
   70 MB free, so this is not recorded as a fully green browser-suite result.
+- After storage was recovered and the cold-compilation budget was raised, the complete focused
+  lifecycle suite returned `7 passed` in `5.0m`.
+
+---
+
+## e-034-creator-owned-clipper-artifacts
+
+Claim: a creator workspace cannot select, display, approve, serve, or learn from another creator's
+clipper manifest, media, or job status, and ownerless legacy artifacts fail closed.
+
+- Date: 2026-08-19
+- Python `JobResult` manifests and every started, complete, or failed `status.json` now carry a
+  top-level `creator_id`; deliberately unscoped runs serialize `null` rather than implying an owner.
+- Manifest selection and stale-job detection require an exact active-creator match. The latest API,
+  Studio, media route, experiment projection, result bridge, ingest launch, and ingest status route
+  all use the same request creator.
+- A client cannot submit an ingest job for a creator other than the active workspace; the route
+  returns `409 creator_mismatch` before checking Python or starting a process.
+- The adversarial browser fixture creates configured, guest, and newer ownerless manifests. It
+  verifies per-creator latest selection, bidirectional media denial, per-creator experiment
+  projection, same-owner stale state, cross-owner job-status denial, and ingest mismatch rejection.
+- Verification: focused Python returned `5 passed`; `npm run typecheck` and focused ESLint exit zero;
+  the final combined Chromium regression returned `9 passed` in `2.5m`.
+- A separate real Chromium pass against the configured workspace exercised creator switching and
+  Studio/Ingest at `1440x1000` and `390x844`. Guest propagated to Ingest, console/page errors were
+  empty, and document widths matched both viewports. Temporary screenshots, logs, traces, and the
+  validation server were removed afterward.
+- This closes artifact ownership, not all of F4. Structured stage events, retry/cancellation, and a
+  versioned manifest schema remain open.

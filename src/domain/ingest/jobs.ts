@@ -21,6 +21,7 @@ export type IngestStage = {
 
 export type IngestJob = {
   jobId: string;
+  creatorId: string;
   state: "started" | "complete" | "failed";
   message?: string;
   stages: IngestStage[];
@@ -114,6 +115,12 @@ export type StartOptions = {
 export function startIngestJob(options: StartOptions): { jobId: string; args: string[] } {
   const dir = join(workdir(), options.jobId);
   mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "status.json"), JSON.stringify({
+    creator_id: options.creator,
+    state: "started",
+    updated: Date.now() / 1000,
+    message: "Job queued.",
+  }), "utf-8");
 
   const args = ["-m", "afterplay.cli", "--json", "run", "--job-id", options.jobId,
     "--creator", options.creator, "--clips", String(options.clips),
@@ -160,6 +167,7 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
       if ((JSON.parse(raw) as { state?: string }).state !== "started") return;
     } catch { /* no status yet: fall through and write one */ }
     writeFileSync(statusPath, JSON.stringify({
+      creator_id: options.creator,
       state: "failed",
       updated: Date.now() / 1000,
       message: signal
@@ -234,17 +242,25 @@ function parseProgress(log: string): { states: Record<StageId, StageState>; deta
   return { states, details, lines };
 }
 
-export function readIngestJob(jobId: string): IngestJob | null {
+export function readIngestJob(jobId: string, creatorId: string): IngestJob | null {
   const dir = join(workdir(), jobId);
   if (!existsSync(dir)) return null;
 
   const log = safeRead(join(dir, "run.log")) ?? "";
-  const status = safeJson<{ state?: IngestJob["state"]; message?: string }>(join(dir, "status.json"));
+  const status = safeJson<{
+    creator_id?: string | null;
+    state?: IngestJob["state"];
+    message?: string;
+  }>(join(dir, "status.json"));
   const manifest = safeJson<{
+    creator_id?: string | null;
     clips?: Array<{ clip_id: string; ok?: boolean; signals?: Record<string, unknown> }>;
     memory?: { degraded?: boolean; reason?: string | null; callback_found?: boolean; callbacks_ranked_out?: number };
     message?: string | null;
   }>(join(dir, "manifest.json"));
+  if (status?.creator_id !== creatorId || (manifest && manifest.creator_id !== creatorId)) {
+    return null;
+  }
 
   const { states, details, lines } = parseProgress(log);
   const state = status?.state ?? (manifest ? "complete" : "started");
@@ -260,6 +276,7 @@ export function readIngestJob(jobId: string): IngestJob | null {
 
   return {
     jobId,
+    creatorId,
     state,
     message: manifest?.message ?? status?.message,
     stages: STAGE_TEMPLATE.map((stage) => ({

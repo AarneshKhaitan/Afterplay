@@ -50,6 +50,17 @@ export async function POST(request: Request) {
     return invalidRequest(parsed.error.issues[0]?.message ?? "The ingest request is invalid.");
   }
 
+  const input = parsed.data;
+  const creator = await currentCreator();
+  if (input.creator !== creator.id) {
+    return NextResponse.json({
+      error: {
+        code: "creator_mismatch",
+        message: "The ingest request does not belong to the active creator workspace.",
+      },
+    }, { status: 409 });
+  }
+
   const python = pythonConfigured();
   if (!python.ok) {
     return NextResponse.json({
@@ -62,7 +73,6 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
 
-  const input = parsed.data;
   try {
     const jobId = newJobId();
     const source = input.source.kind === "url"
@@ -75,7 +85,7 @@ export async function POST(request: Request) {
 
     startIngestJob({
       jobId,
-      creator: input.creator,
+      creator: creator.id,
       clips: input.clips,
       platforms: input.platforms,
       memory: input.memory,

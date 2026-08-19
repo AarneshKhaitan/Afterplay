@@ -60,7 +60,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
     // Feed outcomes back into the clipper's ranking priors. Never allowed to fail the
     // request — the bridge swallows and logs its own errors.
-    persistPerClipResults(parsed.data.perClip);
+    persistPerClipResults(parsed.data.perClip, creator.id);
     return NextResponse.json(recorded);
   } catch (error) {
     return experimentErrorResponse(error);

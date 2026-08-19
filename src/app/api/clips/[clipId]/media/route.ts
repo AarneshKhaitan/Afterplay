@@ -2,6 +2,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 
 import { getLatestClipManifest } from "@/domain/clip-manifest";
+import { currentCreator } from "@/domain/creators";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +40,8 @@ function parseRange(header: string | null, size: number) {
 }
 
 export async function GET(request: Request, context: { params: Promise<{ clipId: string }> }) {
-  const { clipId } = await context.params;
-  const manifest = getLatestClipManifest();
+  const [{ clipId }, creator] = await Promise.all([context.params, currentCreator()]);
+  const manifest = getLatestClipManifest(creator.id);
   const clip = manifest?.clips.find((item) => item.clip_id === clipId);
 
   if (!clip?.path || !existsSync(clip.path)) {

@@ -28,6 +28,7 @@ export default defineConfig({
     // on local machine configuration.
     env: {
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
+      AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_ENABLE_LIVE_AI: "false",
       // Keep the intelligence store out of the real `.intel/`: its belief memory is
       // cumulative, so test pollution there compounds instead of being overwritten.

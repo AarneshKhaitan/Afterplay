@@ -41,6 +41,7 @@ export type ClipperMemoryState = {
 };
 
 export type ClipperJobStatus = {
+  creator_id?: string | null;
   state?: "started" | "complete" | "failed";
   updated?: number;
   message?: string;
@@ -48,6 +49,7 @@ export type ClipperJobStatus = {
 };
 
 export type ClipperManifest = {
+  creator_id?: string | null;
   job_id: string;
   source: {
     title?: string;
@@ -104,18 +106,21 @@ function statusFiles(dir: string): string[] {
   return out;
 }
 
-export function getLatestClipManifest(): ClipperManifest | null {
+export function getLatestClipManifest(creatorId: string): ClipperManifest | null {
   try {
+    const owner = creatorId.trim();
+    if (!owner) return null;
     const workdir = clipperWorkdir();
     const statusRows = statusFiles(workdir)
       .map((path) => ({ path, mtimeMs: statSync(path).mtimeMs, status: readStatus(path) }))
+      .filter((row) => row.status?.creator_id === owner)
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
     const files = manifestFiles(workdir)
       .map((path) => ({ path, mtimeMs: statSync(path).mtimeMs }))
       .sort((a, b) => b.mtimeMs - a.mtimeMs);
     const newest = files
       .map((file) => ({ manifest: loadManifest(file.path, file.mtimeMs), mtimeMs: file.mtimeMs }))
-      .find((entry) => entry.manifest && entry.manifest.status === "complete");
+      .find((entry) => entry.manifest?.creator_id === owner && entry.manifest.status === "complete");
     if (!newest?.manifest) return null;
     const complete = newest.manifest;
 

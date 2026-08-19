@@ -779,22 +779,87 @@ class TestMemoryDegradationSignal:
 class TestJobStatus:
     """A3: a run that dies before writing a manifest must not look complete."""
 
-    def test_completed_run_writes_status_complete(self, tmp_path):
+    def test_completed_run_writes_status_complete(self, tmp_path, monkeypatch):
         import json as _json
         from afterplay import Orchestrator, Settings
         from afterplay.core import synth_source
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "memory"))
         src = synth_source(tmp_path / "st.mp4", seconds=14, size=(320, 180), tone=True)
         vtt = tmp_path / "st.vtt"
         vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:12.000\n"
                        "A complete thought that ends cleanly. Another one here.\n",
                        encoding="utf-8")
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=0)
-        Orchestrator(settings=s, workers=1).run(
+        Orchestrator(settings=s, workers=1, creator="status-owner").run(
             local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
             target=8.0, job_id="statusok")
         status = _json.loads((tmp_path / "w" / "statusok" / "status.json").read_text())
         assert status["state"] == "complete"
+        assert status["creator_id"] == "status-owner"
         assert status.get("manifest")
+        manifest = _json.loads(
+            (tmp_path / "w" / "statusok" / "manifest.json").read_text()
+        )
+        assert manifest["creator_id"] == "status-owner"
+
+    def test_status_and_manifest_explicitly_mark_unscoped_runs(self, tmp_path):
+        import json as _json
+        from afterplay import Orchestrator, Settings
+        from afterplay.agent import JobResult
+
+        orch = Orchestrator(
+            settings=Settings(workdir=tmp_path / "w", outdir=tmp_path / "o"),
+            creator=None,
+        )
+        job_dir = tmp_path / "w" / "unscoped"
+        orch._write_status(job_dir, "started")
+
+        status = _json.loads((job_dir / "status.json").read_text())
+        assert status["state"] == "started"
+        assert status["creator_id"] is None
+        assert JobResult(job_id="unscoped", source={}).to_dict()["creator_id"] is None
+
+    def test_cli_failure_status_preserves_creator(self, tmp_path, monkeypatch):
+        import argparse
+        import json as _json
+        import pytest
+        from afterplay import cli
+
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+
+        def fail_run(self, **kwargs):
+            raise RuntimeError("deliberate failure")
+
+        monkeypatch.setattr(cli.Orchestrator, "run", fail_run)
+        args = argparse.Namespace(
+            max_repairs=0,
+            encoder=None,
+            watermark=None,
+            memory=False,
+            creator="failure-owner",
+            llm=False,
+            platforms="shorts",
+            workers=1,
+            job_id="failed-job",
+            url=None,
+            local=None,
+            info_json=None,
+            vtt=None,
+            clips=1,
+            target=8.0,
+            webhook=None,
+            json=False,
+        )
+
+        with pytest.raises(RuntimeError, match="deliberate failure"):
+            cli.cmd_run(args)
+
+        status = _json.loads(
+            (tmp_path / "w" / "failed-job" / "status.json").read_text()
+        )
+        assert status["state"] == "failed"
+        assert status["creator_id"] == "failure-owner"
+        assert status["message"] == "RuntimeError: deliberate failure"
 
 
 class TestResultsCli:
