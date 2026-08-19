@@ -122,6 +122,38 @@ workstream plans. Check an item only after its documented verification has run.
 - [x] Cover producer serialization, legacy compatibility, invalid-rights rejection, explicit-rights
       approval projection, callback evidence, media controls, and desktop/mobile layout.
 
+### B7 finale truth recovery
+
+- [x] Reproduce the configured callback, Studio, Memory, and cross-creator Intel failures on the
+      current branch without substituting fixtures.
+- [x] Rebuild `probe_ksi` memory from available cached historical transcripts so retrievable mentions
+      are verifier-backed at write time; record corpus roles and remove authored thread records.
+- [x] Remove `.demo-final/demo_hero` from active runtime and replace it with a real manifest-v2 run
+      carrying explicit rights and transcript provenance, then prove Studio renders its evidence.
+- [x] Reject Intel ask requests when the requested scan is not owned by the active creator and cover
+      the cross-creator probe.
+- [x] Remove residual fabricated/sample labels from the active Memory surface.
+- [x] Run Python, TypeScript, build, focused browser, and live API/UI verification; record exact
+      evidence and clean generated artifacts before committing.
+
+### B7 review - 2026-08-20
+
+- `backfill --prune-unverified` extracted 14 verifier-backed `nxGlZX9GH5I` threads, repaired one
+  citation, rejected none, and removed all 17 legacy unverified records. The four authored
+  `VYEtNWp5VgA` ids are absent and the active store has no missing or false verification fields.
+- The chronologically invalid `BW_MAa5L9lg` payoff claim was rejected. The active finale source is
+  `X955SmTm1rY`, uploaded after the historical source; corpus limitations are recorded in
+  `docs/demo/CALLBACK.md` without claiming tuning or held-out accuracy.
+- Genuine job `finale_x_verified` produced 5/5 QC-passing v2 clips with English VTT provenance,
+  `not_cleared` rights, and three selected callbacks. The hero was promoted from baseline rank 94
+  to memory rank 1 at confidence 0.98 with a verifier match ratio of 1.0.
+- Studio reads the genuine `.work` job, exposes the rights block and evidence receipt, and no longer
+  references `.demo-final`; the staged directory and obsolete generated runs were deleted.
+- Explicit Intel scan ids are creator-scoped and foreign/missing ids share the same 404 response.
+- Verification: typecheck, focused lint, production build, 152 Python tests, 19 focused production
+  Playwright tests, and 104/105 full production Playwright tests pass. The only full-suite failure is
+  the pre-existing out-of-scope Riff Electron launch because its executable is not installed.
+
 ### Implementation review - 2026-08-19
 
 - Citation verification and language provenance are committed foundations; the real corpus

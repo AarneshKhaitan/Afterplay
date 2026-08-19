@@ -55,18 +55,49 @@ function initialsOf(name: string): string {
   return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
+type StoredMention = {
+  stream_id?: string;
+  t?: number;
+  quote?: string;
+  verified?: boolean;
+};
+
+function verifiedMentions(thread: Record<string, unknown>): StoredMention[] {
+  const candidates = [
+    thread.first_seen,
+    ...(Array.isArray(thread.mentions) ? thread.mentions : []),
+  ];
+  const seen = new Set<string>();
+  const verified: StoredMention[] = [];
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const mention = candidate as StoredMention;
+    if (mention.verified !== true) continue;
+    const key = `${mention.stream_id ?? ""}|${mention.t ?? ""}|${mention.quote ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    verified.push(mention);
+  }
+  return verified;
+}
+
 function readThreads(dir: string): { threads: number; streams: number } {
   try {
     const raw = readFileSync(join(dir, "threads.json"), "utf-8");
-    const parsed = JSON.parse(raw) as Array<{ first_seen?: { stream_id?: string }; mentions?: Array<{ stream_id?: string }> }>;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return { threads: 0, streams: 0 };
     const streams = new Set<string>();
-    for (const thread of parsed) {
-      if (thread.first_seen?.stream_id) streams.add(thread.first_seen.stream_id);
-      for (const mention of thread.mentions ?? []) {
+    let threads = 0;
+    for (const thread of parsed as Array<Record<string, unknown>>) {
+      const mentions = verifiedMentions(thread);
+      if (!mentions.length) continue;
+      threads += 1;
+      for (const mention of mentions) {
         if (mention.stream_id) streams.add(mention.stream_id);
       }
     }
-    return { threads: parsed.length, streams: streams.size };
+    return { threads, streams: streams.size };
   } catch {
     return { threads: 0, streams: 0 };
   }
@@ -175,15 +206,17 @@ export type ChannelThread = {
  *
  * This is the real product artifact — what the memory pass found in past streams and
  * what a callback is later matched against. The Memory page previously showed only
- * authored sample beliefs, so the one genuinely novel thing the system does was invisible.
+ * authored fixtures, so the one genuinely novel thing the system does was invisible.
  */
 export function loadThreads(creatorId: string): ChannelThread[] {
   try {
     const raw = readFileSync(join(memoryRoot(), creatorId, "threads.json"), "utf-8");
-    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
-    return parsed.map((thread, index) => {
-      const seen = (thread.first_seen ?? {}) as { stream_id?: string; t?: number; quote?: string };
-      const mentions = Array.isArray(thread.mentions) ? thread.mentions.length : 0;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return (parsed as Array<Record<string, unknown>>).flatMap((thread, index) => {
+      const mentions = verifiedMentions(thread);
+      const seen = mentions[0];
+      if (!seen) return [];
       return {
         id: String(thread.id ?? `thread_${index}`),
         kind: String(thread.kind ?? "thread").replaceAll("_", " "),
@@ -193,7 +226,7 @@ export function loadThreads(creatorId: string): ChannelThread[] {
         streamId: String(seen.stream_id ?? "unknown"),
         t: Number(seen.t ?? 0),
         quote: String(seen.quote ?? ""),
-        mentions,
+        mentions: mentions.length,
       };
     });
   } catch {

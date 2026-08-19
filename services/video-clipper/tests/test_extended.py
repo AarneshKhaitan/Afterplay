@@ -114,6 +114,57 @@ class TestChannelMemory:
             "unverified": 1,
         }
 
+    def test_backfill_can_prune_legacy_unverified_store(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory
+
+        creator_dir = tmp_path / "creator"
+        creator_dir.mkdir()
+        (creator_dir / "threads.json").write_text(json.dumps([
+            {
+                "id": "legacy_unverified",
+                "kind": "running_joke",
+                "label": "unsupported claim",
+                "summary": "This record predates citation verification.",
+                "first_seen": {"stream_id": "old", "t": 12.0, "quote": "not checked"},
+                "embedding": [1.0, 0.0, 0.1],
+            },
+            {
+                "id": "trusted_existing",
+                "kind": "running_joke",
+                "label": "cursed sniper on bridge",
+                "summary": "This record already passed verification.",
+                "first_seen": {
+                    "stream_id": "trusted",
+                    "t": 12.0,
+                    "quote": "the cursed sniper is back",
+                    "verified": True,
+                    "match_ratio": 1.0,
+                },
+                "embedding": [1.0, 1.0, 0.1],
+            },
+        ]), encoding="utf-8")
+
+        def extractor(stream_id, transcript):
+            return {"threads": [{
+                "kind": "running_joke",
+                "label": "fabricated callback",
+                "summary": "The replacement is also unsupported.",
+                "first_seen": {"t": 12.0, "quote": "this quote is invented"},
+            }]}
+
+        memory = ChannelMemory("creator", root=tmp_path, embedder=_fake_embed)
+        memory.backfill(
+            "stream_a",
+            [Sentence(10.0, 20.0, "the actual transcript says something else")],
+            extractor=extractor,
+            prune_unverified=True,
+        )
+
+        assert memory.pruned_unverified == 1
+        assert [thread.id for thread in memory.threads] == ["trusted_existing"]
+        persisted = json.loads(memory.path.read_text(encoding="utf-8"))
+        assert [thread["id"] for thread in persisted] == ["trusted_existing"]
+
     def test_memory_reasoner_boosts_clear_callbacks_and_carries_signals(self):
         class Memory:
             def retrieve(self, text, k=3):

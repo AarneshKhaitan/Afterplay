@@ -101,6 +101,11 @@ export function loadScan(scanId: string): ScanJob | null {
   return readVersionedJson(join(scansDir(), `${safe(scanId)}.json`), scanSchema);
 }
 
+export function loadScanForCreator(scanId: string, creatorId: string): ScanJob | null {
+  const scan = loadScan(scanId);
+  return scan?.creatorId === creatorId ? scan : null;
+}
+
 export function listScans(creatorId?: string, limit = 25): ScanJob[] {
   const dir = scansDir();
   if (!existsSync(dir)) return [];

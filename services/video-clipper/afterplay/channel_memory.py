@@ -131,6 +131,7 @@ class ChannelMemory:
         self.path = self.dir / "threads.json"
         self.embedder = embedder
         self.verification_counts = {"verified": 0, "repaired": 0, "unverified": 0}
+        self.pruned_unverified = 0
         self.threads = self._load()
 
     def _load(self) -> list[ThreadRecord]:
@@ -213,7 +214,14 @@ class ChannelMemory:
             out[idx] = [self.retrieved_thread(thread, score) for score, thread in scored]
         return out
 
-    def backfill(self, stream_id: str, sents, extractor=None) -> list[ThreadRecord]:
+    def backfill(
+        self,
+        stream_id: str,
+        sents,
+        extractor=None,
+        *,
+        prune_unverified: bool = False,
+    ) -> list[ThreadRecord]:
         extracted = extract_threads(stream_id, sents, extractor=extractor)
         verified = [thread for thread in extracted if thread.has_verified_evidence()]
         self.verification_counts = {
@@ -224,12 +232,19 @@ class ChannelMemory:
             ),
             "unverified": len(extracted) - len(verified),
         }
+        self.pruned_unverified = 0
+        if prune_unverified:
+            retained = [thread for thread in self.threads if thread.has_verified_evidence()]
+            self.pruned_unverified = len(self.threads) - len(retained)
+            self.threads = retained
+
         texts = [t.text_for_embedding() for t in verified]
         if texts:
             vectors = self.embed(texts)
             for thread, vector in zip(verified, vectors):
                 thread.embedding = vector
                 self.add_or_merge(thread)
+        if texts or self.pruned_unverified:
             self.save()
         return extracted
 

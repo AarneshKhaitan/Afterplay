@@ -201,7 +201,11 @@ def cmd_backfill(a) -> int:
         return 2
 
     memory = ChannelMemory(a.creator)
-    extracted = memory.backfill(a.stream_id, sents)
+    extracted = memory.backfill(
+        a.stream_id,
+        sents,
+        prune_unverified=getattr(a, "prune_unverified", False),
+    )
     counts = getattr(
         memory,
         "verification_counts",
@@ -212,6 +216,7 @@ def cmd_backfill(a) -> int:
            "threads_added": counts["verified"],
            "citations_repaired": counts["repaired"],
            "citations_rejected": counts["unverified"],
+           "legacy_threads_pruned": memory.pruned_unverified,
            "path": str(memory.path)}
     print(json.dumps(out, indent=2))
     return 0
@@ -408,6 +413,11 @@ def main(argv=None) -> int:
     sp.add_argument("--local", help="ingest a local file (creator-owned path)")
     sp.add_argument("--creator", required=True, help="creator id for local JSON memory")
     sp.add_argument("--stream-id", required=True, help="stable id for this source stream")
+    sp.add_argument(
+        "--prune-unverified",
+        action="store_true",
+        help="remove legacy records without verifier-backed evidence after extraction succeeds",
+    )
     sp.set_defaults(fn=cmd_backfill)
 
     sp = sub.add_parser("memory", help="inspect local creator memory")

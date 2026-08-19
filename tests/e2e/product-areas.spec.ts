@@ -20,21 +20,24 @@ test("all six product areas are populated and navigable", async ({ page, request
   }
 });
 
-test("Memory exposes durable identity, boundaries, and learned updates", async ({ page }) => {
+test("Memory exposes the selected creator, verified memory, and boundaries", async ({ page }) => {
   await page.goto("/memory");
 
-  // Identity follows the selected creator instead of a hardcoded fixture name.
-  await expect(page.getByRole("heading", { name: "Creator Mika Rigged", exact: true })).toBeVisible();
+  // The page identity follows the selected creator instead of a hardcoded fixture name.
+  await expect(page.getByRole("heading", {
+    name: "What Afterplay remembers about Creator Mika Rigged",
+    exact: true,
+  })).toBeVisible();
 
   // The pinned test creator has no channel memory on disk, and that must be stated
   // plainly rather than dressed up with authored sample threads: with no memory, no
   // callback can be claimed. This is the cold-start contract.
   const channelMemory = page.getByRole("region", { name: "Channel memory" });
   await expect(channelMemory.getByText(/No channel memory for/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Working beliefs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Working beliefs" })).toHaveCount(0);
+  await expect(page.getByText(/Sample belief/i)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Approval rules" })).toBeVisible();
   await expect(page.getByText("Never publish, contact, spend, or change an account without approval.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Recurring bits outperform one-off spectacle", { exact: true })).toBeVisible();
 });
 
 test("Integrations makes mode, permissions, and simulation visible", async ({ page }) => {

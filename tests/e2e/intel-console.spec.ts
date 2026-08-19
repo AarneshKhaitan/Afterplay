@@ -201,6 +201,22 @@ test.afterAll(() => {
   rmSync(TEST_INTEL_DIR, { recursive: true, force: true });
 });
 
+test("a creator cannot ask against another creator's scan", async ({ request }) => {
+  const response = await request.post("/api/intel/ask", {
+    data: {
+      creatorId: "probe_ksi",
+      question: "What should I publish next?",
+      scanId: "scan_fixture",
+      history: [],
+    },
+  });
+
+  expect(response.status()).toBe(404);
+  expect(await response.json()).toEqual({
+    error: { code: "scan_not_found", message: "That scan does not exist." },
+  });
+});
+
 test("the console leads with the finding and shows what it is built from", async ({ page }) => {
   await page.goto("/intel");
 
