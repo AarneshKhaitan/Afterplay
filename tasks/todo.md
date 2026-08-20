@@ -294,6 +294,12 @@ units: implementation and the named verification must land together.
 
 ### Review
 
+- Follow-up correction: removed `AFTERPLAY_CREATOR_ID` from the three web Playwright server
+  configurations. The suite now uses an isolated selectable workspace fixture and explicitly selects
+  it through `/api/creator`; the live config keeps its intentional `guest` first-run default.
+- Split Intel isolation coverage into two assertions: a foreign scan returns `404 scan_not_found`,
+  while a client-supplied creator different from the selected workspace returns `409 creator_mismatch`.
+
 - Implemented the channel memory product path: explicit YouTube channel preview, Python-derived
   creator id, workspace create/select/rename, rights-aware captions-only backfill jobs, durable
   progress, partial failure, cancellation, and shared process exclusion with clip ingest.

@@ -27,3 +27,8 @@
   before rebuilding if the modes were mixed.
 - Treat an existing Graphify graph as potentially stale. Check its update state against the current
   working tree and run the incremental update before using graph results to plan or describe code.
+- When removing a creator default from test server configuration, provide an isolated selectable
+  workspace fixture and select it through `/api/creator`; otherwise the suite becomes dependent on
+  whichever memory directory happens to exist on the developer's machine.
+- Test creator identity and scan ownership as separate contracts: omit `creatorId` for a foreign-scan
+  ownership assertion, and use a separate request to prove an explicit creator mismatch returns 409.

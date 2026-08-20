@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { TEST_CLIPPER_WORKDIR } from "./tests/e2e/clipper-workdir";
 import { TEST_EXPERIMENT_DIR } from "./tests/e2e/experiment-dir";
 import { TEST_INTEL_DIR } from "./tests/e2e/intel-dir";
+import { TEST_MEMORY_DIR } from "./tests/e2e/workspace-fixture";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -32,12 +33,10 @@ export default defineConfig({
       AFTERPLAY_MODE_LOCK: "true",
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
+      AFTERPLAY_MEMORY: TEST_MEMORY_DIR,
       AFTERPLAY_ENABLE_LIVE_AI: "false",
       // Keep the intelligence store out of the real `.intel/`: its belief memory is
       // cumulative, so test pollution there compounds instead of being overwritten.
-      // Pinned so the suite does not depend on which creators happen to be backfilled
-      // on the developer's machine, and so the intel fixtures resolve to one creator.
-      AFTERPLAY_CREATOR_ID: "creator_mika_rigged",
       AFTERPLAY_EXPERIMENT_DIR: TEST_EXPERIMENT_DIR,
       AFTERPLAY_INTEL_DIR: TEST_INTEL_DIR,
       // Pinned empty so the "scraper not configured" path is what the suite asserts on,

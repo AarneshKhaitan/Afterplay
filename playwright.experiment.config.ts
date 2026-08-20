@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { TEST_CLIPPER_WORKDIR } from "./tests/e2e/clipper-workdir";
 import { TEST_EXPERIMENT_DIR } from "./tests/e2e/experiment-dir";
 import { TEST_INTEL_DIR } from "./tests/e2e/intel-dir";
+import { TEST_MEMORY_DIR } from "./tests/e2e/workspace-fixture";
 
 const port = 3112;
 
@@ -25,7 +26,7 @@ export default defineConfig({
       AFTERPLAY_MODE_LOCK: "true",
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
-      AFTERPLAY_CREATOR_ID: "creator_mika_rigged",
+      AFTERPLAY_MEMORY: TEST_MEMORY_DIR,
       AFTERPLAY_ENABLE_LIVE_AI: "false",
       AFTERPLAY_EXPERIMENT_DIR: TEST_EXPERIMENT_DIR,
       AFTERPLAY_INTEL_DIR: TEST_INTEL_DIR,

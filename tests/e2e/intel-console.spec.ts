@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { TEST_INTEL_DIR } from "./intel-dir";
+import { TEST_CREATOR_ID } from "./workspace-fixture";
 
 /** Browser behaviour of the intelligence console, against a deterministic fixture store.
  *
@@ -12,7 +13,7 @@ import { TEST_INTEL_DIR } from "./intel-dir";
  * hold against real output too.
  */
 
-const CREATOR = "creator_mika_rigged";
+const CREATOR = TEST_CREATOR_ID;
 
 function video(overrides: Record<string, unknown>) {
   return {
@@ -201,10 +202,14 @@ test.afterAll(() => {
   rmSync(TEST_INTEL_DIR, { recursive: true, force: true });
 });
 
+test.beforeEach(async ({ request }) => {
+  const selected = await request.post("/api/creator", { data: { id: CREATOR } });
+  expect(selected.ok()).toBe(true);
+});
+
 test("a creator cannot ask against another creator's scan", async ({ request }) => {
   const response = await request.post("/api/intel/ask", {
     data: {
-      creatorId: "probe_ksi",
       question: "What should I publish next?",
       scanId: "scan_fixture",
       history: [],
@@ -214,6 +219,24 @@ test("a creator cannot ask against another creator's scan", async ({ request }) 
   expect(response.status()).toBe(404);
   expect(await response.json()).toEqual({
     error: { code: "scan_not_found", message: "That scan does not exist." },
+  });
+});
+
+test("a request cannot override the selected creator workspace", async ({ request }) => {
+  const response = await request.post("/api/intel/ask", {
+    data: {
+      creatorId: "probe_ksi",
+      question: "What should I publish next?",
+      history: [],
+    },
+  });
+
+  expect(response.status()).toBe(409);
+  expect(await response.json()).toEqual({
+    error: {
+      code: "creator_mismatch",
+      message: "This strategist question is scoped to the active creator workspace.",
+    },
   });
 });
 
