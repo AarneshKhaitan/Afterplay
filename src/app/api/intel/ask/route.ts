@@ -34,7 +34,14 @@ export async function POST(request: Request) {
   }
 
   const { creatorId, question, scanId, history } = parsed.data;
-  const activeCreatorId = creatorId ?? (await currentCreator()).id;
+  const activeCreator = await currentCreator();
+  if (creatorId && creatorId !== activeCreator.id) {
+    return NextResponse.json(
+      { error: { code: "creator_mismatch", message: "This strategist question is scoped to the active creator workspace." } },
+      { status: 409 },
+    );
+  }
+  const activeCreatorId = activeCreator.id;
   const scan = scanId
     ? loadScanForCreator(scanId, activeCreatorId)
     : latestCompleteScan(activeCreatorId);

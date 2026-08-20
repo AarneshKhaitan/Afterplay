@@ -48,7 +48,13 @@ export async function POST(request: Request) {
     parsed.data;
   // Fall back to the creator selected in the sidebar, so a scan belongs to the workspace
   // the operator is actually looking at rather than a fixture id.
-  const activeCreatorId = creatorId ?? (await currentCreator()).id;
+  const activeCreator = await currentCreator();
+  if (creatorId && creatorId !== activeCreator.id) {
+    return NextResponse.json({
+      error: { code: "creator_mismatch", message: "The scan does not belong to the active creator workspace." },
+    }, { status: 409 });
+  }
+  const activeCreatorId = activeCreator.id;
   const total = (competitors.length + 1) * videosPerChannel;
   if (total > MAX_RESULTS_PER_SCAN) {
     return invalidRequest(
@@ -71,7 +77,14 @@ export async function POST(request: Request) {
  * on first paint without a second round trip. */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const creatorId = url.searchParams.get("creatorId") ?? (await currentCreator()).id;
+  const activeCreator = await currentCreator();
+  const requestedCreatorId = url.searchParams.get("creatorId");
+  if (requestedCreatorId && requestedCreatorId !== activeCreator.id) {
+    return NextResponse.json({
+      error: { code: "creator_mismatch", message: "The intel memory does not belong to the active creator workspace." },
+    }, { status: 409 });
+  }
+  const creatorId = activeCreator.id;
   return NextResponse.json(
     {
       latest: latestCompleteScan(creatorId),

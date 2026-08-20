@@ -1,5 +1,3 @@
-import { defaultCreatorId, listCreators } from "./creators";
-
 /** Who the workspace is actually for, and what the server is actually configured to do.
  *
  * Both were previously hardcoded in the markup: the UI said "Mika Rao" in nine places
@@ -9,40 +7,6 @@ import { defaultCreatorId, listCreators } from "./creators";
  *
  * Server-only in practice — it reads `process.env` — but it touches no `node:` modules,
  * so it is safe to import from a server component that also renders client children. */
-
-export type ActiveCreator = {
-  /** Creator id the Python clipper uses for channel memory (`AFTERPLAY_MEMORY/<id>`). */
-  clipperCreatorId: string;
-  displayName: string;
-  initials: string;
-  /** Where the identity came from, so the UI never implies configuration that is absent. */
-  source: "configured" | "workspace" | "cold start";
-};
-
-function titleCase(id: string): string {
-  return id
-    .replace(/[_-]+/g, " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word[0].toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-export function activeCreator(): ActiveCreator {
-  const creatorId = defaultCreatorId();
-  const creator = listCreators().find((candidate) => candidate.id === creatorId);
-  const displayName = creator?.displayName ?? titleCase(creatorId);
-  return {
-    clipperCreatorId: creatorId,
-    displayName,
-    initials: displayName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase(),
-    source: process.env.AFTERPLAY_CREATOR_ID?.trim()
-      ? "configured"
-      : creator
-        ? "workspace"
-        : "cold start",
-  };
-}
 
 export type LiveAiState = {
   /** The flag the server actually runs on. */
