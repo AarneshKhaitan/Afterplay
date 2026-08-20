@@ -4,6 +4,9 @@ import { expect, test } from "@playwright/test";
 const fixtureNames = /Mika Rao|One More Rule|Rivetfall/i;
 
 test("a channel workspace can be created, selected, renamed, and kept cold without external calls", async ({ page }) => {
+  await page.goto("/setup");
+  await expect(page.getByRole("heading", { name: "Setup" })).toBeVisible();
+
   const created = await page.request.put("/api/creator", {
     data: {
       id: "live_channel_test",

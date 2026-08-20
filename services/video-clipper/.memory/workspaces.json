@@ -1,0 +1,18 @@
+{
+  "_afterplay": {
+    "format": "afterplay.versioned-json",
+    "schema": "creator.workspaces",
+    "version": 1
+  },
+  "value": {
+    "workspaces": [
+      {
+        "id": "probe_ksi",
+        "channelId": "UCmX6q9X6hE6v4nS4mJ0H0aQ",
+        "displayName": "Sidemen",
+        "handle": "Sidemen",
+        "mode": "demo"
+      }
+    ]
+  }
+}

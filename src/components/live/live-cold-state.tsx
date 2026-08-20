@@ -63,7 +63,7 @@ export function LiveColdState({
         </div>
         <div className="plan-table">
           {persistedFacts.map((fact) => (
-            <div className="plan-row" key={fact.label}>
+            <div className="live-plan-row" key={fact.label}>
               <span className="plan-role">Persisted</span>
               <strong>{fact.label}</strong>
               <span>{fact.value}</span>
@@ -77,7 +77,10 @@ export function LiveColdState({
         <p>{missingReason}</p>
         <h2>{nextTitle}</h2>
         <p>{nextAction}</p>
-        <Link className="primary-small" href={href}>{linkLabel} <ArrowRight weight="bold" /></Link>
+        <div className="live-cold-links">
+          <Link className="primary-small" href={href}>{linkLabel} <ArrowRight weight="bold" /></Link>
+          <Link className="secondary-small" href="/setup">Open setup <ArrowRight weight="bold" /></Link>
+        </div>
       </section>
     </div>
   );

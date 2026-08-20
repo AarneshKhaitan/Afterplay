@@ -8,12 +8,14 @@ import {
 
 const CREATOR_ID = /^[a-z0-9_]{1,60}$/;
 const RESERVED_IDS = new Set(["guest"]);
+export type WorkspaceMode = "demo" | "live";
 
 export type CreatorWorkspace = Readonly<{
   id: string;
   channelId: string;
   displayName: string;
   handle: string;
+  mode: WorkspaceMode;
 }>;
 
 type CreatorWorkspaceRegistry = Readonly<{
@@ -51,7 +53,8 @@ function isWorkspace(value: unknown): value is CreatorWorkspace {
     value.channelId.trim().length > 0 &&
     typeof value.displayName === "string" &&
     value.displayName.trim().length > 0 &&
-    typeof value.handle === "string"
+    typeof value.handle === "string" &&
+    (value.mode === "demo" || value.mode === "live" || value.mode === undefined)
   );
 }
 
@@ -105,6 +108,7 @@ function normalizedWorkspace(workspace: CreatorWorkspace): CreatorWorkspace {
     channelId: workspace.channelId.trim(),
     displayName: workspace.displayName.trim(),
     handle: workspace.handle.trim(),
+    mode: workspace.mode,
   };
 }
 
@@ -113,7 +117,13 @@ function writeRegistry(workspaces: CreatorWorkspace[]): void {
 }
 
 export function listWorkspaces(): CreatorWorkspace[] {
-  return readVersionedJson(registryPath(), registrySchema)?.workspaces ?? [];
+  return (readVersionedJson(registryPath(), registrySchema)?.workspaces ?? []).map((workspace) => ({
+    id: workspace.id,
+    channelId: workspace.channelId,
+    displayName: workspace.displayName,
+    handle: workspace.handle,
+    mode: workspace.mode ?? "live",
+  }));
 }
 
 export function upsertWorkspace(workspace: CreatorWorkspace): CreatorWorkspace {

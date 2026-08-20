@@ -2,50 +2,68 @@ import { expect, test } from "@playwright/test";
 
 import { resolveWorkspaceMode } from "../../../src/domain/mode";
 
-test("live mode is the isolated default and the browser profile can toggle modes", async ({ page }) => {
+test("workspace mode follows the selected creator", async ({ page }) => {
   const initial = await page.request.get("/api/mode");
   expect(initial.ok()).toBe(true);
-  expect(await initial.json()).toEqual({
+  expect(await initial.json()).toMatchObject({
     data: { mode: "live" },
     meta: {
       mode: "live",
       defaultMode: "live",
       locked: false,
-      source: "environment",
+      source: "workspace",
+    },
+  });
+
+  const selectedDemo = await page.request.put("/api/creator", {
+    data: {
+      id: "workspace_mode_demo",
+      channelId: "UC_MODE_DEMO",
+      displayName: "Workspace Mode Demo",
+      handle: "@modedemo",
+      mode: "demo",
+    },
+  });
+  expect(selectedDemo.ok()).toBe(true);
+
+  const demoMode = await page.request.get("/api/mode");
+  expect(await demoMode.json()).toMatchObject({
+    data: { mode: "demo" },
+    meta: {
+      mode: "demo",
+      locked: false,
+      source: "workspace",
     },
   });
 
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Switch to demo workspace" })).toBeEnabled();
-  await page.getByRole("button", { name: "Switch to demo workspace" }).click();
   await expect(page.locator(".topbar .sample-badge").filter({ hasText: "Demo workspace" }))
     .toBeVisible();
 
-  const demo = await page.request.get("/api/mode");
-  expect((await demo.json()).meta).toMatchObject({
-    mode: "demo",
-    locked: false,
-    source: "cookie",
+  const restored = await page.request.post("/api/creator", {
+    data: { id: "guest" },
   });
+  expect(restored.ok()).toBe(true);
 
-  await page.getByRole("button", { name: "Switch to live workspace" }).click();
-  await expect(page.getByRole("heading", { name: "No live growth diagnosis yet" })).toBeVisible();
-  const restored = await page.request.get("/api/mode");
-  expect((await restored.json()).meta).toMatchObject({
-    mode: "live",
-    locked: false,
-    source: "cookie",
+  const liveMode = await page.request.get("/api/mode");
+  expect(await liveMode.json()).toMatchObject({
+    data: { mode: "live" },
+    meta: {
+      mode: "live",
+      locked: false,
+      source: "workspace",
+    },
   });
 });
 
-test("a mode lock overrides a browser cookie", () => {
+test("a mode lock still overrides the selected workspace", () => {
   expect(resolveWorkspaceMode({
-    cookie: "live",
-    configuredDefault: "demo",
+    workspaceMode: "demo",
+    configuredDefault: "live",
     lock: "true",
   })).toEqual({
-    mode: "demo",
-    defaultMode: "demo",
+    mode: "live",
+    defaultMode: "live",
     locked: true,
     source: "lock",
   });

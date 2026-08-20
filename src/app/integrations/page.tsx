@@ -3,7 +3,8 @@ import Link from "next/link";
 
 import { ResetDemoButton } from "@/components/reset-demo-button";
 import { WorkspaceShell } from "@/components/workspace-shell";
-import { activeCreator, liveAiState } from "@/domain/identity";
+import { liveAiState } from "@/domain/identity";
+import { currentCreator } from "@/domain/creators";
 
 
 /* Runtime-dependent: the shell reports the ACTIVE creator and the real live-AI
@@ -39,9 +40,9 @@ const authority = [
   { action: "Spend money or change access", owner: "You", rule: "Approval required", state: "controlled" },
 ];
 
-export default function IntegrationsPage() {
+export default async function IntegrationsPage() {
   const live = liveAiState();
-  const identity = activeCreator();
+  const identity = await currentCreator();
   const connections = connectionRows(live);
   return (
     <WorkspaceShell active="Integrations" pageName="Integrations">
@@ -54,7 +55,7 @@ export default function IntegrationsPage() {
               <span className={`status-chip status-chip--${live.usable ? "review" : "safe"}`}>
                 {live.usable ? "Live AI configured" : "Demo configuration"}
               </span>
-              <span>{identity.clipperCreatorId}</span>
+              <span>{identity.id}</span>
               <span>No live writes</span>
             </div>
           </div>
@@ -66,9 +67,8 @@ export default function IntegrationsPage() {
             <span>{live.usable ? "Live available" : "Demo only"}</span>
           </div>
           <p className="mode-intro">
-            Mode is chosen <strong>per request</strong>, on the Experiments page — there is no
-            global switch to flip here, because a run should never silently change what the
-            previous one meant. This panel reports what the server is configured to allow.
+            Mode follows the selected workspace. Sidemen is seeded as demo; any workspace created
+            through setup is live. This panel reports what the server can actually run.
           </p>
           <div className="mode-grid">
             <article className="mode-card mode-card--selected">
@@ -105,18 +105,19 @@ export default function IntegrationsPage() {
         <section className="mode-section" aria-labelledby="workspace-title">
           <div className="memory-section-heading">
             <h2 id="workspace-title">Creator workspace</h2>
-            <span>{identity.source}</span>
+            <span>Session-scoped</span>
           </div>
           <p className="mode-intro">
             Everything the clipper reads and writes — channel memory, recorded results — is
-            keyed on this id. Change it with <code>AFTERPLAY_CREATOR_ID</code>; switching
-            accounts from the UI is not built yet.
+            keyed on this id. Switch via the Creator dropdown in the left rail or add a new one
+            from setup.
           </p>
           <dl className="identity-grid">
             <div><dt>Display name</dt><dd>{identity.displayName}</dd></div>
-            <div><dt>Clipper creator id</dt><dd><code>{identity.clipperCreatorId}</code></dd></div>
-            <div><dt>Source</dt><dd>{identity.source}</dd></div>
+            <div><dt>Clipper creator id</dt><dd><code>{identity.id}</code></dd></div>
+            <div><dt>Source</dt><dd>{identity.known ? "Known workspace" : "Session default"}</dd></div>
           </dl>
+          <Link className="primary-small" href="/setup">Open setup <LinkSimple /></Link>
         </section>
 
         <section className="connections-section" aria-labelledby="connections-title">

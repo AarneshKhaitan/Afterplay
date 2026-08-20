@@ -13,7 +13,6 @@ import {
 import Link from "next/link";
 
 import { CreatorSwitcher } from "@/components/creator-switcher";
-import { ModeToggle } from "@/components/mode-toggle";
 import { currentCreator, GUEST, listCreators } from "@/domain/creators";
 import { liveAiState } from "@/domain/identity";
 import { workspaceModeState, type WorkspaceModeState } from "@/domain/mode";
@@ -56,7 +55,10 @@ const navigation: Array<{
   },
   {
     section: "Setup",
-    items: [{ label: "Integrations", href: "/integrations", icon: LinkSimple, hint: "Keys and permissions" }],
+    items: [
+      { label: "Setup", href: "/setup", icon: CirclesThreePlus, hint: "First-run guide" },
+      { label: "Integrations", href: "/integrations", icon: LinkSimple, hint: "Keys and permissions" },
+    ],
   },
 ];
 
@@ -119,7 +121,13 @@ export async function WorkspaceShell({
         </nav>
 
         <div className="sidebar-foot">
-          <ModeToggle mode={modeState.mode} locked={modeState.locked} />
+          <div className={`mode-block mode-block--${modeState.mode}`}>
+            <span className="mode-dot" aria-hidden="true" />
+            <span>
+              <strong>{modeState.mode === "live" ? "Live workspace" : "Demo workspace"}</strong>
+              <small>{modeState.locked ? "Locked by environment" : "Selected workspace"}</small>
+            </span>
+          </div>
           <div className={`mode-block mode-block--${live.enabled ? "live" : "demo"}`}>
             <span className="mode-dot" aria-hidden="true" />
             <span>

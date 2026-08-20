@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
-import { invalidRequest } from "@/app/api/http";
-import {
-  WORKSPACE_MODE_COOKIE,
-  workspaceModeState,
-} from "@/domain/mode";
-
-const modeSchema = z.object({
-  mode: z.enum(["demo", "live"]),
-});
+import { workspaceModeState } from "@/domain/mode";
 
 function responseBody(state: Awaited<ReturnType<typeof workspaceModeState>>) {
   return {
@@ -30,49 +21,20 @@ export async function GET() {
   });
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   const current = await workspaceModeState();
-  if (current.locked) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "mode_locked",
-          message: `Workspace mode is locked to ${current.mode} by AFTERPLAY_MODE_LOCK.`,
-        },
-        meta: { mode: current.mode, locked: true },
+  return NextResponse.json(
+    {
+      error: {
+        code: "workspace_scoped",
+        message: `Mode is derived from the selected workspace (${current.mode}). Use the workspace switcher or /setup instead.`,
       },
-      { status: 409 },
-    );
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return invalidRequest("The request body must be valid JSON.");
-  }
-
-  const parsed = modeSchema.safeParse(body);
-  if (!parsed.success) {
-    return invalidRequest("Mode must be either demo or live.");
-  }
-
-  const response = NextResponse.json({
-    data: { mode: parsed.data.mode },
-    meta: {
-      mode: parsed.data.mode,
-      defaultMode: current.defaultMode,
-      locked: false,
-      source: "cookie" as const,
+      meta: {
+        mode: current.mode,
+        locked: current.locked,
+        source: current.source,
+      },
     },
-  });
-  response.cookies.set(WORKSPACE_MODE_COOKIE, parsed.data.mode, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: new URL(request.url).protocol === "https:",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
-  response.headers.set("Cache-Control", "no-store");
-  return response;
+    { status: 409 },
+  );
 }

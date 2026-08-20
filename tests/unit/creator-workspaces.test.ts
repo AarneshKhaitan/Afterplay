@@ -34,6 +34,7 @@ describe("creator workspace registry", () => {
       channelId: "UC-hindi",
       displayName: "Hindi Streamer",
       handle: "@hindistreamer",
+      mode: "live",
     });
 
     assert.deepEqual(listWorkspaces(), [workspace]);
@@ -54,12 +55,14 @@ describe("creator workspace registry", () => {
       channelId: "UC-one",
       displayName: "Original",
       handle: "@one",
+      mode: "live",
     });
     upsertWorkspace({
       id: "creator_one",
       channelId: "UC-one",
       displayName: "Updated",
       handle: "@updated",
+      mode: "live",
     });
 
     assert.equal(listWorkspaces()[0].displayName, "Updated");
@@ -69,6 +72,7 @@ describe("creator workspace registry", () => {
         channelId: "UC-two",
         displayName: "Collision",
         handle: "@two",
+        mode: "live",
       }),
       (error: unknown) =>
         error instanceof CreatorWorkspaceError && error.code === "creator_id_collision",
@@ -79,13 +83,13 @@ describe("creator workspace registry", () => {
   test("validates Python-provided ids and reserves the guest workspace", () => {
     for (const id of ["MixedCase", "has-dash", "../escape", "", "x".repeat(61)]) {
       assert.throws(
-        () => upsertWorkspace({ id, channelId: "UC-one", displayName: "Invalid", handle: "" }),
+        () => upsertWorkspace({ id, channelId: "UC-one", displayName: "Invalid", handle: "", mode: "live" }),
         (error: unknown) =>
           error instanceof CreatorWorkspaceError && error.code === "invalid_creator_id",
       );
     }
     assert.throws(
-      () => upsertWorkspace({ id: "guest", channelId: "UC-one", displayName: "Guest", handle: "" }),
+      () => upsertWorkspace({ id: "guest", channelId: "UC-one", displayName: "Guest", handle: "", mode: "live" }),
       (error: unknown) =>
         error instanceof CreatorWorkspaceError && error.code === "reserved_creator_id",
     );
@@ -97,6 +101,7 @@ describe("creator workspace registry", () => {
       channelId: "UC-one",
       displayName: "Original",
       handle: "@one",
+      mode: "live",
     });
 
     assert.deepEqual(renameWorkspace("creator_one", "  New Name  "), {
@@ -104,6 +109,7 @@ describe("creator workspace registry", () => {
       channelId: "UC-one",
       displayName: "New Name",
       handle: "@one",
+      mode: "live",
     });
     assert.throws(
       () => renameWorkspace("missing", "Name"),
@@ -120,12 +126,14 @@ describe("creator discovery", () => {
       channelId: "UC-sidemen",
       displayName: "Renamed Sidemen",
       handle: "@moresidemen",
+      mode: "live",
     });
     upsertWorkspace({
       id: "cold_creator",
       channelId: "UC-cold",
       displayName: "Cold Creator",
       handle: "@cold",
+      mode: "live",
     });
 
     const memoryDir = join(root, "probe_ksi");
@@ -149,6 +157,7 @@ describe("creator discovery", () => {
       id: "probe_ksi",
       displayName: "Renamed Sidemen",
       handle: "@moresidemen",
+      mode: "live",
       initials: "RS",
       threads: 1,
       streams: 1,
@@ -159,6 +168,7 @@ describe("creator discovery", () => {
       id: "cold_creator",
       displayName: "Cold Creator",
       handle: "@cold",
+      mode: "live",
       initials: "CC",
       threads: 0,
       streams: 0,

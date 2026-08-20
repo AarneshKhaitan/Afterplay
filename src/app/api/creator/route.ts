@@ -25,6 +25,7 @@ const createSchema = z.object({
   channelId: z.string().trim().min(1).max(200),
   displayName: z.string().trim().min(1).max(120),
   handle: z.string().trim().max(120).optional().default(""),
+  mode: z.enum(["demo", "live"]).optional().default("live"),
 });
 
 const renameSchema = z.object({

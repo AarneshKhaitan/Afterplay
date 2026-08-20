@@ -1,6 +1,7 @@
 "use client";
 
 import { CaretDown, Check } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -9,6 +10,7 @@ export type CreatorOption = {
   displayName: string;
   handle: string;
   initials: string;
+  mode: "demo" | "live";
   threads: number;
   streams: number;
 };
@@ -65,6 +67,7 @@ export function CreatorSwitcher({
                 <span className="account-avatar">{creator.initials}</span>
                 <span>
                   <strong>{creator.displayName}</strong>
+                  <small className={`creator-mode creator-mode--${creator.mode}`}>{creator.handle} · {creator.mode}</small>
                   <small>
                     {creator.threads > 0
                       ? `${creator.threads} threads from ${creator.streams} ${creator.streams === 1 ? "stream" : "streams"}`
@@ -79,6 +82,9 @@ export function CreatorSwitcher({
             Memory is per creator. Switching changes which history the clipper searches
             and which results feed back into ranking.
           </p>
+          <Link className="primary-small creator-popover-link" href="/setup">
+            Add a channel
+          </Link>
         </div>
       ) : null}
     </div>

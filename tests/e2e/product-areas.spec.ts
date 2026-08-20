@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-test("all six product areas are populated and navigable", async ({ page, request }) => {
+test("all seven product areas are populated and navigable", async ({ page, request }) => {
   test.setTimeout(60_000);
   await request.post("/api/demo/reset");
 
   const areas: Array<{ path: string; heading: string | RegExp }> = [
     { path: "/", heading: "New viewers watch, but few come back" },
+    { path: "/setup", heading: "Setup" },
     { path: "/experiments", heading: "One More Rule" },
     { path: "/studio", heading: "Review the package" },
     { path: "/audience", heading: "Return behavior after the test" },

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { cookies } from "next/headers";
 import { join } from "node:path";
 
-import { listWorkspaces, memoryRoot } from "./creator-workspaces";
+import { listWorkspaces, memoryRoot, type WorkspaceMode } from "./creator-workspaces";
 
 /** Server-only. Discovers real creator workspaces from channel memory on disk.
  *
@@ -19,6 +19,7 @@ export type CreatorProfile = {
   displayName: string;
   handle: string;
   initials: string;
+  mode: WorkspaceMode;
   /** Threads actually extracted from this channel's history. 0 is a real answer. */
   threads: number;
   /** Streams this creator's memory was built from. */
@@ -31,13 +32,13 @@ export type CreatorProfile = {
 
 /** Display names for creators we have actually backfilled. Everything else is derived
  * from the id, so a new backfill shows up without a code change. */
-const KNOWN: Record<string, { displayName: string; handle: string }> = {
+const KNOWN: Record<string, { displayName: string; handle: string; mode: WorkspaceMode }> = {
   // The backfilled videos are MoreSidemen uploads (KSI appears in them, but the channel
   // is not his). Labelling this workspace "KSI" would misattribute someone else's
   // content, which is the same class of error as claiming rights we do not have.
-  probe_ksi: { displayName: "Sidemen", handle: "Sidemen" },
-  demo_live: { displayName: "Demo Live", handle: "demo_live" },
-  e2e_demo: { displayName: "E2E Demo", handle: "e2e_demo" },
+  probe_ksi: { displayName: "Sidemen", handle: "Sidemen", mode: "demo" },
+  demo_live: { displayName: "Demo Live", handle: "demo_live", mode: "live" },
+  e2e_demo: { displayName: "E2E Demo", handle: "e2e_demo", mode: "live" },
 };
 
 function titleCase(id: string): string {
@@ -123,6 +124,7 @@ export function listCreators(): CreatorProfile[] {
       displayName,
       handle: workspace?.handle || known?.handle || id,
       initials: initialsOf(displayName),
+      mode: workspace?.mode ?? known?.mode ?? "live",
       threads,
       streams,
       known: Boolean(workspace || known),
@@ -142,6 +144,7 @@ export const GUEST: CreatorProfile = {
   displayName: "Guest",
   handle: "guest",
   initials: "GU",
+  mode: "live",
   threads: 0,
   streams: 0,
   known: true,
@@ -179,6 +182,7 @@ export async function currentCreator(): Promise<CreatorProfile> {
     displayName,
     handle: known?.handle ?? fallbackId,
     initials: initialsOf(displayName),
+    mode: known?.mode ?? "live",
     threads: 0,
     streams: 0,
     known: Boolean(known),

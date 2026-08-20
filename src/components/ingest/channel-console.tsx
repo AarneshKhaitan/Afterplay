@@ -6,13 +6,11 @@ import {
   Circle,
   Clock,
   Database,
-  FolderSimplePlus,
   Spinner,
   WarningCircle,
   XCircle,
   YoutubeLogo,
 } from "@phosphor-icons/react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type FootageRights =
@@ -99,7 +97,6 @@ function videoStateLabel(video: BackfillVideo): string {
 }
 
 export function ChannelConsole() {
-  const router = useRouter();
   const [channel, setChannel] = useState("");
   const [preview, setPreview] = useState<ChannelPreview | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -206,32 +203,6 @@ export function ChannelConsole() {
     }
   }
 
-  async function selectWorkspace() {
-    if (!preview) return;
-    setWorkspaceState("saving");
-    setError(null);
-    try {
-      const response = await fetch("/api/creator", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: preview.creator_id,
-          channelId: preview.listing.channel_id,
-          displayName: preview.listing.name,
-          handle: preview.listing.handle,
-        }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(errorMessage(data, "The workspace could not be selected."));
-      setKnownCreatorIds((current) => new Set(current).add(preview.creator_id));
-      setWorkspaceState("ready");
-      router.refresh();
-    } catch (caught) {
-      setWorkspaceState("idle");
-      setError((caught as Error).message);
-    }
-  }
-
   function toggleVideo(videoId: string) {
     setSelectedIds((current) => {
       if (current.includes(videoId)) return current.filter((id) => id !== videoId);
@@ -239,14 +210,51 @@ export function ChannelConsole() {
     });
   }
 
+  async function ensureWorkspace() {
+    if (!preview) return false;
+    if (existingWorkspace) {
+      setWorkspaceState("ready");
+      return true;
+    }
+
+    setWorkspaceState("saving");
+    const response = await fetch("/api/creator", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: preview.creator_id,
+        channelId: preview.listing.channel_id,
+        displayName: preview.listing.name,
+        handle: preview.listing.handle,
+        mode: "live",
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(errorMessage(data, "The workspace could not be created."));
+    }
+    setKnownCreatorIds((current) => new Set(current).add(preview.creator_id));
+    setWorkspaceState("ready");
+    return true;
+  }
+
   async function startBackfill() {
-    if (!preview || !footageRights || workspaceState !== "ready") return;
+    if (!preview) return;
+    if (!footageRights) {
+      setError("Choose a footage-rights attestation first.");
+      return;
+    }
+    if (selectedIds.length === 0) {
+      setError("Select at least one upload.");
+      return;
+    }
     setStarting(true);
     setError(null);
     setPollError(null);
     setJob(null);
     setElapsed(0);
     try {
+      await ensureWorkspace();
       const response = await fetch("/api/channel/backfill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -264,6 +272,7 @@ export function ChannelConsole() {
       setJob(data.job as BackfillJob);
       schedulePolling(data.jobId);
     } catch (caught) {
+      setWorkspaceState("idle");
       setError((caught as Error).message);
     } finally {
       setStarting(false);
@@ -294,6 +303,20 @@ export function ChannelConsole() {
 
   const existingWorkspace = preview ? knownCreatorIds.has(preview.creator_id) : false;
   const running = job ? ACTIVE_STATES.has(job.state) : false;
+  const requirementRows = preview ? [
+    {
+      label: existingWorkspace ? "Workspace selected" : `Will create workspace ${preview.creator_id}`,
+      state: existingWorkspace ? "done" : workspaceState === "saving" ? "current" : "locked",
+    },
+    {
+      label: footageRights ? "Footage rights set" : "Choose a footage-rights attestation",
+      state: footageRights ? "done" : "current",
+    },
+    {
+      label: selectedIds.length > 0 ? `${selectedIds.length} uploads selected` : "Select uploads",
+      state: selectedIds.length > 0 ? "done" : "current",
+    },
+  ] as const : [];
   const videoTitles = useMemo(
     () => new Map(preview?.listing.videos.map((video) => [video.video_id, video.title]) ?? []),
     [preview],
@@ -363,9 +386,23 @@ export function ChannelConsole() {
                   <input value={preview.creator_id} readOnly aria-readonly="true" />
                   <small>This ID is carried from Python unchanged to prevent split memory.</small>
                 </label>
-                <button className="channel-action" type="button" onClick={() => void selectWorkspace()} disabled={workspaceState === "saving" || workspaceState === "ready"}>
-                  {workspaceState === "saving" ? <><Spinner className="spin" /> Selecting...</> : workspaceState === "ready" ? <><CheckCircle weight="fill" /> Workspace ready</> : <><FolderSimplePlus weight="bold" /> {existingWorkspace ? "Select workspace" : "Create and select"}</>}
-                </button>
+                <div className="channel-workspace-status">
+                  <span className={`channel-workspace-state ${workspaceState === "ready" ? "is-ready" : ""}`}>
+                    {workspaceState === "saving" ? "Creating workspace" : existingWorkspace ? "Workspace ready" : `Will create ${preview.creator_id}`}
+                  </span>
+                  <p>Create happens inline when you build memory. No separate workspace button.</p>
+                </div>
+              </div>
+
+              <div className="channel-requirements" aria-label="Run requirements">
+                {requirementRows.map((row) => (
+                  <div key={row.label} className={`channel-requirement channel-requirement--${row.state}`}>
+                    <span>
+                      {row.state === "done" ? <CheckCircle weight="fill" /> : row.state === "current" ? <Clock weight="bold" /> : <Circle aria-hidden="true" />}
+                    </span>
+                    <strong>{row.label}</strong>
+                  </div>
+                ))}
               </div>
 
               <fieldset className="channel-video-fieldset">
@@ -428,10 +465,10 @@ export function ChannelConsole() {
                 <span><strong>{selectedIds.length}</strong> uploads</span>
                 <span><strong>{workspaceState === "ready" ? "Ready" : "Not ready"}</strong> workspace</span>
               </div>
-              <button className="channel-action channel-action--primary" type="button" onClick={() => void startBackfill()} disabled={starting || running || workspaceState !== "ready" || !footageRights || selectedIds.length === 0}>
+              <button className="channel-action channel-action--primary" type="button" onClick={() => void startBackfill()} disabled={starting || running}>
                 {starting ? <><Spinner className="spin" /> Starting memory run...</> : running ? <><Spinner className="spin" /> Building memory - {elapsed}s</> : <>Build memory from {selectedIds.length} {selectedIds.length === 1 ? "upload" : "uploads"} <ArrowRight weight="bold" /></>}
               </button>
-              {workspaceState !== "ready" ? <p className="channel-inline-note">Create or select the channel workspace before starting.</p> : null}
+              <p className="channel-inline-note">The button creates the workspace if needed, then starts the run.</p>
             </div>
           )}
 

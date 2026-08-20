@@ -33,6 +33,7 @@ for (const route of coldRoutes) {
 
     await expect(page.getByRole("heading", { name: route.heading })).toBeVisible();
     await expect(page.locator(".topbar .sample-badge").filter({ hasText: "Live workspace" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open setup" })).toBeVisible();
     await expect(page.locator(".truth-footer")).toContainText(/does not substitute|not substituted|available only in demo mode/);
     expect(await page.locator("body").innerText()).not.toMatch(forbiddenFixtureCopy);
 

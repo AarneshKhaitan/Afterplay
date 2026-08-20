@@ -1,8 +1,9 @@
-import type { WorkspaceMode } from "./workspace";
+import { currentCreator } from "./creators";
+import type { WorkspaceMode } from "./creator-workspaces";
 
 export const WORKSPACE_MODE_COOKIE = "afterplay_mode";
 
-export type WorkspaceModeSource = "cookie" | "environment" | "default" | "lock";
+export type WorkspaceModeSource = "workspace" | "environment" | "default" | "lock";
 
 export type WorkspaceModeState = {
   mode: WorkspaceMode;
@@ -16,12 +17,13 @@ export function parseWorkspaceMode(value: string | null | undefined): WorkspaceM
 }
 
 export function resolveWorkspaceMode(input: {
-  cookie?: string | null;
+  workspaceMode?: string | null;
   configuredDefault?: string | null;
   lock?: string | null;
 }): WorkspaceModeState {
+  const workspaceMode = parseWorkspaceMode(input.workspaceMode);
   const configured = parseWorkspaceMode(input.configuredDefault);
-  const defaultMode = configured ?? "live";
+  const defaultMode = configured ?? workspaceMode ?? "live";
   const locked = input.lock === "true";
 
   if (locked) {
@@ -33,13 +35,12 @@ export function resolveWorkspaceMode(input: {
     };
   }
 
-  const cookieMode = parseWorkspaceMode(input.cookie);
-  if (cookieMode) {
+  if (workspaceMode) {
     return {
-      mode: cookieMode,
+      mode: workspaceMode,
       defaultMode,
       locked: false,
-      source: "cookie",
+      source: "workspace",
     };
   }
 
@@ -52,11 +53,9 @@ export function resolveWorkspaceMode(input: {
 }
 
 export async function workspaceModeState(): Promise<WorkspaceModeState> {
-  const { cookies } = await import("next/headers");
-  const store = await cookies();
-
+  const creator = await currentCreator();
   return resolveWorkspaceMode({
-    cookie: store.get(WORKSPACE_MODE_COOKIE)?.value,
+    workspaceMode: creator.mode,
     configuredDefault: process.env.AFTERPLAY_MODE,
     lock: process.env.AFTERPLAY_MODE_LOCK,
   });

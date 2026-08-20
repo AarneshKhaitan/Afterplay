@@ -12,12 +12,12 @@ test("workspace mode defaults to live when no environment or cookie is set", () 
   });
 });
 
-test("only validated cookie values override the configured default", () => {
+test("workspace mode overrides the configured default", () => {
   assert.equal(parseWorkspaceMode("demo"), "demo");
   assert.equal(parseWorkspaceMode("live"), "live");
   assert.equal(parseWorkspaceMode("preview"), null);
-  assert.equal(resolveWorkspaceMode({ cookie: "demo", configuredDefault: "live" }).mode, "demo");
-  assert.deepEqual(resolveWorkspaceMode({ cookie: "preview", configuredDefault: "demo" }), {
+  assert.equal(resolveWorkspaceMode({ workspaceMode: "demo", configuredDefault: "live" }).mode, "demo");
+  assert.deepEqual(resolveWorkspaceMode({ workspaceMode: "preview", configuredDefault: "demo" }), {
     mode: "demo",
     defaultMode: "demo",
     locked: false,
@@ -27,7 +27,7 @@ test("only validated cookie values override the configured default", () => {
 
 test("mode lock ignores browser overrides and pins the configured mode", () => {
   assert.deepEqual(resolveWorkspaceMode({
-    cookie: "demo",
+    workspaceMode: "demo",
     configuredDefault: "live",
     lock: "true",
   }), {
