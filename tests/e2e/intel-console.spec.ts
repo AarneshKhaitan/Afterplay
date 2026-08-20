@@ -156,6 +156,11 @@ test.beforeAll(() => {
   };
 
   writeFileSync(join(TEST_INTEL_DIR, "scans", "scan_fixture.json"), JSON.stringify(scan), "utf-8");
+  writeFileSync(
+    join(TEST_INTEL_DIR, "scans", "scan_foreign.json"),
+    JSON.stringify({ ...scan, scanId: "scan_foreign", creatorId: "someone_else" }),
+    "utf-8",
+  );
 
   const memory = {
     creatorId: CREATOR,
@@ -211,7 +216,7 @@ test("a creator cannot ask against another creator's scan", async ({ request }) 
   const response = await request.post("/api/intel/ask", {
     data: {
       question: "What should I publish next?",
-      scanId: "scan_fixture",
+      scanId: "scan_foreign",
       history: [],
     },
   });
