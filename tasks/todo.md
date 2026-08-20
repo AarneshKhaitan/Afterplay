@@ -294,6 +294,14 @@ units: implementation and the named verification must land together.
 
 ### Review
 
+- Part C design-system consolidation — `306e52d`:
+  - Added semantic Afterplay accent, surface, spacing, weight, shadow, duration, easing, and z-index
+    scales without changing shared/Riff token values.
+  - Consolidated product-region card, chip, heading, evidence-surface, radius, color, and weight
+    recipes; preserved the dedicated live-plan grid and the existing collision fixes.
+  - Verification: `npm run test:unit` — 9 passed; production build — clean; production accessibility
+    suite — 9 passed across 8 routes plus 390px overflow; product-area browser suite — 4 passed.
+
 - Follow-up correction: removed `AFTERPLAY_CREATOR_ID` from the three web Playwright server
   configurations. The suite now uses an isolated selectable workspace fixture and explicitly selects
   it through `/api/creator`; the live config keeps its intentional `guest` first-run default.
