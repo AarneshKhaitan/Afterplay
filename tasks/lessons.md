@@ -34,3 +34,5 @@
   ownership assertion, and use a separate request to prove an explicit creator mismatch returns 409.
 - When a test selects the workspace that owns its main fixture, a nonexistent scan id is insufficient
   for ownership coverage. Seed an existing scan under a second creator and request that exact id.
+- Do not treat a locally stalled Node wrapper as verification. Stop the process, report the missing
+  runtime result, and require an independent full-suite run before calling a commit verified.
