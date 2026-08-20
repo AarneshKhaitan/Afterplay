@@ -1,5 +1,4 @@
-import { currentCreator } from "./creators";
-import type { WorkspaceMode } from "./creator-workspaces";
+import type { WorkspaceMode } from "./creator-workspaces.ts";
 
 export const WORKSPACE_MODE_COOKIE = "afterplay_mode";
 
@@ -53,6 +52,9 @@ export function resolveWorkspaceMode(input: {
 }
 
 export async function workspaceModeState(): Promise<WorkspaceModeState> {
+  // Keep the pure mode resolver loadable by Node's unit-test runner without pulling
+  // Next's request-bound `cookies()` implementation into that test module.
+  const { currentCreator } = await import("./creators.ts");
   const creator = await currentCreator();
   return resolveWorkspaceMode({
     workspaceMode: creator.mode,

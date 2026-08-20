@@ -36,3 +36,7 @@
   for ownership coverage. Seed an existing scan under a second creator and request that exact id.
 - Do not treat a locally stalled Node wrapper as verification. Stop the process, report the missing
   runtime result, and require an independent full-suite run before calling a commit verified.
+- On Node 22, always pass explicit unit-test files through an npm script; an unexpanded `node --test`
+  glob can trigger recursive discovery across `node_modules`, virtual environments, and build output.
+- Keep pure domain resolvers free of eager request/framework imports. Lazy-load server-bound dependencies
+  inside the server function so direct Node unit tests can exercise the pure contract.
