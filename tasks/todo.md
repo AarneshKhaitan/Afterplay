@@ -286,7 +286,7 @@ units: implementation and the named verification must land together.
       exclude them from the default config.
 - [x] Cover live cold states, mode behavior, workspace/channel flow, demo-only 409s, no-fixture
       assertions, partial failure, cancellation, creator isolation, and accessibility.
-- [ ] Backfill cached `BW_MAa5L9lg` as the independent historical stream and record its corpus role.
+- [x] Backfill cached `BW_MAa5L9lg` as the independent historical stream and record its corpus role.
 - [ ] Rehearse a clean creator channel-to-memory-to-clip-to-Studio path twice, prove captions-only
       operation, and record timings and fallback tier.
 - [x] Run full Python, typecheck, lint, build, production Playwright, live Playwright, and manual
@@ -318,6 +318,8 @@ units: implementation and the named verification must land together.
   - Riff web cohost Playwright: `15 passed`.
   - Core Afterplay browser subset earlier in dev mode: `68 passed`; stale assertions were fixed and
     reverified in production mode.
-- Remaining operational gates: the cached `BW_MAa5L9lg` independent-stream backfill and two timed
-  stage rehearsals are not recorded in this pass. Do not claim those are complete until the actual
-  runbook evidence exists.
+- Cached `BW_MAa5L9lg` operational backfill completed from local `.demo-cache` captions for
+  `probe_ksi`: 18 threads suggested, 18 added, 2 citations repaired, 0 rejected, with
+  `not_cleared` rights and `provided_vtt` provenance recorded in the ignored runtime memory store.
+- Remaining operational gate: two timed stage rehearsals are not recorded in this pass. Do not
+  claim rehearsal completion until the actual runbook evidence exists.
