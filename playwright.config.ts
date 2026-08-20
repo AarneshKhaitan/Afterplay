@@ -6,6 +6,7 @@ import { TEST_INTEL_DIR } from "./tests/e2e/intel-dir";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  testIgnore: ["live/**"],
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -27,6 +28,8 @@ export default defineConfig({
     // their local .env would otherwise turn that assertion red. Tests must not depend
     // on local machine configuration.
     env: {
+      AFTERPLAY_MODE: "demo",
+      AFTERPLAY_MODE_LOCK: "true",
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_ENABLE_LIVE_AI: "false",

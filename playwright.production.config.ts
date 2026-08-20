@@ -17,6 +17,8 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60_000,
     env: {
+      AFTERPLAY_MODE: "demo",
+      AFTERPLAY_MODE_LOCK: "true",
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
       // Pinned off so the "unconfigured live mode fails visibly" assertion does not

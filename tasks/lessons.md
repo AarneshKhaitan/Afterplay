@@ -25,3 +25,5 @@
   Both use `.next`; dev output can contaminate the production type graph. Use the production
   Playwright config or isolate `distDir`, and delete only the verified generated `.next` directory
   before rebuilding if the modes were mixed.
+- Treat an existing Graphify graph as potentially stale. Check its update state against the current
+  working tree and run the incremental update before using graph results to plan or describe code.

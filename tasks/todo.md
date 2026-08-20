@@ -238,3 +238,86 @@ message if `requirements.txt` was not installed, rather than producing a spread 
   by necessity. The CSV path makes real analytics reachable; there is nothing real to
   ingest until a publishing connector exists. This is a scope boundary, not a defect.
 - P1/P2 gaps G8-G15 and G16-G22 remain open by design; see the register.
+
+## Live workflow, honest modes, and product consolidation - 2026-08-20
+
+Source plan: `~/.claude/plans/woolly-wobbling-stallman.md`. All items below are acceptance
+units: implementation and the named verification must land together.
+
+### Phase L1 - Python channel and memory contract
+
+- [x] Harden channel parsing/listing with stable error codes, bot-block/timeout mapping, requested
+      counts, unknown metadata, and tests.
+- [x] Parallelize per-window extraction with indexed deterministic placement, bounded retries,
+      cached OpenAI clients, worker limits, progress, and workers=1/8 equivalence tests.
+- [x] Add rights-aware `backfill-channel` preview/run contracts with atomic status/report/provenance,
+      captions-only partial failure, cancellation-safe writes, and CLI coverage.
+- [x] Remove the callback judge gate leak and add the planned retrieval/prompt quality protections.
+
+### Phase L2 - Product backend
+
+- [x] Extract the shared ingest process registry and re-point clip ingest without regression.
+- [x] Add creator-scoped durable channel jobs, duplicate-run exclusion, cancellation, and ownership
+      checks.
+- [x] Add channel preview/backfill GET/POST/DELETE routes with a 25-second preview timeout.
+- [x] Add collision-safe creator workspace registry, creator union/`hasMemory`, create/select PUT,
+      and rename PATCH.
+
+### Phase L3 - Honest live/demo mode
+
+- [x] Add validated cookie/env mode resolution, lock behavior, API route, sidebar toggle, and
+      effective-mode provenance on every Afterplay page.
+- [x] Replace fixture-backed live HQ/Audience/Experiments branches with truthful cold states.
+- [x] Guard synthetic result/dispatch/reset mutations with `409 demo_only` in live mode.
+- [x] Preserve visibly labelled demo fixtures as the explicit stage fallback.
+
+### Phase L4 - Channel workflow and UI consolidation
+
+- [x] Add the two-step channel console with preview, derived creator identity, workspace creation,
+      video selection, rights, captions-only disclosure, progress, partial/cancelled states, and
+      generation-safe polling.
+- [x] Consolidate Afterplay-only tokens, warning colour, surfaces, cards, chips, headings, motion,
+      selector collisions, focus/cold states, and 390px/intermediate responsive behavior without
+      changing Riff styles or shared token values.
+
+### Phase L5 - Verification and release
+
+- [x] Pin demo mode and locks in all existing Playwright web-server configs; isolate live specs and
+      exclude them from the default config.
+- [x] Cover live cold states, mode behavior, workspace/channel flow, demo-only 409s, no-fixture
+      assertions, partial failure, cancellation, creator isolation, and accessibility.
+- [ ] Backfill cached `BW_MAa5L9lg` as the independent historical stream and record its corpus role.
+- [ ] Rehearse a clean creator channel-to-memory-to-clip-to-Studio path twice, prove captions-only
+      operation, and record timings and fallback tier.
+- [x] Run full Python, typecheck, lint, build, production Playwright, live Playwright, and manual
+      desktop/mobile browser validation; clean owned generated artifacts.
+
+### Review
+
+- Implemented the channel memory product path: explicit YouTube channel preview, Python-derived
+  creator id, workspace create/select/rename, rights-aware captions-only backfill jobs, durable
+  progress, partial failure, cancellation, and shared process exclusion with clip ingest.
+- Implemented honest demo/live mode: cookie/env resolution, lock behavior, visible mode provenance,
+  live cold states for HQ/Audience/Experiments, server-side demo-only guards, and isolated live
+  Playwright coverage.
+- Integrated Intelligence and Strategy: active creator strategy evidence now carries real belief
+  bodies and verified thread provenance; Intel recommendations can create a persisted live
+  experiment draft; foreign scan ids are rejected before persistence.
+- Preserved Riff as a contract boundary while adding versioned Afterplay/Riff packet validation and
+  running the Riff web cohost specs after adjacent route typing changes.
+- Verification completed:
+  - `services/video-clipper`: full Python suite `187 passed, 1 skipped`.
+  - Focused eval/channel Python suite: `35 passed`.
+  - `npm run lint`: clean.
+  - `npm run typecheck`: clean.
+  - `npm run build`: clean production build.
+  - Live Playwright: `13 passed`.
+  - Production product/strategy Playwright: `7 passed`.
+  - Production lifecycle/manifest group: `35 passed`, then `growth-hq.spec.ts` rerun `2 passed`
+    after updating the stale demo badge assertion.
+  - Riff web cohost Playwright: `15 passed`.
+  - Core Afterplay browser subset earlier in dev mode: `68 passed`; stale assertions were fixed and
+    reverified in production mode.
+- Remaining operational gates: the cached `BW_MAa5L9lg` independent-stream backfill and two timed
+  stage rehearsals are not recorded in this pass. Do not claim those are complete until the actual
+  runbook evidence exists.

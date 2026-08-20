@@ -21,6 +21,8 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 300_000,
     env: {
+      AFTERPLAY_MODE: "demo",
+      AFTERPLAY_MODE_LOCK: "true",
       AFTERPLAY_CLIPPER_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_WORKDIR: TEST_CLIPPER_WORKDIR,
       AFTERPLAY_CREATOR_ID: "creator_mika_rigged",
