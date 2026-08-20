@@ -762,7 +762,7 @@ class TestBackfillASRFallback:
     def _args(self, tmp_path, **kw):
         import argparse
         base = dict(url=None, info_json=None, vtt=None, local=None,
-                    creator="c_asr", stream_id="s1")
+                    creator="c_asr", stream_id="s1", rights="not_cleared")
         base.update(kw)
         return argparse.Namespace(**base)
 

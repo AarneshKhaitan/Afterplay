@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -21,6 +22,9 @@ from .memory import memory_root
 log = logging.getLogger("afterplay")
 
 THREAD_KINDS = {"running_joke", "rivalry", "person", "unfinished_story", "recurring_bit"}
+DEFAULT_MEMORY_WORKERS = 8
+MAX_MEMORY_WORKERS = 16
+DEFAULT_SIMILARITY_FLOOR = 0.30
 
 
 @dataclass
@@ -106,10 +110,22 @@ def stable_thread_id(data: dict) -> str:
 def cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb) if na and nb else 0.0
+    import numpy as np
+    left = np.asarray(a, dtype=np.float32)
+    right = np.asarray(b, dtype=np.float32)
+    denominator = float(np.linalg.norm(left) * np.linalg.norm(right))
+    return float(np.dot(left, right) / denominator) if denominator else 0.0
+
+
+def similarity_floor(value: float | str | None = None) -> float:
+    raw = value if value is not None else os.environ.get(
+        "AFTERPLAY_MEMORY_SIMILARITY_FLOOR", str(DEFAULT_SIMILARITY_FLOOR)
+    )
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_SIMILARITY_FLOOR
+    return max(-1.0, min(parsed, 1.0))
 
 
 def _save_json(path: Path, obj) -> None:
@@ -132,6 +148,7 @@ class ChannelMemory:
         self.embedder = embedder
         self.verification_counts = {"verified": 0, "repaired": 0, "unverified": 0}
         self.pruned_unverified = 0
+        self.last_retrieval_timings = {"embed": 0.0, "retrieve": 0.0}
         self.threads = self._load()
 
     def _load(self) -> list[ThreadRecord]:
@@ -179,7 +196,8 @@ class ChannelMemory:
             return self.embedder(texts)
         return embed_texts(texts)
 
-    def retrieved_thread(self, thread: ThreadRecord, score: float) -> dict:
+    def retrieved_thread(self, thread: ThreadRecord, score: float,
+                         percentile: float = 1.0) -> dict:
         d = thread.to_dict()
         d.pop("embedding", None)
         d.pop("updated", None)
@@ -187,31 +205,55 @@ class ChannelMemory:
         d["first_seen"] = verified[0]
         d["mentions"] = verified[:3]
         d["similarity"] = round(score, 4)
+        d["similarity_percentile"] = round(percentile, 4)
         return d
 
-    def retrieve(self, text: str, k: int = 3) -> list[dict]:
-        found = self.retrieve_many([text], k=k, top_windows=1)
+    def retrieve(self, text: str, k: int = 3, *, min_similarity: float | None = None) -> list[dict]:
+        found = self.retrieve_many(
+            [text], k=k, top_windows=1, min_similarity=min_similarity
+        )
         return found.get(0, [])
 
-    def retrieve_many(self, texts: list[str], k: int = 3, top_windows: int = 10) -> dict[int, list[dict]]:
+    def retrieve_many(self, texts: list[str], k: int = 3, top_windows: int = 10,
+                      *, min_similarity: float | None = None) -> dict[int, list[dict]]:
+        started = time.perf_counter()
+        self.last_retrieval_timings = {"embed": 0.0, "retrieve": 0.0}
         if not self.threads:
             return {}
         eligible = [t for t in self.threads if t.embedding and t.has_verified_evidence()]
         if not eligible or not texts:
             return {}
 
+        embed_started = time.perf_counter()
         query_vectors = self.embed(texts)
-        windows = []
+        embed_elapsed = time.perf_counter() - embed_started
+        floor = similarity_floor(min_similarity)
+        candidate_windows = []
         for idx, query in enumerate(query_vectors):
             scored = [(cosine(query, t.embedding), t) for t in eligible]
             scored.sort(key=lambda item: -item[0])
-            if scored:
-                windows.append((idx, scored[0][0], scored[:k]))
+            passing = [(score, thread) for score, thread in scored if score >= floor]
+            if passing:
+                candidate_windows.append((idx, passing[0][0], passing[:k], scored))
 
-        windows.sort(key=lambda item: -item[1])
+        candidate_windows.sort(key=lambda item: -item[1])
         out = {}
-        for idx, _, scored in windows[:top_windows]:
-            out[idx] = [self.retrieved_thread(thread, score) for score, thread in scored]
+        for idx, _, passing, all_scored in candidate_windows[:top_windows]:
+            population = [score for score, _ in all_scored]
+            denominator = max(1, len(population) - 1)
+            out[idx] = [
+                self.retrieved_thread(
+                    thread,
+                    score,
+                    (sum(other <= score for other in population) - 1) / denominator
+                    if len(population) > 1 else 1.0,
+                )
+                for score, thread in passing
+            ]
+        self.last_retrieval_timings = {
+            "embed": round(embed_elapsed, 6),
+            "retrieve": round(time.perf_counter() - started - embed_elapsed, 6),
+        }
         return out
 
     def backfill(
@@ -221,8 +263,16 @@ class ChannelMemory:
         extractor=None,
         *,
         prune_unverified: bool = False,
+        workers: int | None = None,
+        progress: Callable[[int, int, bool], None] | None = None,
     ) -> list[ThreadRecord]:
-        extracted = extract_threads(stream_id, sents, extractor=extractor)
+        extracted = extract_threads(
+            stream_id,
+            sents,
+            extractor=extractor,
+            workers=workers,
+            progress=progress,
+        )
         verified = [thread for thread in extracted if thread.has_verified_evidence()]
         self.verification_counts = {
             "verified": len(verified),
@@ -271,42 +321,118 @@ def windows(sents, seconds: float = 150.0) -> Iterable[list]:
         yield chunk
 
 
-def extract_threads(stream_id: str, sents, extractor=None) -> list[ThreadRecord]:
+def memory_workers(value: int | str | None = None) -> int:
+    raw = value if value is not None else os.environ.get(
+        "AFTERPLAY_MEMORY_WORKERS", str(DEFAULT_MEMORY_WORKERS)
+    )
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        parsed = DEFAULT_MEMORY_WORKERS
+    return max(1, min(parsed, MAX_MEMORY_WORKERS))
+
+
+def _extract_window(
+    stream_id: str,
+    text: str,
+    extractor,
+    *,
+    attempts: int = 2,
+) -> dict:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return extractor(stream_id, text)
+        except Exception as exc:  # noqa: BLE001 - a failed window must not kill the video
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(0.25 * attempt)
+    assert last_error is not None
+    raise last_error
+
+
+def _records_from_window(stream_id: str, chunk: list, data: dict) -> list[ThreadRecord]:
     out: list[ThreadRecord] = []
-    for chunk in windows(sents):
-        text = "\n".join(f"[{s.start:.1f}] {s.text}" for s in chunk)
-        data = extractor(stream_id, text) if extractor else extract_threads_with_openai(stream_id, text)
-        for item in data.get("threads", [])[:10]:
-            kind = str(item.get("kind") or "recurring_bit")
-            if kind not in THREAD_KINDS:
-                kind = "recurring_bit"
-            first = item.get("first_seen") or {}
-            reported_quote = str(first.get("quote") or item.get("quote") or "")[:500]
-            reported_t = first.get("t", chunk[0].start)
-            citation = verify_citation(reported_quote, reported_t, chunk)
-            mention = StreamMention(
-                stream_id=stream_id,
-                t=citation.t,
-                quote=citation.quote,
-                verified=citation.verified,
-                match_ratio=citation.match_ratio,
-                repair=citation.repair,
-                t_reported=citation.t_reported,
-                quote_display=citation.quote_display,
-            )
-            record = ThreadRecord(
-                id=str(item.get("id") or stable_thread_id(item)),
-                kind=kind,
-                label=str(item.get("label") or "Untitled thread")[:120],
-                summary=str(item.get("summary") or "")[:800],
-                status=str(item.get("status") or "open"),
-                first_seen=mention,
-                mentions=[mention],
-            )
-            out.append(record)
+    for item in data.get("threads", [])[:10]:
+        kind = str(item.get("kind") or "recurring_bit")
+        if kind not in THREAD_KINDS:
+            kind = "recurring_bit"
+        first = item.get("first_seen") or {}
+        reported_quote = str(first.get("quote") or item.get("quote") or "")[:500]
+        reported_t = first.get("t", chunk[0].start)
+        citation = verify_citation(reported_quote, reported_t, chunk)
+        mention = StreamMention(
+            stream_id=stream_id,
+            t=citation.t,
+            quote=citation.quote,
+            verified=citation.verified,
+            match_ratio=citation.match_ratio,
+            repair=citation.repair,
+            t_reported=citation.t_reported,
+            quote_display=citation.quote_display,
+        )
+        record = ThreadRecord(
+            id=str(item.get("id") or stable_thread_id(item)),
+            kind=kind,
+            label=str(item.get("label") or "Untitled thread")[:120],
+            summary=str(item.get("summary") or "")[:800],
+            status=str(item.get("status") or "open"),
+            first_seen=mention,
+            mentions=[mention],
+        )
+        out.append(record)
     return out
 
 
+def extract_threads(
+    stream_id: str,
+    sents,
+    extractor=None,
+    *,
+    workers: int | None = None,
+    progress: Callable[[int, int, bool], None] | None = None,
+) -> list[ThreadRecord]:
+    chunks = list(windows(sents))
+    if not chunks:
+        return []
+
+    if extractor is None:
+        client = openai_client()
+
+        def extractor(stream, text):
+            return extract_threads_with_openai(stream, text, client=client)
+
+    per_window: list[list[ThreadRecord] | None] = [None] * len(chunks)
+    max_workers = min(memory_workers(workers), len(chunks))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="afterplay-memory") as pool:
+        futures = {}
+        for index, chunk in enumerate(chunks):
+            text = "\n".join(f"[{s.start:.1f}] {s.text}" for s in chunk)
+            future = pool.submit(_extract_window, stream_id, text, extractor)
+            futures[future] = (index, chunk)
+
+        for future in as_completed(futures):
+            index, chunk = futures[future]
+            succeeded = False
+            try:
+                per_window[index] = _records_from_window(stream_id, chunk, future.result())
+                succeeded = True
+            except Exception as exc:  # noqa: BLE001 - retain every other completed window
+                per_window[index] = []
+                log.warning(
+                    "channel memory %s window %d/%d failed after retry: %s",
+                    stream_id,
+                    index + 1,
+                    len(chunks),
+                    exc,
+                )
+            if progress:
+                progress(index, len(chunks), succeeded)
+
+    return [record for records in per_window for record in (records or [])]
+
+
+@lru_cache(maxsize=1)
 def openai_client():
     if not os.environ.get("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY is required for OpenAI calls "
@@ -333,10 +459,10 @@ def parsed_response(response) -> dict:
     return extract_json(response.output_text)
 
 
-def extract_threads_with_openai(stream_id: str, transcript: str) -> dict:
+def extract_threads_with_openai(stream_id: str, transcript: str, *, client=None) -> dict:
     from .prompts import (SYSTEM, THREAD_EXTRACTION_JSON_SCHEMA, json_schema_format,
                           thread_extraction_prompt)
-    client = openai_client()
+    client = client or openai_client()
     response = client.responses.create(
         model=clipper_model(),
         input=[

@@ -1,0 +1,29 @@
+{
+  "schema": "afterplay.callback-eval-corpus",
+  "schema_version": 1,
+  "claim_scope": "bounded_candidate_window_corpus_not_a_benchmark",
+  "records": 50,
+  "splits": {
+    "tuning": {
+      "path": "tuning.jsonl",
+      "records": 25,
+      "sha256": "6ba0433723c4ea996c22eeb93a03d7eea095f37f71d781f1493aff6b857b29ea"
+    },
+    "heldout": {
+      "path": "heldout.jsonl",
+      "records": 25,
+      "sha256": "691279aa817cee736738e508306cbdef76f3ba085e933b2b448daaeea56d7302"
+    }
+  },
+  "source_overlap_across_splits": [
+    "BW_MAa5L9lg",
+    "X955SmTm1rY"
+  ],
+  "human_annotators": 0,
+  "notes": [
+    "Windows are transcript-verbatim and hashes bind them to the local cached VTTs.",
+    "The available cache cannot produce a source-disjoint tuning/held-out split.",
+    "Ambiguous cases have two transparent system/AI annotation records, not two humans.",
+    "Do not present results as a benchmark or a generalisation claim."
+  ]
+}

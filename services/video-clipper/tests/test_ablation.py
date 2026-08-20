@@ -147,7 +147,7 @@ def test_same_pipeline_ablation_emits_complete_rank_diff():
         "boost": 10.0,
         "base_score": 0.0,
         "final_score": 10.0,
-        "score_scale": "cold_start_points_plus_additive_memory_boost",
+        "score_scale": "normalized_base_0_1_plus_additive_memory_boost",
         "baseline_selected": False,
         "memory_selected": True,
         "callback": True,

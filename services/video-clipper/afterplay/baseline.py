@@ -42,9 +42,28 @@ def _ordered(moments: list[Moment]) -> list[Moment]:
 
 
 def _score_scale(moment: Moment) -> str:
-    if "heatmap" in moment.signals:
-        return "heatmap_mean_plus_additive_memory_boost"
-    return "cold_start_points_plus_additive_memory_boost"
+    return "normalized_base_0_1_plus_additive_memory_boost"
+
+
+def normalize_scores(moments: list[Moment]) -> list[Moment]:
+    """Copy candidates onto a comparable 0..1 base scale without changing order."""
+    from .understand import Moment
+
+    if not moments:
+        return []
+    values = [moment.score for moment in moments]
+    low, high = min(values), max(values)
+    spread = high - low
+    normalized = []
+    for moment in moments:
+        score = (moment.score - low) / spread if spread else 0.0
+        signals = dict(moment.signals)
+        signals["raw_base_score"] = moment.score
+        signals["normalized_base_score"] = score
+        normalized.append(Moment(
+            moment.start, moment.end, score, moment.text, moment.why, signals
+        ))
+    return normalized
 
 
 def compare_rankings(

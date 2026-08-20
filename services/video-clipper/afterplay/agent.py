@@ -567,6 +567,7 @@ class Orchestrator:
             "degraded": bool(reasoner.memory_degraded),
             "reason": reasoner.memory_degradation_reason,
             "threads_considered": int(getattr(reasoner, "threads_considered", 0) or 0),
+            "timings": dict(getattr(reasoner, "memory_timings", {}) or {}),
             # True only when a CLIPPED moment carries the callback. A callback that lost
             # the top-n cut is reported separately rather than silently claimed.
             "callback_found": bool(reasoner.callback_found),

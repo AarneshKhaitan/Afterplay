@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from dataclasses import dataclass, field
 
 # ── VTT -> word-level timings ─────────────────────────────────────────────────
@@ -325,6 +326,7 @@ class MemoryReasoner(Reasoner):
         self.callbacks_ranked_out = 0
         self.callbacks_filtered_out = 0
         self.threads_considered = 0
+        self.memory_timings = {"embed": 0.0, "retrieve": 0.0, "judge": 0.0}
         from .baseline import unavailable_ablation
         self.ablation = unavailable_ablation("not_run")
 
@@ -336,18 +338,28 @@ class MemoryReasoner(Reasoner):
         self.callbacks_ranked_out = 0
         self.callbacks_filtered_out = 0
         self.threads_considered = 0
-        from .baseline import compare_rankings, unavailable_ablation
+        self.memory_timings = {"embed": 0.0, "retrieve": 0.0, "judge": 0.0}
+        from .baseline import compare_rankings, normalize_scores, unavailable_ablation
         self.ablation = unavailable_ablation("not_run")
         try:
-            baseline_moments = score_all(sents, heatmap, target=target, tol=tol)
-            baseline_selected = select(baseline_moments, n=n, min_gap=min_gap)
-            if not baseline_moments:
+            raw_baseline_moments = score_all(sents, heatmap, target=target, tol=tol)
+            raw_baseline_selected = select(raw_baseline_moments, n=n, min_gap=min_gap)
+            if not raw_baseline_moments:
                 self.ablation = unavailable_ablation("no_candidate_windows")
                 return []
+            baseline_moments = normalize_scores(raw_baseline_moments)
+            baseline_selected = select(baseline_moments, n=n, min_gap=min_gap)
             moments = [Moment(m.start, m.end, m.score, m.text, m.why,
                               dict(m.signals)) for m in baseline_moments]
             try:
                 retrieved_by_idx = self._retrieve_candidates([moment.text for moment in moments])
+                retrieval_timings = getattr(
+                    self.channel_memory, "last_retrieval_timings", {}
+                )
+                self.memory_timings["embed"] = float(retrieval_timings.get("embed") or 0.0)
+                self.memory_timings["retrieve"] = float(
+                    retrieval_timings.get("retrieve") or 0.0
+                )
                 self.threads_considered = len({
                     str(item.get("id"))
                     for hits in retrieved_by_idx.values()
@@ -358,9 +370,9 @@ class MemoryReasoner(Reasoner):
                 self._set_memory_degradation(f"thread lookup failed ({type(e).__name__}: {e})")
                 self.ablation = unavailable_ablation(
                     self.memory_degradation_reason,
-                    candidate_count=len(baseline_moments),
+                    candidate_count=len(raw_baseline_moments),
                 )
-                return baseline_selected
+                return raw_baseline_selected
 
             judge = self.judge
             if retrieved_by_idx and judge is None:
@@ -375,7 +387,9 @@ class MemoryReasoner(Reasoner):
                 ]
                 if retrieved and judge:
                     try:
+                        judge_started = time.perf_counter()
                         verdict = judge(moment.text, retrieved)
+                        self.memory_timings["judge"] += time.perf_counter() - judge_started
                     except Exception as e:                           # noqa: BLE001
                         self._set_memory_degradation(f"callback judge failed ({type(e).__name__}: {e})")
                         verdict = {"is_callback": False}
@@ -407,6 +421,9 @@ class MemoryReasoner(Reasoner):
                         })
 
             picked = select(moments, n=n, min_gap=min_gap)
+            self.memory_timings = {
+                key: round(value, 6) for key, value in self.memory_timings.items()
+            }
             if self.memory_degraded:
                 self.ablation = unavailable_ablation(
                     self.memory_degradation_reason or "memory_unavailable",

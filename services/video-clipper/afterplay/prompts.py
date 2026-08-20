@@ -268,6 +268,8 @@ Extract creator-specific threads that could make a future clip meaningful as a c
 - Running jokes, recurring bits, named rivalries, people/audience members who recur, or
   unfinished storylines with a clear future payoff.
 - Threads grounded in a timestamp and quote from the transcript.
+- For code-mixed or non-English speech, preserve the cited quote in its source script exactly;
+  write the thread label and summary in English without transliterating the evidence quote.
 
 # Reject
 - Generic topics, one-off jokes, vague vibes, normal gameplay events, or anything that
@@ -321,7 +323,15 @@ creator-memory thread.
   punchline tied to a retrieved thread.
 - If retrieved_threads is empty, or the link is weak, return is_callback false.
 - Use only a thread_id that appears in retrieved_threads. Never invent one.
-- Confidence should be conservative. Use 0.55+ only for a clear callback.
+- Confidence should describe the strength of the evidence, not target an acceptance threshold.
+- Treat code-mixed speech normally. Preserve source-script evidence in the reasoning and never
+  translate or transliterate a quoted citation.
+
+# Calibration examples
+Positive: memory says a creator promised to shave their head after ten wins; the current window
+shows win ten and explicitly says the promise is due. Return true for that promise thread.
+Hard negative: memory and the current window both mention ranked play, but the current window does
+not refer to a prior event, promise, person, rivalry, or recurring bit. Return false.
 
 # Output contract
 Return ONLY this JSON:

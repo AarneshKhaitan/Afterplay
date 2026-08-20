@@ -35,7 +35,7 @@ def cmd_plan(a) -> int:
     # import by name: `afterplay.resolve` the function shadows the submodule
     from .resolve import from_info_json, resolve as resolve_url
     from .understand import parse_vtt, sentences
-    from .agent import TOOLS, ClaudePolicy, HeuristicPolicy
+    from .agent import TOOLS, ClaudePolicy, HeuristicPolicy, MemoryPolicy
 
     s = Settings()
     t0 = time.time()
@@ -51,9 +51,16 @@ def cmd_plan(a) -> int:
         return 2
     words = parse_vtt(Path(src.vtt_path).read_text(encoding="utf-8"))
     sents = sentences(words)
-    policy = ClaudePolicy() if a.llm else HeuristicPolicy()
+    if a.memory:
+        if not a.creator:
+            print("--memory requires --creator", file=sys.stderr)
+            return 2
+        policy = MemoryPolicy(a.creator)
+    else:
+        policy = ClaudePolicy() if a.llm else HeuristicPolicy()
+    reasoner = policy.reasoner()
     moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
-                         n=a.clips, target=a.target, reasoner=policy.reasoner())
+                         n=a.clips, target=a.target, reasoner=reasoner)
     elapsed = time.time() - t0
 
     out = {"source": {"url": src.url, "title": src.title, "uploader": src.uploader,
@@ -64,6 +71,16 @@ def cmd_plan(a) -> int:
            "clips": [{"start": round(m.start, 2), "end": round(m.end, 2),
                       "duration": round(m.dur, 2), "score": round(m.score, 3),
                       "why": m.why, "text": m.text[:400]} for m in moments]}
+    if a.memory:
+        out["memory"] = {
+            "creator": a.creator,
+            "degraded": bool(getattr(reasoner, "memory_degraded", False)),
+            "reason": getattr(reasoner, "memory_degradation_reason", None),
+            "callback_found": bool(getattr(reasoner, "callback_found", False)),
+            "threads_considered": int(getattr(reasoner, "threads_considered", 0)),
+            "timings": getattr(reasoner, "memory_timings", {}),
+            "ablation": getattr(reasoner, "ablation", None),
+        }
     if a.json:
         print(json.dumps(out, indent=2))
     else:
@@ -147,6 +164,7 @@ def cmd_memory(a) -> int:
 
 
 def cmd_backfill(a) -> int:
+    from .channel_backfill import append_provenance
     from .channel_memory import ChannelMemory
     from .resolve import from_info_json, from_local, resolve as resolve_url
     from .understand import parse_vtt, sentences
@@ -218,8 +236,89 @@ def cmd_backfill(a) -> int:
            "citations_rejected": counts["unverified"],
            "legacy_threads_pruned": memory.pruned_unverified,
            "path": str(memory.path)}
+    provenance = append_provenance(
+        memory,
+        job_id=f"backfill_{a.stream_id}",
+        channel=a.url or a.local or a.info_json or a.stream_id,
+        rights=a.rights,
+        videos=[{
+            "video_id": a.stream_id,
+            "url": a.url,
+            "state": "complete",
+            "transcript_language": getattr(src, "transcript_language", None),
+            "transcript_source": getattr(src, "transcript_source", "provided_vtt" if a.vtt else None),
+            "subtitle_track": getattr(src, "subtitle_track", str(vtt_path) if vtt_path else None),
+        }],
+    )
+    out["provenance_path"] = str(provenance)
     print(json.dumps(out, indent=2))
     return 0
+
+
+def cmd_eval(a) -> int:
+    """Evaluate callback detection from recorded responses unless record is explicit."""
+    from .evals.run_eval import EvaluationError, evaluate
+
+    try:
+        report = evaluate(
+            tuning_path=Path(a.tuning), heldout_path=Path(a.heldout),
+            replay_path=Path(a.replays), mode="record" if a.record else "replay",
+            model=a.model, threshold=a.threshold,
+            report_path=Path(a.report) if a.report else None,
+        )
+    except EvaluationError as exc:
+        print(f"evaluation failed: {exc}", file=sys.stderr)
+        return 2
+
+    if a.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        heldout = report["heldout"]
+        print(report["claim_scope"])
+        print(f"threshold: {report['metadata']['threshold']:.2f} (tuning only)")
+        print(f"held-out detection: precision {heldout['detection']['precision']:.3f}  "
+              f"recall {heldout['detection']['recall']:.3f}  "
+              f"confusion {heldout['detection']['confusion_matrix']}")
+        print(f"held-out thread selection: precision "
+              f"{heldout['thread_selection']['precision']:.3f}  "
+              f"recall {heldout['thread_selection']['recall']:.3f}  "
+              f"wrong-thread {heldout['thread_selection']['wrong_thread']}")
+        if a.report:
+            print(f"report: {a.report}")
+    return 0
+
+
+def cmd_backfill_channel(a) -> int:
+    from .channel_backfill import preview_channel, run_channel_backfill
+    from .channels import ChannelError
+
+    try:
+        if a.dry_run:
+            print(json.dumps(preview_channel(a.channel, limit=a.limit), indent=2))
+            return 0
+        if not a.creator:
+            print("--creator is required unless --dry-run is used", file=sys.stderr)
+            return 2
+        if not a.videos:
+            print("--videos requires at least one previewed video id", file=sys.stderr)
+            return 2
+        if not a.rights:
+            print("--rights is required for a channel backfill", file=sys.stderr)
+            return 2
+        job_id = a.job_id or f"channel_{uuid.uuid4().hex[:10]}"
+        code, report = run_channel_backfill(
+            a.channel,
+            creator_id=a.creator,
+            video_ids=a.videos,
+            rights=a.rights,
+            job_id=job_id,
+            workers=a.workers,
+        )
+        print(json.dumps(report, indent=2))
+        return code
+    except ChannelError as exc:
+        print(json.dumps({"error": exc.code, "message": str(exc)}), file=sys.stderr)
+        return 2
 
 
 def cmd_predemo(a) -> int:
@@ -386,7 +485,26 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("plan", help="decision phase only (no video bytes)")
     common(sp)
+    sp.add_argument("--creator", help="creator id for callback memory")
+    sp.add_argument("--memory", action="store_true",
+                    help="use OpenAI creator-memory callback detection")
     sp.set_defaults(fn=cmd_plan)
+
+    sp = sub.add_parser("eval", help="replay the bounded callback evaluation corpus")
+    sp.add_argument("--set", dest="heldout", required=True,
+                    help="held-out JSONL evaluated only after threshold selection")
+    sp.add_argument("--tuning", required=True,
+                    help="tuning JSONL used for the threshold sweep")
+    sp.add_argument("--replays", default="evals/replays.jsonl",
+                    help="immutable recorded callback responses")
+    sp.add_argument("--record", action="store_true",
+                    help="explicitly call OpenAI for replay misses and record responses")
+    sp.add_argument("--model", help="model id; defaults to AFTERPLAY_CLIPPER_MODEL")
+    sp.add_argument("--threshold", type=float,
+                    help="fixed threshold override (otherwise selected on tuning only)")
+    sp.add_argument("--report", help="write the immutable JSON report to this path")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.set_defaults(fn=cmd_eval)
 
     sp = sub.add_parser("run", help="full pipeline: extract, render, QC, deliver")
     common(sp)
@@ -418,7 +536,28 @@ def main(argv=None) -> int:
         action="store_true",
         help="remove legacy records without verifier-backed evidence after extraction succeeds",
     )
+    sp.add_argument("--rights", required=True,
+                    choices=["project_owned", "creator_owned", "permission_granted",
+                             "licensed", "not_cleared"],
+                    help="explicit rights attestation for the transcript source")
     sp.set_defaults(fn=cmd_backfill)
+
+    sp = sub.add_parser(
+        "backfill-channel",
+        help="preview a channel or build memory from selected captioned uploads",
+    )
+    sp.add_argument("channel", help="explicit @handle or YouTube channel URL")
+    sp.add_argument("--creator", help="creator id returned by the dry-run preview")
+    sp.add_argument("--videos", nargs="+", help="video ids selected from the preview")
+    sp.add_argument("--rights",
+                    choices=["project_owned", "creator_owned", "permission_granted",
+                             "licensed", "not_cleared"])
+    sp.add_argument("--job-id", dest="job_id")
+    sp.add_argument("--workers", type=int)
+    sp.add_argument("--limit", type=int, default=5, help="preview listing size")
+    sp.add_argument("--dry-run", action="store_true",
+                    help="list videos and derive creator id without OpenAI calls")
+    sp.set_defaults(fn=cmd_backfill_channel)
 
     sp = sub.add_parser("memory", help="inspect local creator memory")
     sp.add_argument("creator")
