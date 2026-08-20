@@ -1,7 +1,10 @@
 import { Check, WarningCircle } from "@phosphor-icons/react/dist/ssr";
 
+import { MemoryView } from "@/components/intel/memory-view";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { currentCreator, loadThreads } from "@/domain/creators";
+import { activeBeliefs } from "@/domain/intel/memory";
+import { loadMemory } from "@/domain/intel/store";
 
 
 /* Runtime-dependent: the shell reports the ACTIVE creator and the real live-AI
@@ -19,17 +22,27 @@ function timestamp(seconds: number) {
 export default async function MemoryPage() {
   const creator = await currentCreator();
   const threads = loadThreads(creator.id);
+  const intelligenceMemory = loadMemory(creator.id);
+  const beliefs = activeBeliefs(intelligenceMemory);
   const streams = new Set(threads.map((thread) => thread.streamId));
 
   return (
     <WorkspaceShell active="Memory" pageName="Memory">
       <div className="surface memory-surface">
-        <section className="page-hero memory-hero"><div><h1>What Afterplay remembers about {creator.displayName}</h1><p>Channel memory is what makes a callback findable: threads extracted from earlier streams, each with the moment and the words that started it.</p><div className="hero-meta"><span className="status-chip status-chip--memory">{threads.length} extracted {threads.length === 1 ? "thread" : "threads"}</span><span>{streams.size} {streams.size === 1 ? "stream" : "streams"}</span><span>{creator.id}</span></div></div></section>
+        <section className="page-hero memory-hero"><div><h1>What Afterplay remembers about {creator.displayName}</h1><p>Verified channel threads preserve continuity; intelligence beliefs preserve what repeated competitive scans have taught the strategy team.</p><div className="hero-meta"><span className="status-chip status-chip--memory">{threads.length} verified {threads.length === 1 ? "thread" : "threads"}</span><span>{beliefs.length} active {beliefs.length === 1 ? "belief" : "beliefs"}</span><span>{creator.id}</span></div></div></section>
+
+        <section className="channel-memory" aria-labelledby="beliefs-title">
+          <div className="memory-section-heading">
+            <h2 id="beliefs-title">Intelligence beliefs</h2>
+            <span>Creator-scoped findings loaded from competitive intelligence memory</span>
+          </div>
+          <MemoryView memory={intelligenceMemory} active={beliefs} />
+        </section>
 
         <section className="channel-memory" aria-labelledby="threads-title">
           <div className="memory-section-heading">
-            <h2 id="threads-title">Channel memory</h2>
-            <span>{threads.length ? "Real, extracted from this channel's transcripts" : "Nothing backfilled yet"}</span>
+            <h2 id="threads-title">Verified channel threads</h2>
+            <span>{threads.length ? `${streams.size} transcript-backed ${streams.size === 1 ? "stream" : "streams"}` : "Nothing backfilled yet"}</span>
           </div>
           {threads.length ? (
             <div className="thread-list">

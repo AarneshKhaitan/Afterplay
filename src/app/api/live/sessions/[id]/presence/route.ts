@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { invalidRequest, liveSessionErrorResponse } from "@/app/api/http";
 import { cohostPresenceSchema, updateCohostPresence } from "@/domain/live-session";
 
-export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
+function sessionId(params: unknown): string {
+  return typeof params === "object" && params !== null && "id" in params
+    ? String((params as { id: unknown }).id)
+    : "";
+}
+
+export async function PUT(request: Request, context: { params: Promise<unknown> }) {
   let body: unknown;
   try {
     body = await request.json();
@@ -17,8 +23,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   }
 
   try {
-    const { id } = await context.params;
-    return NextResponse.json({ session: updateCohostPresence(id, parsed.data) });
+    return NextResponse.json({ session: updateCohostPresence(sessionId(await context.params), parsed.data) });
   } catch (error) {
     return liveSessionErrorResponse(error);
   }

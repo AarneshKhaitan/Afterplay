@@ -4,6 +4,7 @@ import { z } from "zod";
 import { experimentErrorResponse, invalidRequest } from "@/app/api/http";
 import { currentCreator } from "@/domain/creators";
 import { recordResults } from "@/domain/experiment";
+import { workspaceModeState } from "@/domain/mode";
 // Imported here, not from domain/experiment, because the bridge touches node:fs and
 // `experiment` is pulled into client bundles. Route handlers are server-only.
 import { persistPerClipResults } from "@/domain/results-bridge";
@@ -33,6 +34,20 @@ const resultsSchema = z.object({
 });
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const modeState = await workspaceModeState();
+  if (modeState.mode === "live") {
+    return NextResponse.json(
+      {
+        error: {
+          code: "demo_only",
+          message: "Synthetic experiment results can only be recorded in demo mode.",
+        },
+        meta: { mode: modeState.mode, locked: modeState.locked },
+      },
+      { status: 409 },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();

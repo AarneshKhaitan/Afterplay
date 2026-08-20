@@ -7,6 +7,7 @@ import type { Insight, ScanJob, VideoRecord } from "@/domain/intel/types";
 
 import { EvidenceChips } from "./evidence-chips";
 import { PositionMap } from "./position-map";
+import { RecommendationAction } from "./recommendation-action";
 
 function videoIndex(scan: ScanJob): Map<string, VideoRecord> {
   return new Map(scan.channels.flatMap((c) => c.videos).map((v) => [v.id, v]));
@@ -348,6 +349,7 @@ export function ReportView({ scan }: { scan: ScanJob }) {
                     <strong>{rec.expectedSignal}</strong>
                   </div>
                   <EvidenceChips evidence={rec.evidence} scan={scan} />
+                  <RecommendationAction scanId={scan.scanId} recommendation={rec} />
                 </div>
               </article>
             ))}

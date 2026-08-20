@@ -8,9 +8,12 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 
+import { loadLiveWorkspaceCounts } from "@/components/live/data";
+import { LiveHqColdState } from "@/components/live/hq-cold-state";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { currentCreator } from "@/domain/creators";
 import { getExperiment, resultMovement } from "@/domain/experiment";
+import { workspaceModeState } from "@/domain/mode";
 import { getDemoWorkspace } from "@/domain/workspace";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +27,28 @@ const roleTone = {
 } as const;
 
 export default async function GrowthHqPage() {
+  const [creator, modeState] = await Promise.all([currentCreator(), workspaceModeState()]);
+  if (modeState.mode === "live") {
+    return (
+      <WorkspaceShell
+        active="HQ"
+        pageName="Growth HQ"
+        modeState={modeState}
+        badge="Persisted sources only"
+        dataNote="HQ has no live diagnosis or audience result. The counts shown are read from this creator's persisted memory, intelligence, and clip stores; demo fixtures are not substituted."
+      >
+        <LiveHqColdState
+          creatorName={creator.displayName}
+          creatorId={creator.id}
+          counts={loadLiveWorkspaceCounts(creator)}
+        />
+      </WorkspaceShell>
+    );
+  }
+
   // `meta` and `creator` moved into the shared shell with the sidebar and footer.
   const { workspace } = getDemoWorkspace();
   const { diagnosis, activeExperiment, teamActivity, decision, learning } = workspace;
-  const creator = await currentCreator();
   const experiment = getExperiment("exp_one_more_rule", creator.id);
   const movement = resultMovement(experiment.result);
   const learnedState = experiment.status === "learned" && experiment.learning && experiment.nextExperiment
@@ -41,7 +62,13 @@ export default async function GrowthHqPage() {
     : teamActivity;
 
   return (
-    <WorkspaceShell active="HQ" pageName="Growth HQ">
+    <WorkspaceShell
+      active="HQ"
+      pageName="Growth HQ"
+      modeState={modeState}
+      badge="Seeded HQ fixture"
+      dataNote="This HQ diagnosis, experiment, activity, and result loop are synthetic demo fixtures."
+    >
         <div className="workspace-grid">
           <section className="primary-column" aria-labelledby="diagnosis-title">
             <article className="diagnosis-panel">

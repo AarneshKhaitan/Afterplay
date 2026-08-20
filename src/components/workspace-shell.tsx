@@ -13,8 +13,10 @@ import {
 import Link from "next/link";
 
 import { CreatorSwitcher } from "@/components/creator-switcher";
+import { ModeToggle } from "@/components/mode-toggle";
 import { currentCreator, GUEST, listCreators } from "@/domain/creators";
 import { liveAiState } from "@/domain/identity";
+import { workspaceModeState, type WorkspaceModeState } from "@/domain/mode";
 
 /** Navigation follows the actual workflow, not an alphabet of features.
  *
@@ -64,6 +66,7 @@ export async function WorkspaceShell({
   children,
   dataNote,
   badge,
+  modeState: suppliedModeState,
 }: Readonly<{
   active: string;
   pageName: string;
@@ -75,10 +78,18 @@ export async function WorkspaceShell({
   dataNote?: string;
   /** Overrides the topbar badge, for the same reason. */
   badge?: string;
+  /** Pages that branch on mode can pass the state they already resolved. */
+  modeState?: WorkspaceModeState;
 }>) {
-  const identity = await currentCreator();
+  const [identity, modeState] = await Promise.all([
+    currentCreator(),
+    suppliedModeState ? Promise.resolve(suppliedModeState) : workspaceModeState(),
+  ]);
   const creators = [...listCreators(), GUEST];
   const live = liveAiState();
+  const pageDataNote = dataNote ?? (modeState.mode === "demo"
+    ? "Demo workspace is active. Fixture-backed surfaces are labelled; real pipeline data remains identified separately."
+    : "Live workspace is active. This page does not substitute demo fixtures when persisted data is unavailable.");
 
   return (
     <div className="app-shell">
@@ -108,11 +119,12 @@ export async function WorkspaceShell({
         </nav>
 
         <div className="sidebar-foot">
+          <ModeToggle mode={modeState.mode} locked={modeState.locked} />
           <div className={`mode-block mode-block--${live.enabled ? "live" : "demo"}`}>
             <span className="mode-dot" aria-hidden="true" />
             <span>
-              <strong>{live.enabled ? "Live AI enabled" : "Demo mode"}</strong>
-              <small>{live.enabled ? live.model : "No live actions"}</small>
+              <strong>{live.enabled ? "Live AI enabled" : "Live AI disabled"}</strong>
+              <small>{live.enabled ? live.model : "Live AI disabled"}</small>
             </span>
           </div>
           <details className="team-menu">
@@ -133,18 +145,16 @@ export async function WorkspaceShell({
             <span className="topbar-date">{identity.displayName}</span>
           </div>
           <div className="topbar-actions">
-            <span className="sample-badge"><span /> {badge ?? "Sample workspace"}</span>
-            <span className="updated">{live.enabled ? `Live · ${live.model}` : "Demo snapshot"}</span>
+            <span className="sample-badge"><span /> {modeState.mode === "live" ? "Live workspace" : "Demo workspace"}</span>
+            {badge ? <span className="sample-badge"><span /> {badge}</span> : null}
+            <span className="updated">{live.enabled ? `Live AI · ${live.model}` : "Live AI off"}</span>
           </div>
         </header>
         {children}
         <footer className="truth-footer">
-          <span>{dataNote ? "Live data" : "Demo mode"}</span>
-          <p>
-            {dataNote ??
-              "This workspace contains synthetic sample data. Distribution and elapsed-time results are simulated."}
-          </p>
-          <time dateTime="2026-08-05">Snapshot 05 Aug 2026</time>
+          <span>{modeState.mode === "live" ? "Live workspace" : "Demo workspace"}</span>
+          <p>{pageDataNote}</p>
+          <span>{modeState.locked ? "Mode locked" : "Mode visible"}</span>
         </footer>
       </main>
     </div>

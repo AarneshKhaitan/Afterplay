@@ -1,4 +1,4 @@
-import { demoWorkspace } from "./workspace";
+import { defaultCreatorId, listCreators } from "./creators";
 
 /** Who the workspace is actually for, and what the server is actually configured to do.
  *
@@ -16,7 +16,7 @@ export type ActiveCreator = {
   displayName: string;
   initials: string;
   /** Where the identity came from, so the UI never implies configuration that is absent. */
-  source: "configured" | "demo fixture";
+  source: "configured" | "workspace" | "cold start";
 };
 
 function titleCase(id: string): string {
@@ -29,22 +29,18 @@ function titleCase(id: string): string {
 }
 
 export function activeCreator(): ActiveCreator {
-  const configured = process.env.AFTERPLAY_CREATOR_ID?.trim();
-  if (configured) {
-    const displayName = titleCase(configured);
-    return {
-      clipperCreatorId: configured,
-      displayName,
-      initials: displayName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase(),
-      source: "configured",
-    };
-  }
-  const { creator } = demoWorkspace.workspace;
+  const creatorId = defaultCreatorId();
+  const creator = listCreators().find((candidate) => candidate.id === creatorId);
+  const displayName = creator?.displayName ?? titleCase(creatorId);
   return {
-    clipperCreatorId: creator.id,
-    displayName: creator.displayName,
-    initials: creator.displayName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase(),
-    source: "demo fixture",
+    clipperCreatorId: creatorId,
+    displayName,
+    initials: displayName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase(),
+    source: process.env.AFTERPLAY_CREATOR_ID?.trim()
+      ? "configured"
+      : creator
+        ? "workspace"
+        : "cold start",
   };
 }
 

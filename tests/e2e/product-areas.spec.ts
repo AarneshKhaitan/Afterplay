@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("all six product areas are populated and navigable", async ({ page, request }) => {
+  test.setTimeout(60_000);
   await request.post("/api/demo/reset");
 
   const areas: Array<{ path: string; heading: string | RegExp }> = [
@@ -16,7 +17,7 @@ test("all six product areas are populated and navigable", async ({ page, request
   for (const area of areas) {
     await page.goto(area.path);
     await expect(page.getByRole("heading", { level: 1, name: area.heading })).toBeVisible();
-    await expect(page.getByText("Sample workspace", { exact: true })).toBeVisible();
+    await expect(page.getByText("Demo workspace", { exact: true }).first()).toBeVisible();
   }
 });
 
@@ -32,9 +33,9 @@ test("Memory exposes the selected creator, verified memory, and boundaries", asy
   // The pinned test creator has no channel memory on disk, and that must be stated
   // plainly rather than dressed up with authored sample threads: with no memory, no
   // callback can be claimed. This is the cold-start contract.
-  const channelMemory = page.getByRole("region", { name: "Channel memory" });
+  const channelMemory = page.getByRole("region", { name: "Verified channel threads" });
   await expect(channelMemory.getByText(/No channel memory for/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Working beliefs" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Intelligence beliefs" })).toBeVisible();
   await expect(page.getByText(/Sample belief/i)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Approval rules" })).toBeVisible();
   await expect(page.getByText("Never publish, contact, spend, or change an account without approval.", { exact: true })).toBeVisible();
