@@ -2,6 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { cookies } from "next/headers";
 import { join } from "node:path";
 
+import { listWorkspaces, memoryRoot } from "./creator-workspaces";
+
 /** Server-only. Discovers real creator workspaces from channel memory on disk.
  *
  * The workspace identity used to be a hardcoded fixture ("Mika Rao") in nine places, and
@@ -23,6 +25,8 @@ export type CreatorProfile = {
   streams: number;
   /** Where the display name came from, so nothing implies more setup than exists. */
   known: boolean;
+  /** Whether this workspace has a memory directory on disk yet. */
+  hasMemory: boolean;
 };
 
 /** Display names for creators we have actually backfilled. Everything else is derived
@@ -35,16 +39,6 @@ const KNOWN: Record<string, { displayName: string; handle: string }> = {
   demo_live: { displayName: "Demo Live", handle: "demo_live" },
   e2e_demo: { displayName: "E2E Demo", handle: "e2e_demo" },
 };
-
-function memoryRoot(): string {
-  const configured = process.env.AFTERPLAY_MEMORY;
-  if (configured) {
-    return configured.startsWith("/") || /^[A-Za-z]:/.test(configured)
-      ? configured
-      : join(process.cwd(), configured);
-  }
-  return join(process.cwd(), "services", "video-clipper", ".memory");
-}
 
 function titleCase(id: string): string {
   return id.replace(/[_-]+/g, " ").split(" ").filter(Boolean)
@@ -105,26 +99,36 @@ function readThreads(dir: string): { threads: number; streams: number } {
 
 export function listCreators(): CreatorProfile[] {
   const root = memoryRoot();
-  const found: CreatorProfile[] = [];
+  const registry = new Map(listWorkspaces().map((workspace) => [workspace.id, workspace]));
+  const directoryIds = new Set<string>();
 
   if (existsSync(root)) {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const dir = join(root, entry.name);
-      const known = KNOWN[entry.name];
-      const displayName = known?.displayName ?? titleCase(entry.name);
-      const { threads, streams } = readThreads(dir);
-      found.push({
-        id: entry.name,
-        displayName,
-        handle: known?.handle ?? entry.name,
-        initials: initialsOf(displayName),
-        threads,
-        streams,
-        known: Boolean(known),
-      });
+      directoryIds.add(entry.name);
     }
   }
+
+  const creatorIds = new Set([...directoryIds, ...registry.keys()]);
+  const found = [...creatorIds].map((id): CreatorProfile => {
+    const workspace = registry.get(id);
+    const known = KNOWN[id];
+    const displayName = workspace?.displayName ?? known?.displayName ?? titleCase(id);
+    const hasMemory = directoryIds.has(id);
+    const { threads, streams } = hasMemory
+      ? readThreads(join(root, id))
+      : { threads: 0, streams: 0 };
+    return {
+      id,
+      displayName,
+      handle: workspace?.handle || known?.handle || id,
+      initials: initialsOf(displayName),
+      threads,
+      streams,
+      known: Boolean(workspace || known),
+      hasMemory,
+    };
+  });
 
   // Richest memory first: the creator with real history is the one worth demoing.
   found.sort((a, b) => b.threads - a.threads || a.id.localeCompare(b.id));
@@ -141,6 +145,7 @@ export const GUEST: CreatorProfile = {
   threads: 0,
   streams: 0,
   known: true,
+  hasMemory: false,
 };
 
 export function defaultCreatorId(): string {
@@ -177,6 +182,7 @@ export async function currentCreator(): Promise<CreatorProfile> {
     threads: 0,
     streams: 0,
     known: Boolean(known),
+    hasMemory: false,
   };
 }
 

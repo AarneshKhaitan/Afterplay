@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { spawn, type ChildProcess } from "node:child_process";
 import {
   closeSync,
   existsSync,
   mkdirSync,
   openSync,
-  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -14,7 +12,18 @@ import {
 import { join } from "node:path";
 
 import { getClipManifestForJob } from "../clip-manifest";
-import { clipperRoot, type CachedSource } from "./sources";
+import {
+  CreatorProcessConflictError,
+  durableActiveJob,
+  pythonConfigured,
+  runningJob,
+  runningJobForCreator,
+  spawnPythonJob,
+  terminateProcessTree,
+  unregisterRunningJob,
+  workdir,
+} from "./process";
+import { type CachedSource } from "./sources";
 
 /** Server-only. Spawns the Python clipper and reads its progress off disk. */
 
@@ -63,38 +72,7 @@ type JobStatusDocument = {
   manifest?: string;
 };
 
-type RunningJob = { creatorId: string; child: ChildProcess };
-
-/** Child handles are intentionally process-local, unlike durable job truth on disk.
- *
- * A global registry survives Next development recompiles so the Stop button does not become a
- * lie after one edit. It is not treated as persistence: after a server restart an in-flight job
- * remains visible from status.json but cancellation fails explicitly because ownership of the OS
- * process can no longer be proven. */
-const ingestGlobal = globalThis as typeof globalThis & {
-  afterplayRunningIngestJobs?: Map<string, RunningJob>;
-  afterplayIngestShutdownRegistered?: boolean;
-};
-const runningJobs = ingestGlobal.afterplayRunningIngestJobs ?? new Map<string, RunningJob>();
-ingestGlobal.afterplayRunningIngestJobs = runningJobs;
-
-if (!ingestGlobal.afterplayIngestShutdownRegistered) {
-  ingestGlobal.afterplayIngestShutdownRegistered = true;
-  process.once("exit", () => {
-    if (process.platform === "win32") return;
-    for (const { child } of runningJobs.values()) {
-      if (!child.pid || child.exitCode !== null) continue;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-        // The process group may already have exited.
-      }
-    }
-  });
-}
-
 const TERMINAL_STATES = new Set<IngestJobState>(["complete", "failed", "cancelled"]);
-const ACTIVE_STATES = new Set<IngestJobState>(["started", "running", "cancelling"]);
 
 function statusPath(jobId: string): string {
   return join(workdir(), jobId, "status.json");
@@ -122,25 +100,6 @@ function completedManifestStatus(jobId: string, creatorId: string): JobStatusDoc
     message: manifest.message ?? undefined,
     manifest: manifestPath,
   };
-}
-
-function durableActiveJob(creatorId: string): string | null {
-  let entries;
-  try {
-    entries = readdirSync(workdir(), { withFileTypes: true });
-  } catch (error) {
-    if (isNodeError(error, ["ENOENT"])) return null;
-    throw error;
-  }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const status = safeJson<JobStatusDocument>(statusPath(entry.name));
-    if (status?.creator_id !== creatorId || !status.state || !ACTIVE_STATES.has(status.state)) {
-      continue;
-    }
-    if (!completedManifestStatus(entry.name, creatorId)) return entry.name;
-  }
-  return null;
 }
 
 function writeStatus(path: string, status: JobStatusDocument): void {
@@ -184,39 +143,7 @@ function terminalStatus(
   });
 }
 
-function workdir(): string {
-  const configured = process.env.AFTERPLAY_WORKDIR ?? process.env.AFTERPLAY_CLIPPER_WORKDIR;
-  if (configured) {
-    // Same rule as the Python side: a relative value in .env is repo-root-relative.
-    return configured.startsWith("/") || /^[A-Za-z]:/.test(configured)
-      ? configured
-      : join(process.cwd(), configured);
-  }
-  return join(clipperRoot(), ".work");
-}
-
-/** The interpreter that has the service's dependencies.
- *
- * A bare `python` picks up whatever is on PATH, which is exactly how a reviewer ended up
- * with `ModuleNotFoundError: No module named 'cv2'` and concluded the pipeline was
- * broken. Prefer the venv the README tells you to create. */
-function pythonBin(): string {
-  const root = clipperRoot();
-  const candidates = [
-    process.env.AFTERPLAY_PYTHON,
-    join(root, ".venv", "Scripts", "python.exe"),
-    join(root, ".venv", "bin", "python"),
-  ].filter(Boolean) as string[];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return "python";
-}
-
-export function pythonConfigured(): { ok: boolean; interpreter: string } {
-  const interpreter = pythonBin();
-  return { ok: interpreter !== "python" || existsSync(interpreter), interpreter };
-}
+export { pythonConfigured };
 
 const YOUTUBE_HOSTS = new Set([
   "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be",
@@ -258,13 +185,13 @@ export type StartOptions = {
 };
 
 export function startIngestJob(options: StartOptions): { jobId: string; args: string[] } {
-  for (const [jobId, running] of runningJobs) {
-    if (running.child.exitCode !== null) runningJobs.delete(jobId);
-  }
-  if ([...runningJobs.values()].some((running) => running.creatorId === options.creator)) {
+  if (runningJobForCreator(options.creator)) {
     throw new IngestError("An ingest job is already running for this creator.", 409);
   }
-  const durableJobId = durableActiveJob(options.creator);
+  const durableJobId = durableActiveJob(
+    options.creator,
+    (jobId, creatorId) => completedManifestStatus(jobId, creatorId) !== null,
+  );
   if (durableJobId) {
     throw new IngestError(
       `Job ${durableJobId} still reports active. Resolve that host process before starting another ingest.`,
@@ -322,18 +249,14 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
     throw new IngestError("The clipper job log could not be opened.", 500);
   }
 
-  let child: ChildProcess;
+  let child;
   try {
-    child = spawn(pythonBin(), args, {
-      cwd: clipperRoot(),
-      // No shell: user input reaches the process as argv, never as a command string.
-      shell: false,
-      // A POSIX process group lets Stop reach ffmpeg/yt-dlp descendants. Windows uses
-      // taskkill /T instead; detached Python processes proved unreliable there.
-      detached: process.platform !== "win32",
-      windowsHide: true,
+    child = spawnPythonJob({
+      jobId: options.jobId,
+      creatorId: options.creator,
+      kind: "ingest",
+      args,
       stdio: ["ignore", fd, fd],
-      env: { ...process.env, PYTHONPATH: clipperRoot(), PYTHONUNBUFFERED: "1" },
     });
   } catch (error) {
     terminalStatus(
@@ -342,18 +265,19 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
       "failed",
       `The clipper process could not be created: ${(error as Error).message}`,
     );
+    if (error instanceof CreatorProcessConflictError) {
+      throw new IngestError("An ingest job is already running for this creator.", 409);
+    }
     throw new IngestError("The clipper process could not be created.", 500);
   } finally {
     closeSync(fd);
   }
-  runningJobs.set(options.jobId, { creatorId: options.creator, child });
 
   // A job that dies without writing a manifest must say so rather than appearing to run
   // forever. The CLI writes status.json itself on a clean failure; this covers the case
   // where the process never got that far.
   child.once("error", (error) => {
-    const registered = runningJobs.get(options.jobId);
-    if (registered?.child === child) runningJobs.delete(options.jobId);
+    unregisterRunningJob(options.jobId, child);
     const statusPath = join(dir, "status.json");
     const current = safeJson<JobStatusDocument>(statusPath);
     if (!current?.state || !TERMINAL_STATES.has(current.state)) {
@@ -361,8 +285,7 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
     }
   });
   child.once("exit", (code, signal) => {
-    const registered = runningJobs.get(options.jobId);
-    if (registered?.child === child) runningJobs.delete(options.jobId);
+    unregisterRunningJob(options.jobId, child);
 
     const path = join(dir, "status.json");
     const completed = completedManifestStatus(options.jobId, options.creator);
@@ -396,76 +319,6 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
   return { jobId: options.jobId, args };
 }
 
-function processGroupExists(pid: number): boolean {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    if (isNodeError(error, ["ESRCH"])) return false;
-    throw error;
-  }
-}
-
-async function waitForProcessGroupExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (processGroupExists(pid)) {
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return true;
-}
-
-async function terminateProcessTree(child: ChildProcess): Promise<void> {
-  if (!child.pid) return;
-  if (process.platform === "win32") {
-    await new Promise<void>((resolve, reject) => {
-      const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        shell: false,
-        windowsHide: true,
-        stdio: "ignore",
-      });
-      let settled = false;
-      const finish = (error?: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (error) reject(error);
-        else resolve();
-      };
-      const timeout = setTimeout(() => {
-        killer.kill();
-        finish(new Error("taskkill did not finish within ten seconds."));
-      }, 10_000);
-      killer.once("error", (error) => finish(error));
-      killer.once("exit", (code) => {
-        if (code === 0) finish();
-        else finish(new Error(`taskkill exited with code ${code}`));
-      });
-    });
-    return;
-  }
-
-  const pid = child.pid;
-  if (!pid) return;
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch (error) {
-    if (isNodeError(error, ["ESRCH"])) return;
-    throw new Error("The clipper process group could not be signalled.");
-  }
-  if (await waitForProcessGroupExit(pid, 5_000)) return;
-
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch (error) {
-    if (isNodeError(error, ["ESRCH"])) return;
-    throw new Error("The clipper process group could not be force-stopped.");
-  }
-  if (!await waitForProcessGroupExit(pid, 2_000)) {
-    throw new Error("The clipper process group remained alive after SIGKILL.");
-  }
-}
-
 export async function cancelIngestJob(jobId: string, creatorId: string): Promise<IngestJob> {
   const job = readIngestJob(jobId, creatorId);
   if (!job) throw new IngestError("No such job.", 404);
@@ -478,8 +331,8 @@ export async function cancelIngestJob(jobId: string, creatorId: string): Promise
     return readIngestJob(jobId, creatorId) ?? job;
   }
 
-  const running = runningJobs.get(jobId);
-  if (!running || running.creatorId !== creatorId) {
+  const running = runningJob(jobId, creatorId, "ingest");
+  if (!running) {
     throw new IngestError(
       "This job is still visible, but its process handle was lost after a server restart. Stop it from the host before retrying.",
       409,
@@ -503,8 +356,7 @@ export async function cancelIngestJob(jobId: string, creatorId: string): Promise
     else {
       terminalStatus(path, creatorId, "cancelled", "Cancelled by the creator.");
     }
-    const registered = runningJobs.get(jobId);
-    if (registered?.child === running.child) runningJobs.delete(jobId);
+    unregisterRunningJob(jobId, running.child);
   } catch (error) {
     const completed = completedManifestStatus(jobId, creatorId);
     if (completed) {
