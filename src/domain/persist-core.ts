@@ -7,10 +7,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { renameWithRetry } from "@/domain/atomic-rename";
 
 const FORMAT = "afterplay.versioned-json";
-const DEFAULT_RETRY_DELAY_MS = 10;
-
 type PersistenceErrorCode =
   | "corrupt_json"
   | "invalid_data"
@@ -180,13 +179,7 @@ export function createVersionedJsonPersistence(runtimeOverrides: Partial<Persist
 
     try {
       writeFileSync(temporaryPath, JSON.stringify(envelope, null, 2), "utf-8");
-      try {
-        runtime.rename(temporaryPath, path);
-      } catch (error) {
-        if (!isNodeError(error, ["EPERM", "EBUSY"])) throw error;
-        runtime.pause(DEFAULT_RETRY_DELAY_MS);
-        runtime.rename(temporaryPath, path);
-      }
+      renameWithRetry(temporaryPath, path, runtime.rename, runtime.pause);
     } catch (error) {
       try {
         unlinkSync(temporaryPath);

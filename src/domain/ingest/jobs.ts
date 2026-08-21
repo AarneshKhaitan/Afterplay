@@ -5,7 +5,6 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -24,6 +23,7 @@ import {
   workdir,
 } from "./process";
 import { type CachedSource } from "./sources";
+import { renameWithRetry } from "@/domain/atomic-rename";
 
 /** Server-only. Spawns the Python clipper and reads its progress off disk. */
 
@@ -106,13 +106,7 @@ function writeStatus(path: string, status: JobStatusDocument): void {
   const temporary = `${path}.${process.pid}-${randomUUID()}.tmp`;
   try {
     writeFileSync(temporary, JSON.stringify(status), "utf-8");
-    try {
-      renameSync(temporary, path);
-    } catch (error) {
-      if (!isNodeError(error, ["EPERM", "EBUSY"])) throw error;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-      renameSync(temporary, path);
-    }
+    renameWithRetry(temporary, path);
   } finally {
     try {
       unlinkSync(temporary);

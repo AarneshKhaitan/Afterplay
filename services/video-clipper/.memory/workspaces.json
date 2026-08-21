@@ -19,6 +19,13 @@
         "displayName": "Sidemen",
         "handle": "Sidemen",
         "mode": "demo"
+      },
+      {
+        "id": "sidemen",
+        "channelId": "UCDogdKl7t7NHzQ95aEwkdMw",
+        "displayName": "Sidemen",
+        "handle": "@Sidemen",
+        "mode": "live"
       }
     ]
   }

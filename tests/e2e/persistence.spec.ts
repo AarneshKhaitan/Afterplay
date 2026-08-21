@@ -130,7 +130,7 @@ test("uses a distinct temporary file for a re-entrant same-process write", () =>
   expect(persistence.read(path, schema)).toEqual({ id: "outer", count: 1 });
 });
 
-test("retries one EPERM rename and does not retry unrelated failures", () => {
+test("retries a transient EPERM rename and does not retry unrelated failures", () => {
   const path = join(root, "retry.json");
   const pauses: number[] = [];
   let attempts = 0;

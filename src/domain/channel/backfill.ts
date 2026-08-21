@@ -11,6 +11,8 @@ import {
 import { join } from "node:path";
 import { z } from "zod";
 
+import { renameWithRetry } from "@/domain/atomic-rename";
+
 import { readVersionedJson, writeVersionedJson, type VersionedJsonSchema } from "../persist-core";
 import { clipperRoot } from "../ingest/sources";
 import {
@@ -698,7 +700,7 @@ function writeStatusMarker(job: ChannelBackfillJob): void {
       updated: Date.now() / 1000,
       message: job.message,
     }), "utf-8");
-    renameSync(temporary, path);
+    renameWithRetry(temporary, path);
   } finally {
     try {
       unlinkSync(temporary);
