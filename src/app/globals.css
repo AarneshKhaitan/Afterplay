@@ -944,9 +944,16 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
    scrub bar are unreachable. */
 .output-preview::after { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.04), rgba(0,0,0,.38)); content: ""; pointer-events: none; }
 .output-preview img { object-fit: cover; transition: transform 300ms ease; }
-.manifest-preview { display: grid; place-items: center; background: linear-gradient(135deg, #20282a, #2d2422); }
+/* Rendered clips are 1080x1920 (portrait), not 16:9 like the demo fixture
+   art above. Without this override .manifest-preview inherits .output-preview's
+   landscape aspect-ratio and object-fit:cover centre-crops the clip down to a
+   horizontal sliver. Overriding aspect-ratio + object-fit here (after
+   .output-preview in source order, same specificity, so this wins) restores
+   the true portrait shape and lets the video letterbox instead of crop.
+   max-height keeps a 9:16 card from towering over its 16:9 grid neighbours. */
+.manifest-preview { display: grid; place-items: center; aspect-ratio: 9 / 16; max-height: clamp(320px, 56vh, 560px); background: linear-gradient(135deg, #20282a, #2d2422); }
 .manifest-preview strong { position: relative; z-index: 1; color: #d6d9db; font-size: var(--type-small); }
-.manifest-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.manifest-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .manifest-preview--failed { align-content: center; gap: 7px; color: var(--warning); text-align: center; }
 .manifest-preview--failed > svg { width: 24px; height: 24px; }
 .clip-failure { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--warning); font-size: var(--type-small); line-height: 1.45; }

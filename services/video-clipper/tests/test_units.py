@@ -170,8 +170,12 @@ class TestContextFloor:
                          has_audio=True)
 
     def test_narrow_crop_is_widened_and_composited(self):
+        # exercise the 0.50 floor explicitly: the module default is now 1.0
+        # (see test_floor_at_one_keeps_the_entire_source_frame), so this must
+        # not rely on the default to still cover the "widen, but not to 100%"
+        # case.
         from afterplay.produce import build_filtergraph
-        vf = build_filtergraph(self._spec(), self._src())
+        vf = build_filtergraph(self._spec(min_width_frac=0.50), self._src())
         assert vf.startswith("crop=640:720:")          # 50% of 1280, not 404
         assert "overlay=(W-w)/2:(H-h)/2" in vf and "boxblur" in vf
 
@@ -180,6 +184,21 @@ class TestContextFloor:
         vf = build_filtergraph(self._spec(min_width_frac=0.0), self._src())
         assert vf.startswith("crop=404:720:")
         assert "overlay" not in vf and "scale=1080:1920:flags=lanczos" in vf
+
+    def test_floor_at_one_keeps_the_entire_source_frame(self):
+        # min_width_frac=1.0 is the default: the crop must span the FULL source
+        # width (never crop any of the frame away) and letterbox the surplus
+        # over a blurred fill rather than stretch/crop to fill the target.
+        from afterplay.produce import build_filtergraph, RenderSpec
+        src = MediaInfo("src.mp4", width=1920, height=1080, fps=30.0, duration=30.0,
+                        has_audio=True)
+        spec = RenderSpec(platform=PLATFORMS["shorts"], brand=Brand(),
+                          crop=CropPath(608, 1080, [(0.0, 960.0)], static=True),
+                          min_width_frac=1.0)
+        vf = build_filtergraph(spec, src)
+        assert vf.startswith("crop=1920:1080:")        # full source width kept
+        assert "boxblur" in vf and "overlay=(W-w)/2:(H-h)/2" in vf
+        assert "scale=1080:1920:flags=lanczos" not in vf   # not a plain fill-scale
 
 
 class TestCaptions:

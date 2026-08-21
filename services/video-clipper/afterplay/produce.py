@@ -300,10 +300,12 @@ class RenderSpec:
     zoom: float = 1.0                # >1 tightens the crop (subject-out-of-frame fix)
     x_bias: float = 0.0              # nudge the crop window horizontally (px)
     # A hard 9:16 crop of a 16:9 source keeps 31.6% of the frame width and then blows
-    # it up 2.7x — heads lose their tops, two-shots lose a head. Below this fraction of
-    # the source width we crop WIDER than the target and letterbox the surplus over a
-    # blurred fill instead of cropping it away. 0 restores the edge-to-edge crop.
-    min_width_frac: float = 0.50
+    # it up 2.7x — heads lose their tops, two-shots lose a head. This fraction sets the
+    # minimum width (relative to the source) that the crop window is widened to before
+    # zoom; at 1.0 the crop always spans the full source width, so nothing is ever
+    # cropped away — the entire frame is kept and the surplus above/below it is
+    # letterboxed over a blurred fill. 0 restores the edge-to-edge crop.
+    min_width_frac: float = 1.0
     loudnorm: bool = True
     watermark: Path | None = None
 

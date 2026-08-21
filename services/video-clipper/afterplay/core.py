@@ -114,6 +114,20 @@ def _configured_languages() -> tuple[str, ...]:
     return languages or ("en",)
 
 
+def _configured_min_width_frac() -> float:
+    """Default fraction of source width the render crop is widened to (see
+    produce.RenderSpec.min_width_frac). A malformed override must not crash
+    startup, so fall back to the full-frame default of 1.0 instead of raising.
+    """
+    raw = os.environ.get("AFTERPLAY_MIN_WIDTH_FRAC")
+    if not raw:
+        return 1.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 1.0
+
+
 @dataclass
 class Settings:
     workdir: Path = field(default_factory=lambda: _configured_dir(
@@ -131,6 +145,9 @@ class Settings:
     asr_language: str | None = field(default_factory=lambda: (
         os.environ.get("AFTERPLAY_ASR_LANGUAGE") or None
     ))
+    # Default for RenderSpec.min_width_frac (see produce.py). 1.0 keeps the full
+    # source frame and letterboxes the surplus over a blurred fill.
+    min_width_frac: float = field(default_factory=_configured_min_width_frac)
 
     # ── ingestion auth and pacing ────────────────────────────────────────────
     # YouTube rate-limits unauthenticated extraction and then answers every

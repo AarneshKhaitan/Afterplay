@@ -389,6 +389,7 @@ class ClipAgent:
             spec = produce.RenderSpec(platform=plat, brand=self.brand, trim_start=trim,
                                       duration=min(dur, ex_info.duration - trim),
                                       crop=crop,
+                                      min_width_frac=self.settings.min_width_frac,
                                       watermark=Path(self.brand.watermark)
                                       if self.brand.watermark else None)
             wpl = 4
