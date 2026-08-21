@@ -213,6 +213,21 @@ export function ChannelConsole() {
   async function ensureWorkspace() {
     if (!preview) return false;
     if (existingWorkspace) {
+      // Selecting matters even though there is nothing to create. PUT both creates and
+      // selects, so the create path set the cookie as a side effect; returning early
+      // here skipped that, and the backfill then posted this creator id while the cookie
+      // still named the previously selected workspace -- which the route correctly
+      // rejects as creator_mismatch. POST is the select-only half of the same endpoint.
+      setWorkspaceState("saving");
+      const selected = await fetch("/api/creator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: preview.creator_id }),
+      });
+      if (!selected.ok) {
+        const data = await selected.json().catch(() => null);
+        throw new Error(errorMessage(data, "The workspace could not be selected."));
+      }
       setWorkspaceState("ready");
       return true;
     }
