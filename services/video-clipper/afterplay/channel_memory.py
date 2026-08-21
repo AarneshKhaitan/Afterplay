@@ -442,10 +442,35 @@ def openai_client():
     return OpenAI()
 
 
+# OpenAI's embeddings endpoint rejects more than 2048 inputs in one request. Candidate
+# windows are generated per sentence, so a long upload passes that on its own: a
+# 66-minute Sidemen video produced over 2048 and the whole retrieval failed with
+# "Invalid 'input': array length must be 2048 or less". The clip run then completed
+# with memory degraded and every clip standalone -- the callbacks are the product's
+# whole argument, so this failed in exactly the place it could least afford to.
+EMBEDDING_BATCH = 2048
+
+
 def embed_texts(texts: list[str], *, model: str = "text-embedding-3-small") -> list[list[float]]:
+    """Embed in request-sized batches, preserving input order.
+
+    Callers index the result positionally against the texts they passed, so the batches
+    must be concatenated in order and every input must yield exactly one vector.
+    """
     client = openai_client()
-    response = client.embeddings.create(model=model, input=texts)
-    return [list(item.embedding) for item in response.data]
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), EMBEDDING_BATCH):
+        batch = texts[start:start + EMBEDDING_BATCH]
+        response = client.embeddings.create(model=model, input=batch)
+        # The API documents order-preserving output, but this is the seam where a silent
+        # mismatch would misattribute every callback, so it is asserted rather than assumed.
+        ordered = sorted(response.data, key=lambda item: item.index)
+        if len(ordered) != len(batch):
+            raise ValueError(
+                f"embedding batch returned {len(ordered)} vectors for {len(batch)} inputs"
+            )
+        vectors.extend(list(item.embedding) for item in ordered)
+    return vectors
 
 
 def clipper_model() -> str:
