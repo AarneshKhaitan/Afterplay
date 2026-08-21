@@ -982,6 +982,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .clip-id { display: block; margin: -3px 0 7px; color: var(--muted-2); font: var(--type-meta) var(--font-mono); }
 .output-body blockquote { margin: 0; color: #d6d9db; font-size: var(--type-small); font-weight: var(--weight-medium); line-height: 1.5; }
 .output-body > p { min-height: 42px; margin: 8px 0 13px; color: var(--muted); font-size: var(--type-small); line-height: 1.55; }
+/* Generated post tags. Pipeline clips carry them; the seeded demo outputs do not,
+   so this list is absent rather than empty on those cards. */
+.output-hashtags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.output-hashtags li { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted-2); font-family: var(--font-mono, monospace); font-size: var(--type-meta); }
 .output-rationale { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: var(--radius-sm); background: rgba(255,255,255,.03); }
 .output-rationale span { color: var(--muted-2); font-size: var(--type-meta); font-weight: var(--weight-heavy); }
 .output-rationale strong { color: #aeb3b8; font-size: var(--type-small); font-weight: var(--weight-regular); line-height: 1.45; }
@@ -2134,6 +2138,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .identity-mark { display: grid; width: 62px; height: 62px; place-items: center; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent-bright); font-size: 20px; font-weight: var(--weight-heavy); }
 
 .selection-reason { margin: 0; color: var(--muted); font-size: var(--type-small); line-height: 1.55; }
+/* The generated post caption, distinct from the transcript excerpt below it: one is
+   what you would publish, the other is what was said. Same shape, brighter text. */
+.clip-caption { display: flex; flex-direction: column; gap: 4px; margin: 0; color: var(--text); font-size: var(--type-small); line-height: 1.5; }
+.clip-caption span { color: var(--muted-2); font-size: 10px; font-weight: var(--weight-bold); letter-spacing: .08em; text-transform: uppercase; }
 .clip-transcript { display: flex; flex-direction: column; gap: 4px; margin: 0; color: var(--muted-2); font-size: var(--type-meta); line-height: 1.5; }
 .clip-transcript span { color: var(--muted-2); font-size: 10px; font-weight: var(--weight-bold); letter-spacing: .08em; text-transform: uppercase; }
 .section-heading--standalone { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }

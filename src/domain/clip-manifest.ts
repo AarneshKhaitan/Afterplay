@@ -49,6 +49,7 @@ export type ClipperManifestClip = {
   copy?: {
     title?: string;
     caption?: string;
+    hashtags?: string[];
     hook_text_overlay?: string | null;
   };
   callback?: boolean;

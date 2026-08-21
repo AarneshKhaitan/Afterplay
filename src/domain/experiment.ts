@@ -39,6 +39,8 @@ export type ExperimentOutput = {
   duration: string;
   hook: string;
   caption: string;
+  /** Present only for pipeline clips: the generated post tags. */
+  hashtags?: string[];
   rationale: string;
   thumbnailUrl: string;
   status: OutputStatus;
@@ -265,6 +267,7 @@ const outputSchema = z.object({
   duration: z.string(),
   hook: z.string(),
   caption: z.string(),
+  hashtags: z.array(z.string()).optional(),
   rationale: z.string(),
   thumbnailUrl: z.string(),
   status: z.enum(["ready", "approved", "distributed"]),
@@ -589,7 +592,11 @@ function projectManifestOutputs(
       : clip.platform === "reels" ? "Instagram Reels" : "YouTube Shorts",
     duration: `00:${Math.round(clip.duration).toString().padStart(2, "0")}`,
     hook: clip.why ?? "Selected by the clipper pipeline.",
-    caption: clip.text_for_copy ?? "",
+    // The generated post caption, not `text_for_copy` -- that is the raw transcript
+    // slice, and mapping it here put ">> Is these gear? These two gears." on the card
+    // where the writeup belongs. Falls back to the transcript only if copy is absent.
+    caption: clip.copy?.caption?.trim() || clip.text_for_copy || "",
+    hashtags: clip.copy?.hashtags?.filter((tag) => tag.trim().length > 0),
     rationale: clip.callback
       ? `Callback to ${clip.threadLabel ?? "creator memory"} at confidence ${clip.callbackConfidence ?? "?"}.`
       : "Standalone clip; no history-dependent moment required.",
