@@ -10,10 +10,11 @@ function realtimeFailure(
   code: string,
   message: string,
   status: number,
+  detail?: string,
 ) {
   return NextResponse.json(
     {
-      error: { code, message },
+      error: { code, message, ...(detail ? { detail } : {}) },
       meta: { mode: "live", model, fallbackUsed: false },
     },
     { status },
@@ -111,10 +112,15 @@ export async function POST(request: Request) {
     const answer = await response.text();
 
     if (!response.ok) {
+      const upstreamDetail = answer.slice(0, 500);
+      console.error(
+        `[realtime/call] OpenAI rejected the realtime handshake: status=${response.status} body=${upstreamDetail}`,
+      );
       return realtimeFailure(
         "realtime_provider_error",
         `OpenAI could not start Live Riff (status ${response.status}).`,
         502,
+        upstreamDetail,
       );
     }
 
@@ -125,7 +131,8 @@ export async function POST(request: Request) {
         "Cache-Control": "no-store",
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("[realtime/call] Failed to reach OpenAI realtime endpoint:", error);
     return realtimeFailure(
       "realtime_connection_failed",
       "Afterplay could not reach OpenAI to start Live Riff.",
