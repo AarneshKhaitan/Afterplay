@@ -410,19 +410,27 @@ class ClipAgent:
                 # Captions are timed in SOURCE time: the rendered clip starts at
                 # ex_start + trim_start, and repairs move trim_start.
                 abs_start = ex_start + spec.trim_start
-                spec.ass = self.dir / f"{clip_id}.ass"
-                TOOLS.call("build_captions", words=self.words, clip_start=abs_start,
-                           duration=spec.duration, platform=plat, brand=spec.brand,
-                           out=spec.ass, words_per_line=wpl)
+                if self.settings.captions:
+                    spec.ass = self.dir / f"{clip_id}.ass"
+                    TOOLS.call("build_captions", words=self.words, clip_start=abs_start,
+                               duration=spec.duration, platform=plat, brand=spec.brand,
+                               out=spec.ass, words_per_line=wpl)
+                else:
+                    # Captions are opt-in (off by default: most source footage already
+                    # carries the creator's own burned-in captions). Skip generating
+                    # and then discarding an ASS file that would never be rendered.
+                    spec.ass = None
                 TOOLS.call("render_clip", extract_path=ex, spec=spec, out=out,
                            settings=self.settings)
 
-                cap_probe = self.dir / f"{clip_id}_cap.mp4"
-                try:
-                    produce.render_captions_only(spec, cap_probe, self.settings)
-                except Exception as e:                       # noqa: BLE001
-                    log.warning("caption probe failed for %s: %s", clip_id, e)
-                    cap_probe = None
+                cap_probe = None
+                if self.settings.captions:
+                    cap_probe = self.dir / f"{clip_id}_cap.mp4"
+                    try:
+                        produce.render_captions_only(spec, cap_probe, self.settings)
+                    except Exception as e:                   # noqa: BLE001
+                        log.warning("caption probe failed for %s: %s", clip_id, e)
+                        cap_probe = None
 
                 report = TOOLS.call("inspect_clip", path=out, platform=plat,
                                     want_dur=spec.duration, captions_only=cap_probe,

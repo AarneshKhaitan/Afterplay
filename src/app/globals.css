@@ -950,8 +950,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
    horizontal sliver. Overriding aspect-ratio + object-fit here (after
    .output-preview in source order, same specificity, so this wins) restores
    the true portrait shape and lets the video letterbox instead of crop.
-   max-height keeps a 9:16 card from towering over its 16:9 grid neighbours. */
-.manifest-preview { display: grid; place-items: center; aspect-ratio: 9 / 16; max-height: clamp(320px, 56vh, 560px); background: linear-gradient(135deg, #20282a, #2d2422); }
+   height (not max-height) + width:auto makes the box HEIGHT-driven: the
+   browser derives the width from the clamped height via the 9/16 ratio,
+   instead of the default block behaviour of filling the grid column's full
+   width and only then deriving height from that — which is what left dead
+   bars either side of every clip inside an over-tall card. margin-inline:auto
+   centres the now width-correct box in its column; max-width:100% is a guard
+   against an oversize box on unusually tall/narrow viewports. */
+.manifest-preview { display: grid; place-items: center; aspect-ratio: 9 / 16; width: auto; max-width: 100%; height: clamp(320px, 56vh, 560px); margin-inline: auto; background: linear-gradient(135deg, #20282a, #2d2422); }
 .manifest-preview strong { position: relative; z-index: 1; color: #d6d9db; font-size: var(--type-small); }
 .manifest-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .manifest-preview--failed { align-content: center; gap: 7px; color: var(--warning); text-align: center; }

@@ -40,6 +40,7 @@ export function IngestConsole() {
   const [creator, setCreator] = useState("");
   const [clips, setClips] = useState(3);
   const [memory, setMemory] = useState(true);
+  const [captions, setCaptions] = useState(false);
   const [footageRights, setFootageRights] = useState<FootageRights | "">("");
   const [job, setJob] = useState<Job | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
@@ -113,7 +114,7 @@ export function IngestConsole() {
       const response = await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, creator, clips, memory, footageRights }),
+        body: JSON.stringify({ source, creator, clips, memory, captions, footageRights }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -233,6 +234,13 @@ export function IngestConsole() {
           <label className="ingest-check">
             <input type="checkbox" checked={memory} onChange={(e) => setMemory(e.target.checked)} />
             <span>Use channel memory<small>Finds moments whose meaning depends on earlier streams.</small></span>
+          </label>
+          <label className="ingest-check">
+            <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
+            <span>Burn in Afterplay captions<small>
+              Off by default: most source footage already has the creator&apos;s own captions
+              burned in, and adding ours on top produces two competing caption layers.
+            </small></span>
           </label>
         </div>
 

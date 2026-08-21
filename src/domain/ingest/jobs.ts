@@ -180,6 +180,7 @@ export type StartOptions = {
   clips: number;
   platforms: string;
   memory: boolean;
+  captions: boolean;
   footageRights: "project_owned" | "creator_owned" | "permission_granted" | "licensed" | "not_cleared";
   source: { kind: "url"; url: string } | { kind: "cached"; source: CachedSource };
 };
@@ -214,6 +215,7 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
     "--creator", options.creator, "--clips", String(options.clips),
     "--platforms", options.platforms, "--rights", options.footageRights];
   if (options.memory) args.push("--memory");
+  if (options.captions) args.push("--captions");
 
   if (options.source.kind === "url") {
     args.push(options.source.url);

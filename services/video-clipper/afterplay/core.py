@@ -148,6 +148,11 @@ class Settings:
     # Default for RenderSpec.min_width_frac (see produce.py). 1.0 keeps the full
     # source frame and letterboxes the surplus over a blurred fill.
     min_width_frac: float = field(default_factory=_configured_min_width_frac)
+    # Burn word-level ASS captions into the render. Off by default: most source
+    # footage (e.g. Beta Squad) already carries the creator's own burned-in
+    # captions, and Afterplay's word-level layer stacking on top disagrees with it.
+    # See RenderSpec.ass / ClipAgent.run in agent.py.
+    captions: bool = False
 
     # ── ingestion auth and pacing ────────────────────────────────────────────
     # YouTube rate-limits unauthenticated extraction and then answers every

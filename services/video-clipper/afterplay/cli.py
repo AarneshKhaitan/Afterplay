@@ -96,7 +96,7 @@ def cmd_plan(a) -> int:
 
 
 def cmd_run(a) -> int:
-    settings = Settings(max_repair_attempts=a.max_repairs)
+    settings = Settings(max_repair_attempts=a.max_repairs, captions=a.captions)
     if a.encoder:
         settings.encoder = a.encoder
     brand = None
@@ -524,6 +524,11 @@ def main(argv=None) -> int:
     sp.add_argument("--webhook", help="POST the manifest here on completion")
     sp.add_argument("--memory", action="store_true",
                     help="use OpenAI creator-memory callback detection")
+    sp.add_argument("--captions", action="store_true",
+                    help="burn word-level captions into the video. Off by default: "
+                         "most source footage already carries the creator's own "
+                         "burned-in captions, and stacking ours on top disagrees "
+                         "with it")
     sp.add_argument("--rights", required=True,
                     choices=["project_owned", "creator_owned", "permission_granted",
                              "licensed", "not_cleared"],

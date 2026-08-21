@@ -215,6 +215,18 @@ class TestCaptions:
         assert f",{margin_v},1" in txt
         assert plan.lines > 1
 
+    def test_wrap_style_allows_wrapping(self, tmp_path):
+        """REGRESSION: WrapStyle 2 means NO WRAPPING in ASS -- long lines that slip
+        past the words_per_line/char budget must still be able to wrap onto a second
+        visual line instead of overflowing the frame and getting clipped."""
+        from afterplay.understand import Word
+        words = [Word(i * 0.3, f"word{i}") for i in range(6)]
+        plan = build_ass(words, 0.0, 3.0, PLATFORMS["shorts"], Brand(),
+                         tmp_path / "c.ass")
+        txt = plan.path.read_text(encoding="utf-8")
+        assert "WrapStyle: 0" in txt
+        assert "WrapStyle: 2" not in txt
+
     def test_line_length_respects_the_character_budget(self, tmp_path):
         from afterplay.understand import Word
         words = [Word(i * 0.3, "supercalifragilistic") for i in range(10)]
@@ -389,6 +401,17 @@ class TestCLIWiring:
         import afterplay
         import types
         assert not isinstance(afterplay.resolve, types.ModuleType)
+
+    def test_captions_flag_is_opt_in_on_run(self, capsys):
+        """REGRESSION: captions default OFF (Beta Squad source footage already has
+        creator-burned captions that disagree with ours). `--captions` must exist as
+        an explicit opt-in on `run`, store_true, off unless passed."""
+        from afterplay.cli import main
+        with pytest.raises(SystemExit) as ei:
+            main(["run", "--help"])
+        assert ei.value.code == 0
+        out = capsys.readouterr().out
+        assert "--captions" in out
 
     @pytest.mark.skipif(not (Path(__file__).parent.parent / "assets" /
                              "vid.info.json").exists(),

@@ -295,6 +295,33 @@ class TestOrchestratorEndToEnd:
                 want = PLATFORMS[c.platform]
                 assert (mi.width, mi.height) == (want.width, want.height)
 
+    def test_captions_off_by_default_skips_ass_entirely(self, source, tmp_path, monkeypatch):
+        """Captions default OFF: source footage often already has creator-burned
+        captions that disagree with ours. When Settings.captions is False (the
+        default), no .ass is ever built and RenderSpec.ass stays None end to end --
+        not generated then discarded."""
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
+        from afterplay import Orchestrator
+        vtt = tmp_path / "s.vtt"
+        vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:20.000\n"
+                       ">> hello there this is a test. [laughter] really? yes.\n",
+                       encoding="utf-8")
+        s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o",
+                    max_repair_attempts=0)
+        assert s.captions is False, "captions must default off"
+        job = Orchestrator(settings=s, workers=1, creator="captions-off-owner").run(
+            local=str(source), vtt=str(vtt), footage_rights="project_owned",
+            platforms=["shorts"], n_clips=1, target=8.0, job_id="t_nocap")
+
+        produced = [c for c in job.clips if c.path and Path(c.path).exists()]
+        assert produced, [c.error for c in job.clips]
+
+        job_dir = s.workdir / "t_nocap"
+        assert not list(job_dir.glob("*.ass")), \
+            "no ASS file should be generated when captions are off"
+        assert not list(job_dir.glob("*_cap.mp4")), \
+            "no caption-only QC probe should be rendered when captions are off"
+
     def test_missing_captions_fails_loudly(self, source, tmp_path, monkeypatch):
         monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
         from afterplay import Orchestrator

@@ -19,6 +19,7 @@ const startSchema = z.object({
   clips: z.number().int().min(1).max(10).default(3),
   platforms: z.enum(["shorts", "reels", "tiktok"]).default("shorts"),
   memory: z.boolean().default(true),
+  captions: z.boolean().default(false),
   footageRights: z.enum([
     "project_owned", "creator_owned", "permission_granted", "licensed", "not_cleared",
   ]),
@@ -92,6 +93,7 @@ export async function POST(request: Request) {
       clips: input.clips,
       platforms: input.platforms,
       memory: input.memory,
+      captions: input.captions,
       footageRights: input.footageRights,
       source,
     });
