@@ -299,7 +299,13 @@ def cmd_backfill_channel(a) -> int:
         if not a.creator:
             print("--creator is required unless --dry-run is used", file=sys.stderr)
             return 2
-        if not a.videos:
+        selected_videos = [
+            stripped
+            for chunk in (a.videos or [])
+            for stripped in (part.strip() for part in chunk.split(","))
+            if stripped
+        ]
+        if not selected_videos:
             print("--videos requires at least one previewed video id", file=sys.stderr)
             return 2
         if not a.rights:
@@ -309,7 +315,7 @@ def cmd_backfill_channel(a) -> int:
         code, report = run_channel_backfill(
             a.channel,
             creator_id=a.creator,
-            video_ids=a.videos,
+            video_ids=selected_videos,
             rights=a.rights,
             job_id=job_id,
             workers=a.workers,
@@ -548,7 +554,11 @@ def main(argv=None) -> int:
     )
     sp.add_argument("channel", help="explicit @handle or YouTube channel URL")
     sp.add_argument("--creator", help="creator id returned by the dry-run preview")
-    sp.add_argument("--videos", nargs="+", help="video ids selected from the preview")
+    # One value per flag, repeatable, and comma-splittable. Deliberately NOT nargs="+":
+    # argparse reads a hyphen-leading value ("-KuTXDqFGI8" is a real YouTube id) as a
+    # flag and exits 2. The "--videos=<id>" form parses those correctly.
+    sp.add_argument("--videos", action="append", default=None,
+                    help="video id from the preview; repeat or comma-separate for several")
     sp.add_argument("--rights",
                     choices=["project_owned", "creator_owned", "permission_granted",
                              "licensed", "not_cleared"])

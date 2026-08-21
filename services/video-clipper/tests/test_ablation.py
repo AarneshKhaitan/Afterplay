@@ -319,3 +319,29 @@ def test_candidate_mismatch_is_not_presented_as_a_valid_comparison():
 
     assert proof["available"] is False
     assert proof["unavailable_reason"] == "candidate_sets_differ"
+
+
+def test_candidates_dedupes_windows_sharing_a_span():
+    """Consecutive cues that share a start time must not seed twin windows.
+
+    Regression for a 46-minute run that rendered 3/3 clips and was then rejected with
+    "The clipper wrote an invalid manifest": 39 of 1431 candidates were duplicate
+    (start, end) spans. The manifest identifies a window by (start, end) alone, so the
+    twins collided there even though `(start, end, text)` kept them distinct in Python.
+    """
+    # Cue 1 and cue 2 start at the same instant, as YouTube auto-captions routinely do.
+    sents = [
+        Sentence(0.0, 6.0, "one"),
+        Sentence(0.0, 6.0, "two"),
+        Sentence(6.0, 14.0, "three"),
+        Sentence(14.0, 22.0, "four"),
+        Sentence(22.0, 30.0, "five"),
+    ]
+    windows = candidates(sents, target=30.0, tol=10.0)
+
+    spans = [(round(start, 3), round(end, 3)) for start, end, _ in windows]
+    assert len(spans) == len(set(spans)), f"duplicate spans emitted: {spans}"
+
+    # The surviving twin is the first seed, which carries the most text.
+    shared = [text for start, _, text in windows if start == 0.0]
+    assert shared and shared[0].startswith("one"), shared

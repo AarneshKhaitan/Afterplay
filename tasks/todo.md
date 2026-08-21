@@ -337,3 +337,91 @@ units: implementation and the named verification must land together.
   `not_cleared` rights and `provided_vtt` provenance recorded in the ignored runtime memory store.
 - Remaining operational gate: two timed stage rehearsals are not recorded in this pass. Do not
   claim rehearsal completion until the actual runbook evidence exists.
+
+## FIXED (2026-08-21) — video ids beginning with a hyphen were silently dropped
+
+**Symptom:** a channel backfill reports a video as `No captions — the captions process
+exited with code 2 without a valid report`, when the video has perfectly good captions.
+
+**Cause:** YouTube ids use the base64url alphabet, so they may begin with `-`
+(observed: `-KuTXDqFGI8`, "BETA SQUAD MAFIA GAME: ALL STAR EDITION"). `backfill-channel`
+declares `--videos` with `nargs="+"`, so argparse reads a hyphen-leading value as a flag:
+
+```
+afterplay backfill-channel: error: argument --videos: expected at least one argument
+SystemExit code: 2
+```
+
+Exit code 2 is argparse's usage-error code. The process dies at argument parsing — it never
+resolves the video, never looks for captions, never calls OpenAI. Confirmed both ways: the
+parse fails in isolation, and the same video resolves fine by URL (`vtt: YES`, `lang: en`).
+
+**Frequency:** roughly 1 id in 64 begins with `-`, so most channels will contain one.
+
+**Fix applied:** `--videos` is now `action="append"` (one value per flag, repeatable) and
+splits on commas, replacing `nargs="+"`. `backfill.ts:496` passes the `--videos=<id>` form,
+so argparse treats everything after `=` as data and a leading hyphen is unambiguous.
+
+Verified by parsing alone (each case stops at the `--rights` check, so no network and no
+OpenAI spend):
+
+| Input | Before | After |
+|---|---|---|
+| `--videos=-KuTXDqFGI8` | exit 2 at argparse | parses, reaches `--rights` check |
+| `--videos=-KuTXDqFGI8,94I_OA8WreA` | exit 2 | both ids parsed |
+| `--videos 94I_OA8WreA` (old form) | ok | still ok — backward compatible |
+| `--videos=, ,` | — | still rejected as empty |
+
+`channel-backfill.spec.ts` updated to assert the `=` form.
+
+The second half — reporting exit 2 as "no captions" — turned out to be less wrong than it
+looked: `backfill.ts:541` already surfaces `exited with code 2` and captures stderr. The
+misleading impression came from the argparse failure being the hidden *cause*, not from the
+wording. Left as is.
+
+## FIXED (2026-08-21) — YouTube 403 on media was a stale yt-dlp
+
+**Symptom:** clipping from a YouTube URL produces `0/3 clips passed quality checks` and
+"The clipper wrote an invalid manifest". Every clip fails with
+`FFmpegError: ffmpeg exited 3436169992`.
+
+**Cause:** `Server returned 403 Forbidden` when fetching the googlevideo CDN URL. Narrowed
+down by elimination:
+
+| Attempt | Result |
+|---|---|
+| ffmpeg reading the stream URL | 403 |
+| ffmpeg + yt-dlp's own `http_headers` (UA, Accept, …) | 403 |
+| yt-dlp `download_ranges` (delegates to ffmpeg) | 403 |
+| **yt-dlp's own native downloader, no ffmpeg** | **403** |
+| yt-dlp cookies from Firefox | 403 (no YouTube session there) |
+| yt-dlp cookies from Chrome | `no such table: meta` — locked DB, Chrome must be closed (yt-dlp #7271) |
+
+So this is not an ffmpeg bug and not a header problem. YouTube is refusing **video media**
+to this client while still serving **metadata and captions** — which is why channel backfill
+works fine (70 verified threads) and only clipping fails.
+
+**What still works:** clipping from local media. `finale_x_verified` (5 clips, 3 callbacks)
+and `offline_demo` were both produced this way, from files in `AFTERPLAY_MEDIA_DIR`.
+
+**Actual cause: yt-dlp was six weeks stale.** Installed `2026.07.04`; latest `2026.08.19`,
+published two days earlier. YouTube changed its media signing; yt-dlp had already patched it.
+Nothing was wrong with ffmpeg, the headers, the network, or the code — every row in the table
+above was a symptom of an extractor that could no longer sign a media URL.
+
+`pip install -U yt-dlp` → `2026.08.19`. After the upgrade, on the same machine and the same
+video:
+
+| Check | Before | After |
+|---|---|---|
+| yt-dlp native download | 403 | 10 MB file |
+| **ffmpeg on a `stream_urls()` URL (the app's actual path)** | **403** | **returncode 0, 1.1 MB slice** |
+
+**Operational note:** this will recur. yt-dlp goes stale against YouTube on a scale of weeks,
+so pin-and-forget is the wrong posture — re-run `pip install -U yt-dlp` before any demo, and
+treat a sudden 403 on media (while captions still work) as "the extractor is old" rather than
+as a machine or network problem.
+
+**Also worth fixing:** the UI reported "invalid manifest", which is a symptom. The 403 was
+only visible by re-running ffmpeg by hand — the clip error captured the command but not
+ffmpeg's stderr.

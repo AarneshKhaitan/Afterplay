@@ -191,8 +191,23 @@ class Moment:
 
 
 def candidates(sents: list[Sentence], target=30.0, tol=10.0) -> list[tuple[float, float, str]]:
-    """Every sentence-aligned window of roughly `target` seconds."""
+    """Every distinct sentence-aligned window of roughly `target` seconds.
+
+    Windows are seeded per sentence, so consecutive cues that share a start time --
+    routine in YouTube auto-captions -- seed windows with an identical (start, end)
+    span and merely different text. Those are the same clip opportunity, and keeping
+    both is a real defect rather than a cosmetic one: it inflates `candidate_count`,
+    shifts every percentile, and lets a memory boost land on one copy while its twin
+    ranks hundreds of places lower, so the artifact reports the same window as both a
+    callback and not. The manifest identifies a window by (start, end) alone, so that
+    is the identity deduplicated here -- at the same 3dp the manifest rounds to, so
+    the "decision windows must be unique" invariant holds by construction.
+
+    The first seed wins. It starts at the earliest sentence, so it carries the most
+    text, which is the better input for memory retrieval.
+    """
     out = []
+    seen: set[tuple[float, float]] = set()
     for i, s0 in enumerate(sents):
         chunk = []
         for s in sents[i:]:
@@ -205,6 +220,10 @@ def candidates(sents: list[Sentence], target=30.0, tol=10.0) -> list[tuple[float
             continue
         end = chunk[-1].end
         if target - tol <= end - s0.start <= target + tol:
+            span = (round(s0.start, 3), round(end, 3))
+            if span in seen:
+                continue
+            seen.add(span)
             out.append((s0.start, end, " ".join(c.text for c in chunk)))
     return out
 

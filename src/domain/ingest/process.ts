@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess, type StdioOptions } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { clipperRoot } from "./sources";
@@ -16,11 +16,23 @@ export type RunningProcessJob = {
 type DurableStatusDocument = {
   creator_id?: string | null;
   state?: string;
+  /** Epoch seconds, written on every tick. Absence means the writer never heartbeat. */
+  updated?: number;
 };
 
 type LegacyRunningProcessJob = Omit<RunningProcessJob, "jobId" | "kind">;
 
 const ACTIVE_STATES = new Set(["started", "running", "cancelling"]);
+
+/** How long an active-looking job may go silent before it is treated as abandoned.
+ *
+ * A status file is not proof of life. If the server dies mid-run, the Python child dies
+ * with it on Windows (`detached: false`) and nothing writes a terminal status, so the
+ * document says "running" forever and that creator can never start another job — the
+ * failure a restart during a demo would produce. Every writer heartbeats `updated` on each
+ * tick, so silence past this bound means the writer is gone. Generous, because a single
+ * model call plus retries can legitimately take a minute. */
+const ABANDONED_AFTER_MS = 5 * 60 * 1000;
 
 /** Process handles are intentionally process-local, while job truth remains on disk.
  *
@@ -187,6 +199,33 @@ export function spawnPythonJob(options: SpawnPythonJobOptions): ChildProcess {
  * proves completion. This preserves ingest's status/manifest race handling without
  * teaching the shared registry about clip manifests.
  */
+function isAbandoned(status: DurableStatusDocument): boolean {
+  const updated = typeof status.updated === "number" ? status.updated * 1000 : 0;
+  return Date.now() - updated > ABANDONED_AFTER_MS;
+}
+
+/** Record the abandonment so the UI stops reporting a run that is not happening.
+ *
+ * Best effort: failing to write must never stop the caller from starting a new job, which
+ * is the whole point of detecting this. */
+function markAbandoned(jobId: string, status: DurableStatusDocument): void {
+  try {
+    writeFileSync(
+      join(workdir(), jobId, "status.json"),
+      JSON.stringify({
+        ...status,
+        state: "failed",
+        updated: Date.now() / 1000,
+        message: "The run stopped without finishing, most likely because the server "
+          + "restarted. Nothing was left half-written; start it again.",
+      }, null, 2),
+      "utf-8",
+    );
+  } catch {
+    // Unwritable status must not block a fresh run.
+  }
+}
+
 export function durableActiveJob(
   creatorId: string,
   isDurablyComplete: (jobId: string, creatorId: string) => boolean = () => false,
@@ -204,7 +243,13 @@ export function durableActiveJob(
     if (status?.creator_id !== creatorId || !status.state || !ACTIVE_STATES.has(status.state)) {
       continue;
     }
-    if (!isDurablyComplete(entry.name, creatorId)) return entry.name;
+    if (isDurablyComplete(entry.name, creatorId)) continue;
+    // A live handle is proof of life; otherwise fall back to the heartbeat.
+    if (!runningJobs.has(entry.name) && isAbandoned(status)) {
+      markAbandoned(entry.name, status);
+      continue;
+    }
+    return entry.name;
   }
   return null;
 }

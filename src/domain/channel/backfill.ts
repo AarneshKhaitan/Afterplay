@@ -493,7 +493,9 @@ async function runVideo(jobId: string, index: number, runtime: BackfillRuntime):
   const args = [
     "-m", "afterplay.cli", "backfill-channel", parent.channel,
     "--creator", parent.creatorId,
-    "--videos", selected.videoId,
+    // "=" form, not a separate argv entry: YouTube ids may start with "-" and argparse
+    // would otherwise read the id as a flag and exit 2.
+    `--videos=${selected.videoId}`,
     "--rights", parent.footageRights,
     "--job-id", selected.childJobId,
     "--workers", String(parent.workers),

@@ -164,14 +164,14 @@ test("channel backfill runs one Python child per video sequentially and records 
     });
 
     await waitFor(() => spawned.length, (count) => count === 1);
-    expect(spawned[0].options.args).toEqual(expect.arrayContaining(["--videos", "video_one"]));
+    expect(spawned[0].options.args).toEqual(expect.arrayContaining(["--videos=video_one"]));
     expect(spawned).toHaveLength(1);
 
     writeChildReport(spawned[0].options.jobId, "creator_channel_seq", "video_one", "complete");
     spawned[0].child.emit("exit", 0, null);
 
     await waitFor(() => spawned.length, (count) => count === 2);
-    expect(spawned[1].options.args).toEqual(expect.arrayContaining(["--videos", "video_two"]));
+    expect(spawned[1].options.args).toEqual(expect.arrayContaining(["--videos=video_two"]));
 
     writeChildReport(spawned[1].options.jobId, "creator_channel_seq", "video_two", "failed");
     spawned[1].child.emit("exit", 0, null);
