@@ -240,6 +240,31 @@ Note it downloads from `media.githubusercontent.com`, not `raw.githubusercontent
 `opencv_zoo` stores models in git-lfs and the raw URL returns a 131-byte pointer that
 loads as a corrupt ONNX.
 
+### Vertical framing
+
+The output is 1080x1920. By default the **entire** source frame is kept: it is scaled to
+the full width and centred, with a blurred, slightly darkened copy of itself filling the
+space above and below. Nothing is cropped away.
+
+`AFTERPLAY_MIN_WIDTH_FRAC` sets the floor as a fraction of source width. `1.0` (the
+default) is the full frame; lower values crop in before letterboxing, and `0` restores an
+edge-to-edge crop. Note what a hard 9:16 crop of a 16:9 source costs: it keeps 31.6% of
+the frame width and enlarges it 2.7x, so heads lose their tops and a two-shot loses a
+head entirely.
+
+### Burned-in captions
+
+Off by default, opt in with `--captions`.
+
+Most source footage already carries the creator's own burned-in captions. Adding ours on
+top produces two layers that disagree, because word timings come from the platform's
+auto-captions and drift against the speech. With captions off, no subtitle file and no
+caption QC probe are generated at all.
+
+```bash
+python -m afterplay.cli run --captions ...
+```
+
 ## ASR
 
 ```bash

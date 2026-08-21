@@ -45,6 +45,18 @@ python -m venv .venv
 .\.venv\Scripts\python -m afterplay.cli doctor
 ```
 
+**Before any live run or demo, update yt-dlp:**
+
+```powershell
+.\.venv\Scripts\python -m pip install -U yt-dlp
+```
+
+YouTube changes how it signs media URLs every few weeks. A stale extractor still reads
+metadata and captions perfectly, then gets `403` on the video itself -- which surfaces as
+an ffmpeg exit code and reads like a render or network bug, not a dependency one. `doctor`
+prints the installed version and flags it once it is over 30 days old.
+
+
 Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
 
 ### Riff desktop companion

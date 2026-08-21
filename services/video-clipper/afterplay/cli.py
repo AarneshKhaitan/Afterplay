@@ -380,6 +380,13 @@ def cmd_doctor(a) -> int:
     for mod in ("cv2", "numpy", "yt_dlp"):
         try:
             m = __import__(mod)
+            # yt-dlp keeps its version in a submodule, so the generic getattr below
+            # reported a bare "ok" for it. That mattered: a stale extractor is the
+            # single likeliest cause of a run that reads captions fine and then 403s
+            # on the media, and "ok" hid the one number needed to spot it.
+            if mod == "yt_dlp":
+                rows.append((mod, _ytdlp_state()))
+                continue
             rows.append((mod, getattr(m, "__version__", "ok")))
         except Exception as e:                                # noqa: BLE001
             rows.append((mod, f"MISSING: {e}"))
@@ -458,6 +465,28 @@ def cmd_results(a) -> int:
         print(f"priors: {priors}")
     return 0
 
+
+
+def _ytdlp_state() -> str:
+    """yt-dlp's version, plus a warning once it is old enough to start getting 403s.
+
+    YouTube changes how it signs media URLs every few weeks. An out-of-date extractor
+    still resolves metadata and subtitles, so a run looks healthy right up to the point
+    ffmpeg cannot fetch the video and exits with an opaque code. The threshold is 30 days
+    because the build that actually broke here was 46 days old -- anything laxer would
+    have stayed silent through the exact failure this check exists to catch.
+    """
+    from datetime import date
+    from yt_dlp.version import __version__ as raw
+
+    try:
+        year, month, day = (int(part) for part in raw.split(".")[:3])
+        age = (date.today() - date(year, month, day)).days
+    except (ValueError, TypeError):
+        return raw
+    if age > 30:
+        return f"{raw}  STALE ({age}d) - run: pip install -U yt-dlp"
+    return f"{raw}  ({age}d old)"
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser("afterplay", description="autonomous short-form clipper")

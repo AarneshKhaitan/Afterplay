@@ -1,4 +1,8 @@
-yt-dlp>=2025.1.1
+# Pin recent, and re-run `pip install -U yt-dlp` before any demo. YouTube changes how
+# it signs media URLs every few weeks; an out-of-date extractor still reads metadata and
+# captions fine but gets 403 on the video itself, which surfaces as an ffmpeg exit code
+# and looks like a render bug. A 2026.07 build already failed this way against 2026.08.
+yt-dlp>=2026.8.19
 opencv-python>=4.9
 numpy>=1.26
 imageio-ffmpeg>=0.5
