@@ -17,7 +17,7 @@ shippable and leaves the product in a coherent state.
 | 0 | Truth and submission integrity | G5, G13, G14, G15 | Implemented except G1 deliverables; evidence: [E-010](./EVIDENCE.md#e-010-install-path-correction), [E-012](./EVIDENCE.md#e-012-callback-status-contract), [E-013](./EVIDENCE.md#e-013-app-feedback-loop-typecheck) |
 | 1 | Make the live path the demo | G2, G6, G19, G20, G23 | **Complete — all five closed.** G2/G6 on real creator VODs; G23 by ASR on caption-less gameplay ([E-025](./EVIDENCE.md#e-025-asr-backfill-on-a-caption-less-source)); G19/G20 by fault injection, not inspection ([E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale)); the callback status contract now reports what shipped rather than what was scored ([E-024](./EVIDENCE.md#e-024-callback-found-reflects-shipped-clips)). Evidence: [E-001](./EVIDENCE.md#e-001-single-video-live-run), [E-003](./EVIDENCE.md#e-003-negative-control-and-adversarial), [E-006](./EVIDENCE.md#e-006-callback-is-additive-not-a-gate), [E-011](./EVIDENCE.md#e-011-no-callback-valid-fallback), [E-012](./EVIDENCE.md#e-012-callback-status-contract), [E-013](./EVIDENCE.md#e-013-app-feedback-loop-typecheck) |
 | 2 | Close the loop | G7 | **Complete.** Recorded results demonstrably re-rank a later run ([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run)); pipeline clips are approved and dispatched with the curated package ([E-020](./EVIDENCE.md#e-020-pipeline-clips-in-the-approval-loop)); real analytics exports reach the priors ([E-021](./EVIDENCE.md#e-021-real-analytics-csv-into-the-ranking-priors)). Publishing itself remains G12. |
-| 3 | Creator self-service ingestion | G8, G9, G10 | No |
+| 3 | Creator self-service ingestion | G8, G9, G10 | Partial — job orchestration and channel connect (3.1, 3.3) are implemented, closing G9; upload (3.2) and OAuth (3.4 / G10) remain open |
 | 4 | Editorial control | G11 | No |
 | 5 | Publishing and real performance | G12, G10 | No |
 | 6 | Production hardening | G16–G18, G21, G22 | No |
@@ -78,7 +78,7 @@ callback evidence is absent.
 
 ### 0.4 Resolve model config drift (G14)
 
-`.env` sets `AFTERPLAY_OPENAI_MODEL=gpt-4o-mini`; `docs/AI.md:30` documents `gpt-5.6-sol`.
+`.env` sets `AFTERPLAY_OPENAI_MODEL=gpt-4o-mini`; `docs/AI.md:34` documents `gpt-5.6-sol`.
 Pick one, update both, and state the choice in the mode table.
 
 ### 0.5 Rewrite `tasks/todo.md` (G15) — implemented
@@ -199,27 +199,39 @@ grounded in them ("this rivalry is unresolved; test a payoff cut"). Live mode on
 
 ## Phase 3 — Creator self-service ingestion
 
-**Why:** R5. Today media enters only via CLI on the operator's machine (G8, G9, G10).
+**Why:** R5. A creator can now point the browser at a URL or a channel without a terminal;
+raw file upload and OAuth are still missing (G8 partial, G10 open).
 
-### 3.1 Job orchestration first
+### 3.1 Job orchestration first — DONE
 
 Prerequisite for everything else here: renders take minutes (1,907s observed on a real
 VOD; ~89s on a short local source). A synchronous request cannot do this.
 
-- Job queue with persisted state: `queued → resolving → understanding → rendering → qc → done/failed`.
-- `POST /api/jobs` to enqueue, `GET /api/jobs/:id` to poll, progress surfaced in the UI.
-- Workers invoke the existing Python CLI; do not reimplement the pipeline in TypeScript.
+- Implemented as `src/app/api/ingest/route.ts` (`POST` to enqueue) and
+  `src/app/api/ingest/[jobId]/route.ts` (`GET` to poll, `DELETE` to cancel), with structured
+  stages `resolve → transcript → memory → render → done` persisted per job
+  (`src/domain/ingest/jobs.ts`) rather than the originally sketched
+  `queued → resolving → understanding → rendering → qc → done/failed` / `/api/jobs` shape.
+- Progress is surfaced in the UI via `src/app/ingest/page.tsx` / `IngestConsole`.
+- Workers invoke the existing Python CLI (`src/domain/ingest/process.ts`); the pipeline is
+  not reimplemented in TypeScript.
 
-### 3.2 Upload
+### 3.2 Upload — still open
 
 `POST /api/uploads` with multipart streaming to disk, size/type limits, and a rights
-attestation checkbox recorded with the upload. Wire to the job queue via `--local`.
+attestation checkbox recorded with the upload. Wire to the job queue via `--local`. No
+`FormData`/multipart handler exists anywhere in `src/` yet — a creator with only a local
+file still needs the CLI.
 
-### 3.3 Channel connect
+### 3.3 Channel connect — DONE
 
-No channel enumeration exists today. Add a resolver that expands a channel URL or `@handle`
-into a video list (`yt-dlp --flat-playlist`), lets the creator pick which streams form the
-memory backfill set, and auto-assigns stable `stream_id`s instead of requiring manual flags.
+A resolver expands a channel URL or `@handle` into a video list
+(`services/video-clipper/afterplay/channels.py:list_channel_videos`, yt-dlp `extract_flat`),
+exposed via `src/app/api/channel/route.ts`. The creator picks which listed videos form the
+backfill set and the creator id is auto-derived
+(`src/app/api/channel/backfill/route.ts`, `src/domain/channel/backfill.ts`) instead of
+requiring manual `--stream-id` flags. Both are wired into the `ChannelConsole` component on
+the Ingest page.
 
 ### 3.4 OAuth and real analytics
 
@@ -280,7 +292,7 @@ memory backfill set, and auto-assigns stable `stream_id`s instead of requiring m
 ### 6.1 Reframe performance (G16)
 
 Measured **142s for one 41.7s 1080p60 clip** with zero contention. `vision.py:87` (face
-pass) and `produce.py:126` (saliency pass) each open the clip and `cap.read()` every frame,
+pass) and `produce.py:133` (saliency pass) each open the clip and `cap.read()` every frame,
 discarding all but every Nth — two full decodes.
 
 - Downscale frames to ~320px before `_energy_columns`; edge energy does not need 1080p.

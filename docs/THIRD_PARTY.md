@@ -1,6 +1,6 @@
 # Third-party and synthetic asset disclosure
 
-Last updated: 2026-08-07
+Last updated: 2026-08-21
 
 This ledger must be updated whenever a library, model, API, dataset, media source, font, or generated asset enters the repository.
 
@@ -26,11 +26,14 @@ Versions below are resolved by `package-lock.json` on 5 August 2026.
 | OpenAI JavaScript SDK | 7.4.0 | Apache-2.0 | Optional server-only live strategy director. |
 | Zod | 4.4.3 | MIT | Public request, model output, and domain-boundary validation. |
 | Phosphor React icons | 2.1.10 | MIT | Product iconography. |
-| Manrope variable font | 5.3.0 | OFL-1.1 | Self-hosted product typography. |
+| Manrope variable font | 5.3.0 | OFL-1.1 | Self-hosted product typography (UI/body face). |
+| Fraunces variable font | 5.3.0 | OFL-1.1 | Self-hosted product typography (display face). |
+| Space Mono | 5.3.0 | OFL-1.1 | Self-hosted product typography (mono face). |
 | Playwright Test | 1.62.1 | Apache-2.0 | Browser, HTTP, and production-mode contracts. |
 | axe-core Playwright | 4.12.1 | MPL-2.0 | Automated WCAG A/AA checks. |
 | TypeScript | 5.9.3 | Apache-2.0 | Static typing. |
 | ESLint | 9.39.5 | MIT | Static source checks. |
+| Electron | 43.3.0 | MIT | Desktop shell for the Riff companion (`electron/main.mjs`, `npm run companion`). |
 
 Transitive packages and integrity hashes are recorded in `package-lock.json`.
 
@@ -42,7 +45,7 @@ environment.
 
 | Component | Version | Licence | Purpose |
 | --- | ---: | --- | --- |
-| yt-dlp | >=2025.1.1 | Unlicense | Metadata, captions, heatmaps, and direct stream URL resolution without downloading full video. |
+| yt-dlp | >=2026.8.19 | Unlicense | Metadata, captions, heatmaps, and direct stream URL resolution without downloading full video. |
 | OpenCV / opencv-python | >=4.9 | Apache-2.0 | Frame sampling, saliency, subject tracking, and QC measurements. |
 | numpy | >=1.26 | BSD-3-Clause | Audio/frame numeric analysis and scoring support. |
 | imageio-ffmpeg | >=0.5 | BSD-2-Clause | Bundled ffmpeg binary fallback when system ffmpeg is unavailable. |
@@ -67,7 +70,7 @@ environment.
 - OpenAI Responses API in optional live strategy mode and optional callback-memory mode.
 - Apify (YouTube channel/video scrapers) in the optional competitive-intelligence engine (`/intel`); requires `APIFY_API_TOKEN` and is disabled without it. Scanned data stays in the local `.intel/` store.
 - OpenAI Responses API (`AFTERPLAY_INTEL_MODEL`) for intel analysis and the grounded strategist chat.
-- Simulated YouTube Shorts, TikTok, and Instagram Reels distribution adapters in demo mode.
+- Simulated YouTube Shorts, TikTok, and Instagram Reels distribution adapters, available in every workspace (live included); only resetting the demo workspace stays demo-gated.
 - No real social account credentials, public posting, or private creator archive leaves the judge environment by default.
 
 ## Truth rules

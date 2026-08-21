@@ -130,7 +130,7 @@ npm run test:e2e
 npx playwright test tests/e2e/accessibility.spec.ts
 Set-Location services/video-clipper
 .venv/Scripts/python -m pytest
-.venv/Scripts/python -m afterplay.cli eval --set evals/heldout.jsonl
+.venv/Scripts/python -m afterplay.cli eval --set evals/heldout.jsonl --tuning evals/tuning.jsonl
 ```
 
 The final manual path must prove:

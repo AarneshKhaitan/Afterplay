@@ -122,7 +122,7 @@ $env:PYTHONPATH='services/video-clipper'
 .\services\video-clipper\.venv\Scripts\python.exe -m afterplay.cli backfill `
   --creator probe_ksi --stream-id nxGlZX9GH5I `
   --vtt services/video-clipper/.demo-cache/nxGlZX9GH5I/source.en.vtt `
-  --prune-unverified
+  --rights not_cleared --prune-unverified
 
 .\services\video-clipper\.venv\Scripts\python.exe -m afterplay.cli run `
   --memory --creator probe_ksi --rights not_cleared --clips 5 --workers 1 `

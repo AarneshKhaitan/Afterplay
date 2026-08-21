@@ -941,6 +941,10 @@ class TestJobStatus:
             encoder=None,
             watermark=None,
             memory=False,
+            # argparse always supplies this (store_true, default False); a hand-built
+            # Namespace has to as well, or cmd_run raises AttributeError before the
+            # failure this test is actually about.
+            captions=False,
             creator="failure-owner",
             llm=False,
             platforms="shorts",

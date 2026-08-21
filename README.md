@@ -114,12 +114,14 @@ npm run start
 
 | Mode | What runs | What it needs | What is guaranteed |
 |---|---|---|---|
-| `demo` | deterministic fixture director; simulated distribution | none | repeatable, offline, no external calls |
+| `demo` | deterministic fixture director | none | repeatable, offline, no external calls |
 | `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true` + `OPENAI_API_KEY` | real strategy output or visible error — never fixture output |
 | `riff-live` | OpenAI Realtime cohost + selected-window snapshots | `OPENAI_API_KEY` + microphone/screen permission | live audio/image context or visible failure — never synthetic fallback |
 | `clipper` | real ingestion, memory, callback scoring, render | `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL` | genuine per-input computed clips |
 
 State plainly that demo-mode strategy is a fixture while clipper output is real.
+
+Simulated distribution and labelled synthetic results run in every workspace, live included; only resetting the demo workspace (`POST /api/demo/reset`) stays demo-gated. Honesty comes from the payload, not the mode: results must declare the literal `disclosure: "synthetic_sample_data"`.
 
 ## Judge path
 
