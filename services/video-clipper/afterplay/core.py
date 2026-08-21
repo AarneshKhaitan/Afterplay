@@ -89,6 +89,37 @@ class Brand:
     watermark_margin: float = 0.04
 
 
+
+def replace_with_retry(src, dst, *, attempts: int = 6) -> None:
+    """os.replace, retrying the Windows-only transient denial.
+
+    POSIX replaces an open destination happily. Windows refuses while anything holds a
+    handle on it -- Defender scanning the file we just wrote, the Search indexer, or the
+    Node side polling the same status.json a millisecond earlier -- and raises
+    PermissionError (WinError 5 / WinError 32). The handle is short-lived, so a later
+    attempt succeeds.
+
+    Observed for real: a channel backfill died mid-run with
+
+      PermissionError: [WinError 5] Access is denied:
+      '...\.work\channel_725f15664227_v3\.status.json.<pid>.<hex>.tmp'
+      -> '...\.work\channel_725f15664227_v3\status.json'
+
+    Backoff totals roughly 300ms (10, 20, 40, 80, 160), long enough to outlast a scanner
+    on a small JSON file and short enough that a genuinely stuck replace still fails
+    fast. Anything that is not a PermissionError is raised immediately; so is the last
+    attempt, so the caller still sees the real error rather than a swallowed one.
+    """
+    delays = [0.01, 0.02, 0.04, 0.08, 0.16]
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delays[min(attempt, len(delays) - 1)])
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 

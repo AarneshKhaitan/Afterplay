@@ -19,7 +19,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from .core import Brand, _configured_dir
+from .core import Brand, _configured_dir, replace_with_retry
 
 log = logging.getLogger("afterplay")
 
@@ -44,7 +44,7 @@ def _save(p: Path, obj):
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, indent=2, default=str), encoding="utf-8")
-    tmp.replace(p)                       # atomic: a crashed write never corrupts memory
+    replace_with_retry(tmp, p)           # atomic: a crashed write never corrupts memory
 
 
 @dataclass

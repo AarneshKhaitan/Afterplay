@@ -29,7 +29,7 @@ from . import produce, qc as qcmod
 # `from . import resolve` would bind the function here.
 from .resolve import from_info_json, from_local, resolve as resolve_url, stream_urls
 from .core import (Brand, AfterplayError, PLATFORMS, Platform, Settings, detect_encoder,
-                   jdump, probe)
+                   jdump, probe, replace_with_retry)
 from .channel_memory import ChannelMemory
 from .understand import (HeuristicReasoner, LLMReasoner, MemoryReasoner, Moment, Reasoner, Word,
                          parse_vtt, sentences, speech_onset)
@@ -560,7 +560,7 @@ class Orchestrator:
         tmp = status_path.with_name(f".{status_path.name}.{uuid.uuid4().hex}.tmp")
         try:
             jdump(payload, tmp)
-            os.replace(tmp, status_path)
+            replace_with_retry(tmp, status_path)
         finally:
             tmp.unlink(missing_ok=True)
 

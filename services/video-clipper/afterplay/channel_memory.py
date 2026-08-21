@@ -18,6 +18,7 @@ from typing import Callable, Iterable
 
 from .citations import verify_citation
 from .memory import memory_root
+from .core import replace_with_retry
 
 log = logging.getLogger("afterplay")
 
@@ -132,7 +133,7 @@ def _save_json(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(obj, indent=2, default=str), encoding="utf-8")
-    tmp.replace(path)
+    replace_with_retry(tmp, path)
 
 
 class ChannelMemory:

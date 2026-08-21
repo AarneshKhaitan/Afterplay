@@ -10,7 +10,7 @@ from pathlib import Path
 from .agent import FOOTAGE_RIGHTS
 from .channel_memory import ChannelMemory, memory_workers
 from .channels import ChannelListing, creator_id_from, list_channel_videos
-from .core import Settings
+from .core import Settings, replace_with_retry
 from .resolve import resolve as resolve_url
 from .understand import parse_vtt, sentences
 
@@ -25,7 +25,7 @@ def _atomic_json(path: Path, payload: dict) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
         tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 

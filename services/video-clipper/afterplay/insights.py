@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from .core import replace_with_retry
 
 log = logging.getLogger("afterplay")
 
@@ -293,7 +294,7 @@ class Analytics:
     def _save(p: Path, obj):
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_text(json.dumps(obj, indent=2, default=str), encoding="utf-8")
-        tmp.replace(p)
+        replace_with_retry(tmp, p)
 
     # ── record ───────────────────────────────────────────────────────────────
     def record_post(self, clip, platform: str, post_id: str,
