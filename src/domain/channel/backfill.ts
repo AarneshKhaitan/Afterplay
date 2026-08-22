@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -391,6 +392,32 @@ export function loadJob(jobId: string): ChannelBackfillJob | null {
 export function loadJobForCreator(jobId: string, creatorId: string): ChannelBackfillJob | null {
   const job = loadJob(jobId);
   return job?.creatorId === creatorId ? job : null;
+}
+
+/** The newest finished memory run for this creator, for the stage demo's replay.
+ *
+ * "Finished" means complete or partial: a partial run still contributed real threads
+ * from the videos that succeeded, and it is a legitimate thing to show. Running and
+ * failed runs are skipped -- neither has a full progress track to walk.
+ *
+ * Returns null when the creator has none, which the caller must surface rather than
+ * animating a progress bar over nothing. */
+export function latestFinishedBackfillJobId(creatorId: string): string | null {
+  const root = workdir();
+  if (!existsSync(root)) return null;
+  const owner = creatorId.trim();
+  const finished = new Set(["complete", "partial"]);
+  const candidates: Array<{ id: string; updatedAt: string }> = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !JOB_ID_PATTERN.test(entry.name)) continue;
+    if (!existsSync(join(root, entry.name, "channel-job.json"))) continue;
+    const job = loadJob(entry.name);
+    if (!job || job.creatorId !== owner || !finished.has(job.state)) continue;
+    if (job.videos.length === 0) continue;
+    candidates.push({ id: job.jobId, updatedAt: job.updatedAt ?? "" });
+  }
+  candidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return candidates[0]?.id ?? null;
 }
 
 export async function cancelChannelBackfillJob(

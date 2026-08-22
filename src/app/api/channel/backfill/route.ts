@@ -4,6 +4,7 @@ import { z } from "zod";
 import { invalidRequest } from "@/app/api/http";
 import {
   ChannelBackfillError,
+  latestFinishedBackfillJobId,
   startChannelBackfillJob,
 } from "@/domain/channel/backfill";
 import {
@@ -27,6 +28,15 @@ const startRequestSchema = z.object({
     context.addIssue({ code: "custom", message: "Video ids must be unique.", path: ["videoIds"] });
   }
 });
+
+/** What the channel console needs to decide between a real run and the stage replay. */
+export async function GET() {
+  const creator = await currentCreator();
+  return NextResponse.json({
+    demoReplay: process.env.AFTERPLAY_DEMO_REPLAY === "true",
+    replayJobId: latestFinishedBackfillJobId(creator.id),
+  });
+}
 
 export async function POST(request: Request) {
   let body: unknown;
