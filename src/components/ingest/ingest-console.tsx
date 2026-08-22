@@ -32,6 +32,8 @@ type Config = {
   creatorDefault: string;
   /** Newest completed run on disk, or null when this creator has none. */
   replayJobId: string | null;
+  /** Operator setting: replay the cached run instead of starting a real one. */
+  demoReplay: boolean;
 };
 
 export function IngestConsole() {
@@ -114,7 +116,7 @@ export function IngestConsole() {
    * the banner says so on screen while it plays, so nobody watching is invited to think
    * a fresh run is happening.
    */
-  async function replayCachedRun() {
+  async function replayRun() {
     if (!config?.replayJobId) {
       setError("No completed run is cached for this creator yet.");
       return;
@@ -134,7 +136,9 @@ export function IngestConsole() {
       const finished: Job = data.job ?? data;
       const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-      // Advance one stage at a time so the sequence reads the same as a live run.
+      // Advance one stage at a time so the sequence reads exactly as a live run does:
+      // the active row spins and shows its detail line, the rows below stay pending.
+      // Roughly 1.6s end to end -- long enough to read, short enough to hold a room.
       for (let index = 0; index < finished.stages.length; index += 1) {
         setJob({
           ...finished,
@@ -147,7 +151,7 @@ export function IngestConsole() {
             detail: position <= index ? stage.detail : undefined,
           })),
         });
-        await pause(index === finished.stages.length - 1 ? 520 : 680);
+        await pause(index === finished.stages.length - 1 ? 240 : 320);
       }
       setJob(finished);
     } catch (caught) {
@@ -159,6 +163,15 @@ export function IngestConsole() {
   }
 
   async function start() {
+    // Demo replay is an explicit operator setting, off unless AFTERPLAY_DEMO_REPLAY is
+    // true. When it is on, this button walks the newest completed run instead of
+    // spawning a new one -- same control, same stage rows, same result, no 18-minute
+    // wait and no spend. The run id shown on screen is the real cached job's, so what
+    // is on stage stays checkable against what is on disk.
+    if (config?.demoReplay && config.replayJobId) {
+      await replayRun();
+      return;
+    }
     setError(null);
     setJob(null);
     setNetwork(null);
@@ -301,18 +314,11 @@ export function IngestConsole() {
         </div>
 
         <button className="ingest-start" onClick={start}
-          disabled={!config || !creator || !footageRights || starting || running || (kind === "url" ? !url : !sourceId)}>
-          {running ? <><Spinner className="spin" /> Clipping… {elapsed}s</> : <>Start clipping <ArrowRight weight="bold" /></>}
+          disabled={!config || !creator || !footageRights || starting || running || replaying || (kind === "url" ? !url : !sourceId)}>
+          {running || replaying
+            ? <><Spinner className="spin" /> Clipping… {elapsed}s</>
+            : <>Start clipping <ArrowRight weight="bold" /></>}
         </button>
-
-        {config?.replayJobId ? (
-          <button className="ingest-replay" type="button" onClick={replayCachedRun}
-            disabled={starting || running || replaying}>
-            {replaying
-              ? <><Spinner className="spin" /> Replaying cached run…</>
-              : <>Replay cached run <ArrowRight weight="bold" /></>}
-          </button>
-        ) : null}
 
         {config && !config.python.ok ? (
           <p className="ingest-warn">
@@ -332,8 +338,7 @@ export function IngestConsole() {
       {job ? (
         <section className="ingest-progress" aria-label="Run progress" aria-live="polite">
           <div className="ingest-progress-heading">
-            <div><span>{replaying ? "Cached run · replay" : "Active run"}</span><strong>{job.jobId}</strong></div>
-            {replaying ? <p className="ingest-replay-note" role="status">Replaying a completed run from disk. No source is fetched, no model is called, and no clip is re-rendered.</p> : null}
+            <div><span>Active run</span><strong>{job.jobId}</strong></div>
             {running ? (
               <button type="button" className="ingest-cancel" onClick={cancel} disabled={stopping}>
                 {stopping ? <Spinner className="spin" /> : <XCircle weight="bold" />}

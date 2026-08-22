@@ -42,6 +42,10 @@ export async function GET() {
     // Newest completed run on disk, so the cached replay can find real stages to
     // walk without a job id being typed in at the venue.
     replayJobId: latestCompletedJobId(creator.id),
+    // Stage demo: replay the cached run from the normal button instead of starting a
+    // real one. Off unless explicitly set, so a developer machine never silently stops
+    // doing the real thing.
+    demoReplay: process.env.AFTERPLAY_DEMO_REPLAY === "true",
   });
 }
 
