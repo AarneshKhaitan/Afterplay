@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { invalidRequest } from "@/app/api/http";
 import {
-  assertIngestableUrl, IngestError, newJobId, pythonConfigured, readIngestJob, startIngestJob,
+  assertIngestableUrl, IngestError, latestCompletedJobId, newJobId, pythonConfigured,
+  readIngestJob, startIngestJob,
 } from "@/domain/ingest/jobs";
 import { currentCreator } from "@/domain/creators";
 import { findCachedSource, listCachedSources, mediaDirConfigured } from "@/domain/ingest/sources";
@@ -38,6 +39,9 @@ export async function GET() {
     mediaDirConfigured: mediaDirConfigured(),
     python,
     creatorDefault: creator.id,
+    // Newest completed run on disk, so the cached replay can find real stages to
+    // walk without a job id being typed in at the venue.
+    replayJobId: latestCompletedJobId(creator.id),
   });
 }
 

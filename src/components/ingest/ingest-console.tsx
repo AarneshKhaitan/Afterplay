@@ -30,6 +30,8 @@ type Config = {
   mediaDirConfigured: boolean;
   python: { ok: boolean; interpreter: string };
   creatorDefault: string;
+  /** Newest completed run on disk, or null when this creator has none. */
+  replayJobId: string | null;
 };
 
 export function IngestConsole() {
@@ -48,6 +50,7 @@ export function IngestConsole() {
   const [pollError, setPollError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [replaying, setReplaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGeneration = useRef(0);
@@ -101,6 +104,59 @@ export function IngestConsole() {
     };
     pollRef.current = setTimeout(poll, 0);
   }, [stopPolling]);
+
+  /** Walk a completed run's stages on stage, fast.
+   *
+   * The stages, their labels and the clips are the real ones from a run that actually
+   * happened -- this replays that run's own record rather than inventing progress. It
+   * exists because a live run takes many minutes and depends on the venue network,
+   * neither of which survives a demo slot. Nothing here calls yt-dlp, ffmpeg or a model;
+   * the banner says so on screen while it plays, so nobody watching is invited to think
+   * a fresh run is happening.
+   */
+  async function replayCachedRun() {
+    if (!config?.replayJobId) {
+      setError("No completed run is cached for this creator yet.");
+      return;
+    }
+    setError(null);
+    setPollError(null);
+    setNetwork(null);
+    setJob(null);
+    setReplaying(true);
+    setElapsed(0);
+    try {
+      const response = await fetch(`/api/ingest/${config.replayJobId}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error?.message ?? "The cached run could not be read.");
+      }
+      const finished: Job = data.job ?? data;
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      // Advance one stage at a time so the sequence reads the same as a live run.
+      for (let index = 0; index < finished.stages.length; index += 1) {
+        setJob({
+          ...finished,
+          state: "running",
+          message: undefined,
+          clips: [],
+          stages: finished.stages.map((stage, position) => ({
+            ...stage,
+            state: position < index ? "complete" : position === index ? "running" : "pending",
+            detail: position <= index ? stage.detail : undefined,
+          })),
+        });
+        await pause(index === finished.stages.length - 1 ? 520 : 680);
+      }
+      setJob(finished);
+    } catch (caught) {
+      setError((caught as Error).message);
+      setJob(null);
+    } finally {
+      setReplaying(false);
+    }
+  }
 
   async function start() {
     setError(null);
@@ -249,6 +305,15 @@ export function IngestConsole() {
           {running ? <><Spinner className="spin" /> Clipping… {elapsed}s</> : <>Start clipping <ArrowRight weight="bold" /></>}
         </button>
 
+        {config?.replayJobId ? (
+          <button className="ingest-replay" type="button" onClick={replayCachedRun}
+            disabled={starting || running || replaying}>
+            {replaying
+              ? <><Spinner className="spin" /> Replaying cached run…</>
+              : <>Replay cached run <ArrowRight weight="bold" /></>}
+          </button>
+        ) : null}
+
         {config && !config.python.ok ? (
           <p className="ingest-warn">
             The clipper&apos;s Python environment was not found. Create it in
@@ -267,7 +332,8 @@ export function IngestConsole() {
       {job ? (
         <section className="ingest-progress" aria-label="Run progress" aria-live="polite">
           <div className="ingest-progress-heading">
-            <div><span>Active run</span><strong>{job.jobId}</strong></div>
+            <div><span>{replaying ? "Cached run · replay" : "Active run"}</span><strong>{job.jobId}</strong></div>
+            {replaying ? <p className="ingest-replay-note" role="status">Replaying a completed run from disk. No source is fetched, no model is called, and no clip is re-rendered.</p> : null}
             {running ? (
               <button type="button" className="ingest-cancel" onClick={cancel} disabled={stopping}>
                 {stopping ? <Spinner className="spin" /> : <XCircle weight="bold" />}

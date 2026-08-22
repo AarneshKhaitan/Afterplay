@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  statSync,
+  readdirSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -450,6 +452,30 @@ function parseProgress(log: string): { states: Record<StageId, StageState>; deta
     }
   }
   return { states, details, lines };
+}
+
+/** The most recent completed run for this creator, for the cached on-stage replay.
+ *
+ * A demo should not depend on a job id pasted into the UI: the venue machine may hold a
+ * different run than the laptop it was rehearsed on. This finds whatever completed run
+ * is actually on disk, newest first, so the replay always has something real behind it.
+ * Returns null when the creator has none, which the caller must surface rather than
+ * animating stages over nothing. */
+export function latestCompletedJobId(creatorId: string): string | null {
+  const root = workdir();
+  if (!existsSync(root)) return null;
+  const owner = creatorId.trim();
+  const candidates: Array<{ id: string; mtimeMs: number }> = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = join(root, entry.name, "manifest.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = safeJson<{ creator_id?: string | null; status?: string }>(manifestPath);
+    if (manifest?.creator_id !== owner || manifest.status !== "complete") continue;
+    candidates.push({ id: entry.name, mtimeMs: statSync(manifestPath).mtimeMs });
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0]?.id ?? null;
 }
 
 export function readIngestJob(jobId: string, creatorId: string): IngestJob | null {
