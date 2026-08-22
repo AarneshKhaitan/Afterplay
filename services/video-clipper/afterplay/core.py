@@ -89,6 +89,37 @@ class Brand:
     watermark_margin: float = 0.04
 
 
+
+def replace_with_retry(src, dst, *, attempts: int = 6) -> None:
+    """os.replace, retrying the Windows-only transient denial.
+
+    POSIX replaces an open destination happily. Windows refuses while anything holds a
+    handle on it -- Defender scanning the file we just wrote, the Search indexer, or the
+    Node side polling the same status.json a millisecond earlier -- and raises
+    PermissionError (WinError 5 / WinError 32). The handle is short-lived, so a later
+    attempt succeeds.
+
+    Observed for real: a channel backfill died mid-run with
+
+      PermissionError: [WinError 5] Access is denied:
+      '...\.work\channel_725f15664227_v3\.status.json.<pid>.<hex>.tmp'
+      -> '...\.work\channel_725f15664227_v3\status.json'
+
+    Backoff totals roughly 300ms (10, 20, 40, 80, 160), long enough to outlast a scanner
+    on a small JSON file and short enough that a genuinely stuck replace still fails
+    fast. Anything that is not a PermissionError is raised immediately; so is the last
+    attempt, so the caller still sees the real error rather than a swallowed one.
+    """
+    delays = [0.01, 0.02, 0.04, 0.08, 0.16]
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delays[min(attempt, len(delays) - 1)])
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -108,6 +139,26 @@ def _configured_dir(var: str, fallback: Path) -> Path:
     return p if p.is_absolute() else (REPO_ROOT / p)
 
 
+def _configured_languages() -> tuple[str, ...]:
+    raw = os.environ.get("AFTERPLAY_SUBTITLE_LANGUAGES", "en,en-US,en-GB,en-orig")
+    languages = tuple(item.strip() for item in raw.split(",") if item.strip())
+    return languages or ("en",)
+
+
+def _configured_min_width_frac() -> float:
+    """Default fraction of source width the render crop is widened to (see
+    produce.RenderSpec.min_width_frac). A malformed override must not crash
+    startup, so fall back to the full-frame default of 1.0 instead of raising.
+    """
+    raw = os.environ.get("AFTERPLAY_MIN_WIDTH_FRAC")
+    if not raw:
+        return 1.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 1.0
+
+
 @dataclass
 class Settings:
     workdir: Path = field(default_factory=lambda: _configured_dir(
@@ -121,6 +172,18 @@ class Settings:
     http_timeout: int = 60
     # yt-dlp format preference: cap the source at 1080p to bound the fetch
     format: str = "bv*[height<=1080]+ba/b[height<=1080]/b"
+    subtitle_languages: tuple[str, ...] = field(default_factory=_configured_languages)
+    asr_language: str | None = field(default_factory=lambda: (
+        os.environ.get("AFTERPLAY_ASR_LANGUAGE") or None
+    ))
+    # Default for RenderSpec.min_width_frac (see produce.py). 1.0 keeps the full
+    # source frame and letterboxes the surplus over a blurred fill.
+    min_width_frac: float = field(default_factory=_configured_min_width_frac)
+    # Burn word-level ASS captions into the render. Off by default: most source
+    # footage (e.g. Beta Squad) already carries the creator's own burned-in
+    # captions, and Afterplay's word-level layer stacking on top disagrees with it.
+    # See RenderSpec.ass / ClipAgent.run in agent.py.
+    captions: bool = False
 
     # ── ingestion auth and pacing ────────────────────────────────────────────
     # YouTube rate-limits unauthenticated extraction and then answers every
@@ -149,6 +212,13 @@ class Settings:
         self.outdir = Path(self.outdir)
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.outdir.mkdir(parents=True, exist_ok=True)
+        self.subtitle_languages = tuple(self.subtitle_languages)
+        if not self.subtitle_languages:
+            raise ValueError("subtitle_languages must contain at least one language")
+        if self.asr_language is None:
+            # Keep caption-less runs deterministic too. A Hindi case study can set
+            # AFTERPLAY_ASR_LANGUAGE=hi instead of accepting auto-detected drift.
+            self.asr_language = self.subtitle_languages[0].split("-", 1)[0]
 
 
 def network_opts(settings: "Settings") -> dict:

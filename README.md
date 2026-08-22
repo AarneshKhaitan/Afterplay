@@ -45,6 +45,18 @@ python -m venv .venv
 .\.venv\Scripts\python -m afterplay.cli doctor
 ```
 
+**Before any live run or demo, update yt-dlp:**
+
+```powershell
+.\.venv\Scripts\python -m pip install -U yt-dlp
+```
+
+YouTube changes how it signs media URLs every few weeks. A stale extractor still reads
+metadata and captions perfectly, then gets `403` on the video itself -- which surfaces as
+an ffmpeg exit code and reads like a render or network bug, not a dependency one. `doctor`
+prints the installed version and flags it once it is over 30 days old.
+
+
 Open [http://localhost:3000](http://localhost:3000). No account, network connection, API key, or platform credential is required for the default demo.
 
 ### Riff desktop companion
@@ -102,12 +114,14 @@ npm run start
 
 | Mode | What runs | What it needs | What is guaranteed |
 |---|---|---|---|
-| `demo` | deterministic fixture director; simulated distribution | none | repeatable, offline, no external calls |
+| `demo` | deterministic fixture director | none | repeatable, offline, no external calls |
 | `live` | OpenAI strategy director | `AFTERPLAY_ENABLE_LIVE_AI=true` + `OPENAI_API_KEY` | real strategy output or visible error — never fixture output |
 | `riff-live` | OpenAI Realtime cohost + selected-window snapshots | `OPENAI_API_KEY` + microphone/screen permission | live audio/image context or visible failure — never synthetic fallback |
 | `clipper` | real ingestion, memory, callback scoring, render | `OPENAI_API_KEY` + `AFTERPLAY_CLIPPER_MODEL` | genuine per-input computed clips |
 
 State plainly that demo-mode strategy is a fixture while clipper output is real.
+
+Simulated distribution and labelled synthetic results run in every workspace, live included; only resetting the demo workspace (`POST /api/demo/reset`) stays demo-gated. Honesty comes from the payload, not the mode: results must declare the literal `disclosure: "synthetic_sample_data"`.
 
 ## Judge path
 

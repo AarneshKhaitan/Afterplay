@@ -10,9 +10,10 @@ repair, manifests, and creator rendering memory.
   and demo presentation.
 - `services/video-clipper/afterplay/` owns the media pipeline:
   `resolve -> understand -> extract -> render -> QC -> manifest`.
-- A future bridge should call the clipper as a local job from a Next.js API route or
-  worker process, then project the returned `manifest.json` into the Studio and
-  Evidence views.
+- The Next.js ingest API starts and cancels creator-scoped local clipper jobs, then validates and
+  projects completed `manifest.json` documents into Studio and the approval workflow.
+- [Clip manifest v2](../contracts/clip-manifest-v2.md) is the shared boundary for ownership,
+  transcript provenance, immutable decision windows, callback evidence, and ablation proof.
 
 ## Callback Memory Status
 
@@ -45,12 +46,12 @@ python -m pytest -q tests\test_units.py
 Use creator-owned local media for functional runs:
 
 ```powershell
-python -m afterplay.cli --json run --local path\to\source.mp4 --vtt path\to\captions.vtt --clips 1 --platforms shorts --creator demo
+python -m afterplay.cli --json run --local path\to\source.mp4 --vtt path\to\captions.vtt --rights permission_granted --clips 1 --platforms shorts --creator demo
 ```
 
 Use callback memory after backfilling prior captions:
 
 ```powershell
 python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
-python -m afterplay.cli --json run --memory --local path\to\source.mp4 --vtt path\to\captions.vtt --clips 3 --platforms shorts --creator demo
+python -m afterplay.cli --json run --memory --local path\to\source.mp4 --vtt path\to\captions.vtt --rights permission_granted --clips 3 --platforms shorts --creator demo
 ```

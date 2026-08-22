@@ -1,0 +1,46 @@
+{
+  "schema": "afterplay.riff.handoff",
+  "version": 1,
+  "direction": "riff_to_afterplay",
+  "idempotencyKey": "session:session_final_rehearsal:completed",
+  "creatorId": "probe_ksi",
+  "createdAt": "2026-08-20T12:35:05.000Z",
+  "session": {
+    "id": "session_final_rehearsal",
+    "startedAt": "2026-08-20T12:00:00.000Z",
+    "endedAt": "2026-08-20T12:35:00.000Z"
+  },
+  "evidence": [
+    {
+      "id": "evidence:creator_audio:1842",
+      "kind": "creator_audio",
+      "capturedAt": "2026-08-20T12:30:42.000Z",
+      "summary": "The creator repeated the accepted experiment premise before the payoff.",
+      "sourceRef": "session_final_rehearsal/audio/1842"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision:1844",
+      "at": "2026-08-20T12:30:44.000Z",
+      "action": "marked_highlight",
+      "rationale": "The accepted premise and payoff occurred in the same segment.",
+      "evidenceRefs": ["evidence:creator_audio:1842"]
+    }
+  ],
+  "highlights": [
+    {
+      "id": "highlight:1840-1855",
+      "startSeconds": 1840,
+      "endSeconds": 1855,
+      "summary": "The recurring premise resolves into a clear payoff.",
+      "evidenceRefs": ["evidence:creator_audio:1842"]
+    }
+  ],
+  "proposedNextExperiment": {
+    "title": "Repeat the named constraint",
+    "hypothesis": "Repeating the same named constraint may improve recognition in the next session.",
+    "proposedMetric": "Repeat commenters who reference the constraint.",
+    "evidenceRefs": ["evidence:creator_audio:1842"]
+  }
+}

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { currentCreator } from "@/domain/creators";
 import { invalidRequest } from "@/app/api/http";
 import { AgentError, askAgent } from "@/domain/intel/agent";
-import { latestCompleteScan, loadMemory, loadScan } from "@/domain/intel/store";
+import { latestCompleteScan, loadMemory, loadScanForCreator } from "@/domain/intel/store";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +34,23 @@ export async function POST(request: Request) {
   }
 
   const { creatorId, question, scanId, history } = parsed.data;
-  const activeCreatorId = creatorId ?? (await currentCreator()).id;
-  const scan = scanId ? loadScan(scanId) : latestCompleteScan(activeCreatorId);
+  const activeCreator = await currentCreator();
+  if (creatorId && creatorId !== activeCreator.id) {
+    return NextResponse.json(
+      { error: { code: "creator_mismatch", message: "This strategist question is scoped to the active creator workspace." } },
+      { status: 409 },
+    );
+  }
+  const activeCreatorId = activeCreator.id;
+  const scan = scanId
+    ? loadScanForCreator(scanId, activeCreatorId)
+    : latestCompleteScan(activeCreatorId);
+  if (scanId && !scan) {
+    return NextResponse.json(
+      { error: { code: "scan_not_found", message: "That scan does not exist." } },
+      { status: 404 },
+    );
+  }
   const memory = loadMemory(activeCreatorId);
 
   try {

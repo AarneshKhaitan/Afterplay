@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { loadScan } from "@/domain/intel/store";
+import { currentCreator } from "@/domain/creators";
+import { loadScanForCreator } from "@/domain/intel/store";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(_request: Request, context: { params: Promise<{ scanId: string }> }) {
   const { scanId } = await context.params;
-  const scan = loadScan(scanId);
+  const creatorId = (await currentCreator()).id;
+  const scan = loadScanForCreator(scanId, creatorId);
   if (!scan) {
     return NextResponse.json(
       { error: { code: "scan_not_found", message: "That scan does not exist." } },

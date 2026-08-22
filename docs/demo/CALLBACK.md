@@ -1,97 +1,73 @@
 # Callback Demo Contract
 
-This file is the demo checklist for proving the clipping/creator-helper idea with
-real creator-owned material. Do not mark the demo complete until a real callback clip
-has been selected and the cited source timestamp has been verified.
+This file records the evidence that is safe to use in the finals demo. The demo uses
+third-party Sidemen footage for analysis, so every output is marked `not_cleared` and is
+review-only. It must never be described as creator-owned or publishable.
 
-## Inputs — VALIDATED AND RENDERED 2026-08-07 (A5 / G6 closed)
+## Active corpus — rebuilt and rendered 2026-08-20
 
-Creators: **KSI/Sidemen** (hero) and **iShowSpeed** (generalisation proof). Both are
-third-party YouTube content resolved with yt-dlp. Rights status is
-`third_party_extracted`, not creator-owned — disclose in `docs/THIRD_PARTY.md` and never
-label it otherwise in the UI.
+Creator id: `probe_ksi`, displayed as **Sidemen** because the sources are MoreSidemen
+uploads rather than KSI-owned channel uploads.
 
-- Creator id: `probe_ksi` (rename to the demo creator before recording)
-- **Prior (setup) stream:** `nxGlZX9GH5I` — *SIDEMEN AMONG US: KSI SHAPESHIFTER MASTERCLASS*
-- **Current (payoff) streams:**
-  - `X955SmTm1rY` — *AMONG US BUT EVERYONE'S NAME IS A PRONOUN* (2 callbacks)
-  - `BW_MAa5L9lg` — *AMONG US BUT KSI CHOOSES ALL THE ROLES* (1 callback, the hero)
-- Transcripts: YouTube auto-captions, resolved by `backfill` / `resolve`. Cached under
-  `services/video-clipper/.demo-cache/<video_id>/` (gitignored — third-party transcripts
-  must not be committed).
+| Role | Stream | Upload date | Use |
+| --- | --- | --- | --- |
+| Historical memory | `nxGlZX9GH5I` | 2024-07-20 | The only source written into active memory |
+| Finale/current | `X955SmTm1rY` | 2024-11-09 | The source processed by the genuine v2 run |
+| Inactive staged fixture | `BW_MAa5L9lg` | 2023-11-18 | Never use as a payoff to `nxGlZX9GH5I`; it predates it |
 
-### Verified callbacks (live OpenAI, real auto-captions)
+Tuning and held-out roles are not assigned yet. Consequently this corpus proves the live
+product path and same-stream ablation, not measured generalisation. Do not report benchmark
+accuracy until the separate evaluation corpus exists.
 
-**Hero — "Frame Ethan to clear his name" — RENDERED, confidence 0.93**
+The active store contains 14 threads extracted from `nxGlZX9GH5I`. Every evidence mention
+has `verified: true`; no mention is missing verification metadata. The 17 legacy unverified
+threads, including the four authored `VYEtNWp5VgA` records, were pruned by a successful
+`backfill --prune-unverified` migration.
 
-Produced end to end by `run --memory` as job `hero_callback`:
-`clip01_shorts.mp4`, 1080x1920, 21.8s, real audio, first-pass QC. Studio serves it as
-the newest manifest. Full command and decoded verification in
-[EVIDENCE.md E-015](../prd/EVIDENCE.md#e-015-hero-callback-rendered).
+Transcripts are YouTube auto-captions cached under
+`services/video-clipper/.demo-cache/<video_id>/`. Third-party transcripts and media are
+gitignored. The finale media is cached outside the repository on `D:`.
 
+## Genuine finale run
 
-- Setup: `nxGlZX9GH5I` @ 2488.1s — *"okay I might shapeshift into Ethan and then kill
-  Harry, I need to clear my name people"*
-- Payoff: `BW_MAa5L9lg` @ 2409–2433s — *"so I just kill Harry and cover the body and it's
-  fine"*
-- Why it is the hero: a plan stated in one stream, executed in another, ~40 minutes into a
-  41-minute video. Manual scrubbing does not find this.
+Job `finale_x_verified` was produced end to end by `run --memory` over `X955SmTm1rY`:
 
-**"10 million subscriber Among Us promise" (confidence 0.98)**
+- schema `afterplay.clip-manifest` version 2
+- creator `probe_ksi`
+- transcript `en`, source `provided_vtt`
+- footage rights `not_cleared`
+- 5/5 clips passed QC at 1080x1920
+- memory available, not degraded; 10 threads considered
+- 3 selected clips carry verified callback evidence
+- Studio reads this job from `services/video-clipper/.work`
 
-- Setup: `nxGlZX9GH5I` @ 4.2s — *"if we get 10 mil Subs we'll drop a 2-hour Among Us
-  video — not a compilation"*
-- Payoff: `X955SmTm1rY` @ 451–473s — *"we said a 2 hour Among Us episode when we reach 10
-  million but we've decided to change it"*
+### Hero: 10 million subscriber Among Us promise
 
-**"Silent Toby" (confidence 0.86)**
+- Historical receipt: `nxGlZX9GH5I` @ 4.2s, exact verifier match (`1.0`):
+  *"if we get 10 mil Subs we'll drop a 2hour Among Us video oh not a compilation yeah
+  that's not a compilation"*
+- Current clip: `X955SmTm1rY` @ 442.039-465.759s: the group explicitly recalls the
+  promised two-hour episode and announces that the plan has changed.
+- Callback confidence: `0.98`
+- Same-pipeline ablation: baseline rank `94`, memory rank `1`, delta `+93`
+- Baseline did not select the moment; memory selected it.
 
-- Setup: `nxGlZX9GH5I` @ 577.2s — *"Toby last round he hasn't said a word"*
-- Payoff: `X955SmTm1rY` @ 547–571s — *"now he has to stay muted… well Toby can't talk"*
+This is the stage proof: turn memory off and the moment is rank 94; turn the same memory
+path on and the verified callback becomes the first clip.
 
-The payoff windows do **not** repeat the setup wording ("stay muted" vs "hasn't said a
-word"), so this is semantic matching rather than keyword overlap. `degraded=False` on both
-runs, and only 8–9 threads were considered per stream, so the top-K gate held.
+### Other selected callbacks
 
-### Known blockers before recording
+- `impostor-role-curse`: confidence `0.70`, baseline rank `73` to memory rank `5`.
+- `first-death-or-dc`: confidence `0.67`, baseline rank `112` to memory rank `6`.
 
-1. **YouTube bot-blocking is intermittent.** After roughly eight resolves in quick
-   succession, yt-dlp returns *"Sign in to confirm you're not a bot"*. The throttle
-   later lifted and all three streams are now cached. Ingestion supports
-   `--cookies` / `--cookies-from-browser` (browser must be CLOSED, yt-dlp issue 7271),
-   `--sleep-interval` and `--extractor-args` across every extraction path.
-2. **The recording no longer depends on YouTube.** This was previously a warm-up
-   dependency — `afterplay predemo <ids>` had to report **ready** in a window where
-   YouTube was cooperating, or there was no demo. It no longer is: with the media file
-   and its captions on disk, `run --memory --local … --vtt …` renders the callback clip
-   with **no yt-dlp call and no YouTube request at all**. Verified end to end —
-   [E-023](../prd/EVIDENCE.md#e-023-demo-without-youtube). `predemo` is now a convenience
-   for *building* that cache, not a gate on recording. Cache every demo video first,
-   then record.
+## Inactive fixtures
 
-   **This is not fully offline, and must not be described as such.** The memory pass
-   still calls the OpenAI API for embeddings and callback judging — that is live mode
-   working as designed, and it is the one network dependency left at record time. The
-   difference that matters: OpenAI does not rate-limit the demo the way YouTube's
-   anti-bot throttle did.
-3. All three callbacks trace back to the single prior stream `nxGlZX9GH5I`. Backfilling
-   more history would make the memory claim more convincing.
-4. **Run commands from the repo root or the service directory — either works now.**
-   `AFTERPLAY_WORKDIR` and `AFTERPLAY_MEMORY` are repo-root-relative in `.env` and were
-   previously resolved against the current directory, so running from
-   `services/video-clipper` wrote artifacts to a nested path Studio never reads. Fixed
-   and covered by `TestConfiguredDirs`.
+The old `.demo-final/demo_hero` hand-authored manifest was invalid under schema v2 and was
+deleted after the genuine run passed. Do not restore it as evidence or fallback media.
+Deterministic `e2e_demo` artifacts prove plumbing only and must remain labelled synthetic.
 
-## Authored Smoke Artifact
-
-The repo may contain a gitignored local smoke run at:
-
-- `services/video-clipper/.memory/e2e_demo/threads.json`
-- `services/video-clipper/.work/e2e_callback/manifest.json`
-
-That artifact proves plumbing only. It uses deterministic test stubs and must be labelled
-synthetic if used as a fallback demo. The real submission pass should still fill the input
-fields above with creator-owned streams and a live OpenAI run.
+The live run no longer needs YouTube once the media and VTT are cached, but it is not fully
+offline: OpenAI embeddings and callback judging are still live network dependencies.
 
 ## Expected Evidence
 
@@ -110,6 +86,7 @@ The clip manifest should include:
 - `memory.threads_considered`
 - `memory.callback_found` — true only when a CLIPPED moment carries the callback
 - `memory.callbacks_ranked_out` — callbacks that scored below the clips returned
+- `memory.callbacks_filtered_out` — selected callbacks removed by post-ranking safety filters
 - `message` for no-callback or degraded outcomes
 
 ### Callback outcome states
@@ -128,6 +105,9 @@ The clip manifest should include:
   clips. `callback_found` previously described every candidate scored rather than the
   clips shipped, so this case claimed a callback the manifest could not cite —
   [E-024](../prd/EVIDENCE.md#e-024-callback-found-reflects-shipped-clips).
+- **Callback removed by a safety filter (valid, and distinct):** `callback_found: false` with
+  `callbacks_filtered_out > 0`; the message says the candidate did not make the final cut after
+  post-ranking filtering and does not claim it merely lost on score.
 - **Failure/degraded states (invalid):** `memory.degraded: true` with a reason; UI must still keep
   a visible error path (model id/key/IO/auth/network problems, parsing errors, etc.) instead of
   rendering an empty callback success. Distinguish this from the no-callback but valid fallback message:
@@ -136,13 +116,19 @@ The clip manifest should include:
 ## Commands
 
 ```powershell
-cd services\video-clipper
-$env:PYTHONPATH='.'
-$env:AFTERPLAY_MEMORY="$PWD\.memory"
-$env:OPENAI_API_KEY="<set outside git>"
+# Run from the repository root with .env loaded into the process.
+$env:PYTHONPATH='services/video-clipper'
 
-python -m afterplay.cli backfill --creator demo --stream-id prior_001 --vtt path\to\prior.vtt
-python -m afterplay.cli --json run --memory --creator demo --local path\to\current.mp4 --vtt path\to\current.vtt --clips 3 --platforms shorts
+.\services\video-clipper\.venv\Scripts\python.exe -m afterplay.cli backfill `
+  --creator probe_ksi --stream-id nxGlZX9GH5I `
+  --vtt services/video-clipper/.demo-cache/nxGlZX9GH5I/source.en.vtt `
+  --rights not_cleared --prune-unverified
+
+.\services\video-clipper\.venv\Scripts\python.exe -m afterplay.cli run `
+  --memory --creator probe_ksi --rights not_cleared --clips 5 --workers 1 `
+  --job-id finale_x_verified --platforms shorts `
+  --local D:\tmp\afterplay-demo-media\X955SmTm1rY.mp4 `
+  --vtt services/video-clipper/.demo-cache/X955SmTm1rY/source.en.vtt
 ```
 
 ## Review Notes

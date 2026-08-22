@@ -7,13 +7,12 @@ import type { Belief, BeliefStatus, IntelMemory } from "@/domain/intel/types";
 
 import { LocalTime } from "./local-time";
 
-const STATUS_ORDER: BeliefStatus[] = ["confirmed", "emerging", "weakening", "contradicted"];
+const STATUS_ORDER: BeliefStatus[] = ["confirmed", "emerging", "weakening"];
 
 const STATUS_COPY: Record<BeliefStatus, string> = {
   confirmed: "Held across multiple scans",
   emerging: "Seen once — not yet corroborated",
-  weakening: "Not re-observed; confidence decaying",
-  contradicted: "Later evidence argued against this",
+  weakening: "Not re-observed under equivalent channel coverage",
 };
 
 /** Sparkline of a belief's confidence history.
@@ -98,9 +97,9 @@ export function MemoryView({ memory, active }: { memory: IntelMemory; active: Be
 
       <p className="memory-explainer">
         <Brain weight="fill" /> Every scan folds into this. A belief seen again gains confidence; a
-        belief the next scan stops supporting decays and eventually fades. Nothing is deleted — the
-        timeline keeps what Afterplay used to think, which is how you can tell it is learning
-        rather than starting over.
+        belief stops supporting decays only when that scan covered the same supporting channels.
+        Nothing is deleted — the timeline keeps what Afterplay used to think, which is how you can
+        tell it is learning rather than starting over.
       </p>
 
       <div className="memory-controls">
@@ -172,6 +171,11 @@ export function MemoryView({ memory, active }: { memory: IntelMemory; active: Be
               )}
               <span className="belief-obs">
                 seen {belief.observations}x · since {belief.firstSeen.slice(0, 10)}
+              </span>
+              <span className="belief-scope">
+                {belief.supportingChannelIds?.length
+                  ? `${belief.supportingChannelIds.length} supporting ${belief.supportingChannelIds.length === 1 ? "channel" : "channels"}`
+                  : "coverage pending"}
               </span>
               <span className="belief-scope">{belief.scope}</span>
             </div>

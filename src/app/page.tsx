@@ -8,8 +8,13 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 
+import { loadLiveWorkspaceCounts } from "@/components/live/data";
+import { LiveHqColdState } from "@/components/live/hq-cold-state";
+import { HqLiveSummary } from "@/components/live/hq-live-summary";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment, resultMovement } from "@/domain/experiment";
+import { workspaceModeState } from "@/domain/mode";
 import { getDemoWorkspace } from "@/domain/workspace";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +27,58 @@ const roleTone = {
   Analyst: "role--analyst",
 } as const;
 
-export default function GrowthHqPage() {
+export default async function GrowthHqPage() {
+  const [creator, modeState] = await Promise.all([currentCreator(), workspaceModeState()]);
+  if (modeState.mode === "live") {
+    const counts = loadLiveWorkspaceCounts(creator);
+    const nothingYet = counts.threads === 0 && counts.usableClips === 0 && counts.completeScans === 0;
+
+    // A live workspace keeps the cold state only until the creator has genuinely built
+    // something -- channel memory, an intelligence scan, or a usable clip. Before that
+    // there is nothing to summarize; substituting the seeded demo diagnosis there would
+    // invent a result nobody asked for. Once real artifacts exist, HQ summarizes them
+    // and the simulated experiment/distribution state honestly, same as Audience does.
+    if (nothingYet) {
+      return (
+        <WorkspaceShell
+          active="HQ"
+          pageName="Growth HQ"
+          modeState={modeState}
+          badge="Persisted sources only"
+          dataNote="HQ has no live diagnosis or audience result. The counts shown are read from this creator's persisted memory, intelligence, and clip stores; demo fixtures are not substituted."
+        >
+          <LiveHqColdState
+            creatorName={creator.displayName}
+            creatorId={creator.id}
+            counts={counts}
+          />
+        </WorkspaceShell>
+      );
+    }
+
+    const experiment = getExperiment("exp_one_more_rule", creator.id);
+    return (
+      <WorkspaceShell
+        active="HQ"
+        pageName="Growth HQ"
+        modeState={modeState}
+        badge="Persisted state only"
+        dataNote="HQ summarizes this creator's persisted channel memory, intelligence scans, and clip manifests, plus the simulated experiment pipeline's own state. No audience measurement is connected, and demo fixtures are not substituted."
+      >
+        <HqLiveSummary
+          creatorName={creator.displayName}
+          creatorId={creator.id}
+          counts={counts}
+          experiment={experiment}
+        />
+      </WorkspaceShell>
+    );
+  }
+
   // `meta` and `creator` moved into the shared shell with the sidebar and footer.
   const { workspace } = getDemoWorkspace();
   const { diagnosis, activeExperiment, teamActivity, decision, learning } = workspace;
-  const experiment = getExperiment("exp_one_more_rule");
+  const experiment = getExperiment("exp_one_more_rule", creator.id);
   const movement = resultMovement(experiment.result);
   const learnedState = experiment.status === "learned" && experiment.learning && experiment.nextExperiment
     ? { learning: experiment.learning, nextExperiment: experiment.nextExperiment }
@@ -39,7 +91,13 @@ export default function GrowthHqPage() {
     : teamActivity;
 
   return (
-    <WorkspaceShell active="HQ" pageName="Growth HQ">
+    <WorkspaceShell
+      active="HQ"
+      pageName="Growth HQ"
+      modeState={modeState}
+      badge="Seeded HQ fixture"
+      dataNote="This HQ diagnosis, experiment, activity, and result loop are synthetic demo fixtures."
+    >
         <div className="workspace-grid">
           <section className="primary-column" aria-labelledby="diagnosis-title">
             <article className="diagnosis-panel">

@@ -6,7 +6,7 @@ All identities, games, platform events, metrics, and results in this document ar
 
 - Display name: **Mika Rao**
 - Handle: **mika_rigged**
-- Workspace ID: `ws_mika_rigged`
+- Workspace ID: `creator_mika_rigged`
 - Primary category: physics sandbox and engineering challenge games
 - Current game: **Rivetfall**, a fictional construction sandbox
 - Creator accent: signal coral on a cool graphite product shell

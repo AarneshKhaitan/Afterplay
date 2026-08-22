@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { experimentErrorResponse, invalidRequest } from "@/app/api/http";
+import { currentCreator } from "@/domain/creators";
 import { recordResults } from "@/domain/experiment";
 // Imported here, not from domain/experiment, because the bridge touches node:fs and
 // `experiment` is pulled into client bundles. Route handlers are server-only.
@@ -31,6 +32,14 @@ const resultsSchema = z.object({
   })).optional(),
 });
 
+/** Sample results may be recorded in a live workspace as well as a demo one.
+ *
+ * These metrics are invented, and in a live workspace they sit next to a real channel --
+ * so the honesty guarantee has to come from the payload rather than the mode. It does:
+ * `disclosure` below is a literal `"synthetic_sample_data"`, so a caller cannot record
+ * these numbers without declaring what they are, and Audience renders them behind that
+ * declaration. Read them as a worked example of the measurement step, never as
+ * measurement. */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   let body: unknown;
   try {
@@ -45,9 +54,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
-    const { id } = await context.params;
+    const [{ id }, creator] = await Promise.all([context.params, currentCreator()]);
     const recorded = recordResults({
       id,
+      creatorId: creator.id,
       result: {
         disclosure: parsed.data.disclosure,
         causalClaim: false,
@@ -58,7 +68,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
     // Feed outcomes back into the clipper's ranking priors. Never allowed to fail the
     // request — the bridge swallows and logs its own errors.
-    persistPerClipResults(parsed.data.perClip);
+    persistPerClipResults(parsed.data.perClip, creator.id);
     return NextResponse.json(recorded);
   } catch (error) {
     return experimentErrorResponse(error);

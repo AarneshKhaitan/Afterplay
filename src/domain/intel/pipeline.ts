@@ -71,7 +71,7 @@ const STAGE_TEMPLATE: Array<Pick<Stage, "id" | "label" | "truth">> = [
   {
     id: "remember",
     label: "Updating memory",
-    truth: "Merges findings into durable beliefs, reinforcing, decaying or contradicting what was already known.",
+    truth: "Merges findings into durable beliefs, reinforcing or decaying only when the scan covers the same supporting channels.",
   },
 ];
 
@@ -552,24 +552,24 @@ export async function runScan(scanId: string): Promise<void> {
 
     // ── remember ─────────────────────────────────────────────────────────────
     stage(scanId, "remember", "running");
+    const observations = analysisToObservations(analysis, channels);
     const consolidatorId = spawnAgent(scanId, {
       id: "consolidator_0",
       kind: "consolidator",
       label: "Consolidator · memory merge",
       detail: `Folding findings into ${prior.length} standing beliefs`,
       state: "working",
-      total: analysisToObservations(analysis).length,
+      total: observations.length,
     });
 
     const finished = loadScan(scanId);
     if (!finished) return;
-    const { delta } = commitScanToMemory(finished, analysisToObservations(analysis));
+    const { delta } = commitScanToMemory(finished, observations);
     updateAgent(scanId, consolidatorId, (agent) => {
       agent.findings = [
         `${delta.newBeliefs} new beliefs formed`,
         `${delta.confirmed} reconfirmed, gaining confidence`,
         ...(delta.weakened ? [`${delta.weakened} weakening from absence`] : []),
-        ...(delta.contradicted ? [`${delta.contradicted} contradicted by new evidence`] : []),
       ];
     });
     finishAgent(scanId, consolidatorId, "done", `${delta.newBeliefs + delta.confirmed} beliefs touched`);
@@ -577,7 +577,7 @@ export async function runScan(scanId: string): Promise<void> {
       scanId,
       "remember",
       "success",
-      `${delta.newBeliefs} new · ${delta.confirmed} reconfirmed · ${delta.weakened} weakening · ${delta.contradicted} contradicted`,
+      `${delta.newBeliefs} new · ${delta.confirmed} reconfirmed · ${delta.weakened} weakening`,
     );
     stage(scanId, "remember", "complete", `${delta.newBeliefs + delta.confirmed} beliefs touched`);
 

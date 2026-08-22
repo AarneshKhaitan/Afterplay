@@ -823,3 +823,273 @@ banner: Creator memory degraded
 Regression test `tests/e2e/manifest-states.spec.ts` seeds exactly this combination and
 fails against the chained version (verified by reverting: `1 failed, 1 passed`). It also
 asserts the degraded run is never presented as the valid no-callback outcome.
+
+---
+
+## e-027-finals-baseline-and-verified-citation-boundary
+
+Claim: model-authored quotes cannot enter active channel memory or affect a clip decision unless
+they resolve to a contiguous transcript span.
+
+- Date: 2026-08-19
+- Commit: `da9bc2a` (`feat(clipper): verify memory citations`).
+- Verification before the change: `pytest tests/test_extended.py tests/test_units.py -q`
+  returned `99 passed, 1 skipped`.
+- Focused verification after the change returned `20 passed`. It covers exact matches, fuzzy
+  caption repair, rejected quotes, repeated-quote timestamp tie-breaking, Devanagari text,
+  legacy unverified records, and the rule that the callback judge is never called with
+  unverified evidence.
+- The broader clipper regression suite returned `107 passed, 1 skipped` for the citation commit.
+- Backfill now reports suggestions separately from verified additions, repaired citations, and
+  rejected citations. Missing verification metadata defaults to unverified.
+
+---
+
+## e-028-transcript-language-provenance
+
+Claim: the clipper selects only configured subtitle languages and discloses the actual transcript
+language, source, and track in its manifest.
+
+- Date: 2026-08-19
+- Commit: `307399f` (`feat(clipper): record transcript language provenance`).
+- Focused language plus end-to-end manifest verification returned `6 passed`.
+- Full clipper verification returned `134 passed, 1 skipped` in `625.79s`.
+- Tested paths include Hindi-first subtitle selection, refusal to fall back to an unlisted
+  English track, manual versus automatic YouTube provenance, provided VTT provenance, pinned ASR
+  language, and source-script VTT round-trip.
+- This proves the language-provenance foundation only. It does not prove the second creator case
+  study and does not support a general multilingual-product claim.
+
+---
+
+## e-029-versioned-atomic-storage
+
+Claim: Intel persistence distinguishes missing from corrupt data, preserves legacy JSON, and
+writes versioned state atomically with bounded Windows contention handling.
+
+- Date: 2026-08-19
+- Commit: `39648eb` (`feat(storage): add versioned atomic persistence`).
+- `playwright test --config=playwright.persistence.config.ts` returned `5 passed`.
+- Cases cover corrupt JSON, malformed envelopes, schema/version mismatch, legacy migration,
+  re-entrant writes with unique temporary names, one `EPERM` retry, and non-retryable failures.
+- `npm run typecheck` and `npm run lint` both exit zero for the app. The nested `demo-video`
+  package is excluded from the app `tsconfig` because it owns a separate toolchain and config.
+- This is the storage foundation, not completion of F4 creator isolation and job durability.
+
+---
+
+## e-030-intelligence-integrity
+
+Claim: competitive beliefs decay only under equivalent supporting-channel coverage, title
+detectors no longer make the documented bare-word/acronym errors, and thin samples are disclosed
+as hypotheses rather than recommendations presented as facts.
+
+- Date: 2026-08-19
+- Focused command:
+  `playwright test tests/e2e/intel-engine.spec.ts tests/e2e/intel-console.spec.ts`.
+- Result: `35 passed` in `71.7s` after correcting one fixture expectation exposed by the first
+  run (`34 passed, 1 failed`).
+- Tests cover same-scope decay, different-competitor preservation, legacy coverage behavior,
+  retirement of the unreachable contradiction state, evidence-to-channel provenance, GTA/FPS/COD
+  adversarial titles, explicit constraints, sample denominators, bounded copy, and rendered UI.
+- `npm run typecheck` and `npm run lint` both exit zero.
+
+---
+
+## e-031-manifest-citation-integrity-boundary
+
+Claim: a staged or legacy manifest cannot display a callback or enter the approval package as a
+memory-dependent clip unless it carries complete verified citation metadata.
+
+- Date: 2026-08-19
+- The loader requires `citation_verified: true`, source stream, source timestamp, and source quote
+  before projecting `callback: true`.
+- A rejected callback claim is normalized to a standalone clip and the manifest is surfaced as
+  degraded with an explicit integrity reason; the original clip asset remains inspectable.
+- `npm run typecheck` exits zero and focused ESLint exits zero.
+- Focused Playwright's first run passed the new integrity test plus six related manifest tests.
+  One unrelated dispatch test then timed out when Turbopack filled the system drive (`os error
+  112`); this was an environmental failure after the integrity assertion had passed, not a green
+  full-suite claim.
+- After storage was recovered, a clean combined Chromium run covering citation integrity, creator
+  isolation, media ranges, stale/degraded states, and approval returned `9 passed` in `2.5m`.
+
+---
+
+## e-032-same-pipeline-memory-ablation-contract
+
+Claim: one memory-enabled clipper run computes a same-source memory-off/memory-on comparison over
+identical candidate windows before sponsor filtering and analytics mutation.
+
+- Date: 2026-08-19
+- `score_all` and `select` are separate deterministic operations; frozen legacy-equivalence tests
+  cover both heatmap and cold-start scoring.
+- The versioned manifest artifact records baseline rank, memory rank and rank delta, baseline
+  percentile, applied boost, base and final scores, score scale, selected state, candidate count,
+  and `post_scoring_pre_sponsor_pre_analytics` as the comparison point.
+- Missing transcripts, disabled memory, retrieval/judge degradation, no candidates, and candidate
+  mismatch produce explicit unavailable reasons rather than a zero-effect claim.
+- Parent verification:
+  `pytest tests/test_ablation.py tests/test_citations.py tests/test_extended.py::TestChannelMemory tests/test_extended.py::TestCallbackFoundReflectsShippedClips -q`
+  returned `29 passed`.
+- Parallel broader verification returned `122 passed, 1 skipped`; the dedicated ablation slice
+  returned `32 passed` during implementation.
+- This proves the implementation contract, not the finale result. F3 remains open until the same
+  artifact is produced from the rebuilt verified demo corpus.
+
+---
+
+## e-033-creator-scoped-durable-experiments
+
+Claim: experiment decisions, dispatch receipts, results, and learned state survive process restart
+and cannot be read or mutated through another active creator's request context.
+
+- Date: 2026-08-19
+- State uses the versioned atomic persistence helper under `AFTERPLAY_EXPERIMENT_DIR`, with a
+  traversal-safe creator digest and the original creator id retained inside the envelope.
+- Missing state initializes explicitly; valid unversioned state migrates; corrupt, mismatched, or
+  unsupported state fails visibly and is not silently replaced.
+- `pipelineOutputs` remains a response projection and is deliberately removed before persistence,
+  preventing stale manifest output from becoming durable experiment truth.
+- All experiment server pages and API routes now resolve `currentCreator()` and pass the same id to
+  reads and mutations. Focused tests cover durable initialization, migration, corruption, and two
+  isolated creator lifecycles.
+- Parent verification: `npm run typecheck` exits zero and focused ESLint exits zero.
+- The worker's focused browser run returned `6 passed, 1 timed out`; the timeout occurred during
+  first route compilation at the old 30-second limit, while the same results endpoint passed in
+  the following test. A clean rerun could not be completed after the system drive fell to roughly
+  70 MB free, so this is not recorded as a fully green browser-suite result.
+- After storage was recovered and the cold-compilation budget was raised, the complete focused
+  lifecycle suite returned `7 passed` in `5.0m`.
+
+---
+
+## e-034-creator-owned-clipper-artifacts
+
+Claim: inside the local single-operator app, active-workspace filtering keeps manifests, media,
+approvals, learning, and job status aligned to the selected creator; ownerless legacy artifacts
+fail closed.
+
+- Date: 2026-08-19
+- Python `JobResult` manifests and every started, complete, or failed `status.json` now carry a
+  top-level `creator_id`; deliberately unscoped runs serialize `null` rather than implying an owner.
+- Manifest selection and stale-job detection require an exact active-creator match. The latest API,
+  Studio, media route, experiment projection, result bridge, ingest launch, and ingest status route
+  all use the same request creator.
+- An ingest request whose creator does not match the selected workspace returns
+  `409 creator_mismatch` before checking Python or starting a process. The workspace cookie is a
+  local selector, not an authentication or authorization credential.
+- The adversarial browser fixture creates configured, guest, and newer ownerless manifests. It
+  verifies per-creator latest selection, bidirectional media denial, per-creator experiment
+  projection, same-owner stale state, cross-owner job-status denial, and ingest mismatch rejection.
+- Verification: focused Python returned `5 passed`; `npm run typecheck` and focused ESLint exit zero;
+  the final combined Chromium regression returned `9 passed` in `2.5m`.
+- A separate real Chromium pass against the configured workspace exercised creator switching and
+  Studio/Ingest at `1440x1000` and `390x844`. Guest propagated to Ingest, console/page errors were
+  empty, and document widths matched both viewports. Temporary screenshots, logs, traces, and the
+  validation server were removed afterward.
+- This closes artifact ownership, not all of F4. Structured stage events, retry/cancellation, and a
+  versioned manifest schema remain open.
+
+---
+
+## e-035-structured-progress-and-cancellation
+
+Claim: a browser-started clipper run exposes structured, creator-owned progress; can be stopped
+through the public API; and reaches a durable cancelled state without poll or exit-handler lies.
+
+- Date: 2026-08-19
+- Python atomically writes owner-stamped `resolve`, `transcript`, `memory`, `render`, and `done`
+  stages with `started`, `running`, `complete`, or `failed` state and a bounded human-readable
+  detail. CLI failure preserves the last durable stage and detail.
+- Next projects structured stages first and uses log regexes only for legacy status files. The POST
+  response includes the initial job so all five stages render before the first poll.
+- A hot-reload-stable process registry retains only ephemeral creator/child handles. Durable truth
+  remains in `status.json`. `DELETE /api/ingest/:jobId` scopes reads to the selected creator, is
+  idempotent after a terminal state, writes nonterminal `cancelling` during process termination,
+  and publishes `cancelled` only after the process tree is confirmed gone.
+- This is local single-operator workspace scoping, not authentication or tenant isolation. The
+  creator cookie selects a workspace; it is not an authorization credential.
+- A completed, owner-matched manifest wins over stale status on reads, process exit, and Stop.
+  Failed termination remains unresolved `cancelling` regardless of parent-exit event ordering; it
+  never restores `running` or publishes terminal `failed` without process-tree proof. Durable active
+  status blocks a second ingest for the creator even if a server
+  restart lost the process handle.
+- Windows tree termination uses bounded `taskkill /T /F`. POSIX runs use a dedicated process group,
+  wait for the full group to disappear after `SIGTERM`, then wait again after `SIGKILL` if needed.
+  The Windows branch is exercised on the finale host; the POSIX branch is implementation-reviewed
+  but was not executed on this Windows machine.
+- Node status transitions also use unique atomic replacements with one Windows rename retry, so a
+  poll cannot observe a partially written cancellation or launch failure.
+- If a server restart loses the unprovable process handle, cancellation returns an explicit `409`
+  rather than claiming to stop the job. Synchronous log-open/spawn failures write failed status.
+- Client polling uses one scheduled request at a time. A dropped poll is announced, retries after
+  three seconds, clears on recovery, and never overwrites a later cancellation. A transient failed
+  Stop keeps polling and restores the control only while the server still reports a retryable state;
+  unresolved host termination stays `cancelling` and never becomes a false terminal. Progress uses
+  `aria-live=polite`.
+- Focused Python status tests returned `3 passed`; `npm run typecheck` and focused ESLint exit zero.
+  The final combined Chromium run returned `3 passed` in `1.2m`: durable admission after handle
+  loss, completed-manifest status repair, a required prepared local clipper cancelled through the
+  public route, dropped-poll recovery, failed-Stop recovery, retry, and UI Stop. After tightening
+  Windows success criteria, the real process cancellation drill passed three consecutive repeats.
+- A separate visual Chromium pass inspected poll-error, recovered-running, and cancelled states at
+  `1440x1000` and `390x844`. The mobile document remained exactly `390px` wide; the only console
+  error was the intentionally aborted poll used to exercise recovery. Screenshots, logs, traces,
+  server processes, and real test job directories were removed afterward.
+- The production build reached Turbopack compilation but the host had only about 220 MB free and
+  failed with `os error 112` while writing `.next`; generated build/report/temp artifacts and
+  disposable npm/pip caches were removed. This is an environmental verification gap, not recorded
+  as a passing build.
+- This closes B4 for the configured Windows finale host. Bounded retries inside the media/model
+  pipeline and the versioned manifest schema remain separate work.
+
+---
+
+## e-036-manifest-v2-and-bound-approval
+
+Claim: Studio admits pipeline clips to approval only from a creator-owned manifest-v2 document
+with explicit rights and transcript provenance, verified callback evidence, and internally
+consistent same-pipeline ablation proof; distribution cannot inherit an approval after output
+drift.
+
+- Date: 2026-08-19
+- Python emits `afterplay.clip-manifest` schema version 2 with a required creator id, explicit
+  operator-attested footage rights, transcript language/source/track, and immutable decision
+  windows captured before render repair. CLI and MCP entry points both require and validate rights.
+- The Next boundary parses manifests with Zod, rejects unknown versions/rights and incomplete v2
+  clips, keeps legacy manifests inspectable but out of approval, and exposes an explicit stale
+  warning when a newer creator-owned artifact is invalid. Stale and `not_cleared` runs are review
+  only.
+- Callback receipts require a verified citation, thread label, source stream, corrected timestamp,
+  and transcript-verbatim quote. Rejected callback fields and rationales are scrubbed. Ablation rows
+  validate candidate bounds, rank/score arithmetic, selection flags, callback agreement, and exact
+  decision-window joins before rank or lift appears in Studio.
+- Approval persists the reviewed manifest job id, ordered pipeline clip ids, and SHA-256 digest of
+  the creator-scoped manifest projection and approvable media bytes. Dispatch re-reads current
+  output and returns `409 approved_outputs_changed` for identity drift, same-id manifest changes,
+  or in-place MP4 replacement; the response also suppresses changed pipeline output instead of
+  presenting it under the prior approval.
+- The reusable evidence card separates historical citation from current-clip rights and labels the
+  score scale. Studio renders every returned clip, preserves review-only warnings, and uses a
+  warning icon rather than a clearance icon for blocked manifests.
+- Complete ablation proof requires every unique candidate, rank permutations in both arms,
+  reproducible base percentiles, and valid arithmetic. Successful clips require unique ids, valid
+  windows, in-job readable media, and a dispatch-supported platform. Creator stamp disagreement
+  fails closed, and callback receipts require the full verified-mention audit keys.
+- Each returned clip must map to an ablation row selected by the memory arm with callback state that
+  agrees with the verified receipt. Post-ranking sponsor removal recomputes `callback_found` and is
+  disclosed separately from score-ranked-out callbacks. A worker crash retains the real platform
+  and decision window as a failed, inspectable clip instead of invalidating successful siblings.
+- Windows cancellation accepts only a successful `taskkill /T /F` result as process-tree proof. A
+  parent-exit race is not promoted to `cancelled`: the job remains nonterminal, discloses that host
+  cleanup is unresolved, and continues to block another ingest.
+- Verification: complete Python service suite `151 passed, 1 skipped`; `npm run typecheck` and
+  focused ESLint exit zero; the optimized Next.js production build completes successfully. The
+  focused Chromium matrix exercised callback evidence, range media, creator isolation, invalid and
+  uncleared rights, complete ablation proof, duplicate identities, path containment, platform
+  blocking, verified-mention audit suppression, creator stamp disagreement, approval/dispatch, and
+  same-id manifest drift and in-place media replacement. The final unified Chromium B6 matrix
+  returned `19 passed`, including invalid-artifact and failed-clip Ingest rendering.
+- This closes B6. Canonical F7 remains the separate versioned Afterplay/Riff evidence-packet
+  contract and is not claimed complete here.

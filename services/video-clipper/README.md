@@ -72,13 +72,13 @@ presence in `-encoders` does not mean the hardware exists.
 afterplay plan "https://youtu.be/VIDEO_ID" --clips 5
 
 # full pipeline
-afterplay run "https://youtu.be/VIDEO_ID" --clips 5 --platforms shorts,reels --workers 6
+afterplay run "https://youtu.be/VIDEO_ID" --rights not_cleared --clips 5 --platforms shorts,reels --workers 6
 
 # a file you own (preferred path: faster, and no platform-ToS question)
-afterplay run --local episode.mp4 --vtt episode.en.vtt --clips 5 --creator ksi
+afterplay run --local episode.mp4 --vtt episode.en.vtt --rights creator_owned --clips 5 --creator ksi
 
 # headless: JSON to stdout, webhook on completion, exit code carries the verdict
-afterplay run "URL" --json --webhook https://your.app/callback
+afterplay run "URL" --rights permission_granted --json --webhook https://your.app/callback
 
 afterplay doctor          # environment + detected encoder
 afterplay memory ksi      # what the agent learned about this creator
@@ -114,10 +114,23 @@ That ASR path requires `faster-whisper` and local/downloadable Whisper weights. 
 are unavailable, `backfill` fails with an actionable error naming `AFTERPLAY_WHISPER_SIZE`
 or `AFTERPLAY_WHISPER_MODEL`; it does not silently behave like a no-callback stream.
 
+Caption selection follows `AFTERPLAY_SUBTITLE_LANGUAGES` in order and never falls back to
+an unlisted language. Pin caption-less transcription with `AFTERPLAY_ASR_LANGUAGE`. For the
+bounded Hindi case study, for example:
+
+```bash
+export AFTERPLAY_SUBTITLE_LANGUAGES=hi,en
+export AFTERPLAY_ASR_LANGUAGE=hi
+```
+
+Every manifest records `transcript_language`, `transcript_source`, and `subtitle_track`.
+This is source provenance for a measured case study, not a claim of general multilingual
+support.
+
 Run the current stream with memory enabled:
 
 ```bash
-afterplay run --memory --creator ksi --local current.mp4 --vtt current.en.vtt --clips 3 --platforms shorts
+afterplay run --memory --creator ksi --local current.mp4 --vtt current.en.vtt --rights permission_granted --clips 3 --platforms shorts
 ```
 
 The manifest includes `memory: { degraded, reason, threads_considered, callback_found }`.
@@ -227,6 +240,31 @@ Note it downloads from `media.githubusercontent.com`, not `raw.githubusercontent
 `opencv_zoo` stores models in git-lfs and the raw URL returns a 131-byte pointer that
 loads as a corrupt ONNX.
 
+### Vertical framing
+
+The output is 1080x1920. By default the **entire** source frame is kept: it is scaled to
+the full width and centred, with a blurred, slightly darkened copy of itself filling the
+space above and below. Nothing is cropped away.
+
+`AFTERPLAY_MIN_WIDTH_FRAC` sets the floor as a fraction of source width. `1.0` (the
+default) is the full frame; lower values crop in before letterboxing, and `0` restores an
+edge-to-edge crop. Note what a hard 9:16 crop of a 16:9 source costs: it keeps 31.6% of
+the frame width and enlarges it 2.7x, so heads lose their tops and a two-shot loses a
+head entirely.
+
+### Burned-in captions
+
+Off by default, opt in with `--captions`.
+
+Most source footage already carries the creator's own burned-in captions. Adding ours on
+top produces two layers that disagree, because word timings come from the platform's
+auto-captions and drift against the speech. With captions off, no subtitle file and no
+caption QC probe are generated at all.
+
+```bash
+python -m afterplay.cli run --captions ...
+```
+
 ## ASR
 
 ```bash
@@ -234,6 +272,8 @@ pip install faster-whisper
 export AFTERPLAY_WHISPER_SIZE=base          # downloaded on first use
 # or, on a locked-down box, point at a pre-downloaded CTranslate2 model:
 export AFTERPLAY_WHISPER_MODEL=/models/faster-whisper-base
+export AFTERPLAY_SUBTITLE_LANGUAGES=en,en-US,en-GB,en-orig
+export AFTERPLAY_ASR_LANGUAGE=en
 ```
 
 If weights cannot be loaded, `transcribe` raises `ASRUnavailable` and the job silently

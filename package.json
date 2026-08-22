@@ -9,13 +9,16 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:unit": "node --experimental-strip-types --test tests/unit/*.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "companion": "electron .",
     "companion:dev": "node scripts/run-companion.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
     "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource/space-mono": "^5.3.0",
     "@phosphor-icons/react": "^2.1.10",
     "next": "16.3.0",
     "openai": "^7.4.0",

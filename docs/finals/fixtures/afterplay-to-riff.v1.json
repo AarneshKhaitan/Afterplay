@@ -1,0 +1,21 @@
+{
+  "schema": "afterplay.riff.handoff",
+  "version": 1,
+  "direction": "afterplay_to_riff",
+  "idempotencyKey": "experiment:exp_one_more_rule:revision:4",
+  "creatorId": "probe_ksi",
+  "createdAt": "2026-08-20T12:00:00.000Z",
+  "experiment": {
+    "id": "exp_one_more_rule",
+    "title": "One More Rule",
+    "hypothesis": "A named recurring constraint may give returning viewers a recognizable reason to come back.",
+    "proposedMetric": "Returning-viewer rate and repeat commenters move together.",
+    "evidenceRefs": ["belief:comparison-framing-correlates-with-lift"],
+    "approvedAt": "2026-08-20T11:59:00.000Z"
+  },
+  "permissions": {
+    "approvalRequired": true,
+    "allowedActions": ["speak", "stay_silent", "mark_highlight"],
+    "prohibitedActions": ["publish", "contact", "spend", "change_account"]
+  }
+}

@@ -37,7 +37,7 @@ test("a judge can understand the product from Growth HQ", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "New viewers watch, but few come back" })).toBeVisible();
   await expect(page.getByText("One More Rule", { exact: true })).toBeVisible();
   await expect(page.getByText("Approval needed", { exact: true })).toBeVisible();
-  await expect(page.getByText("Sample workspace", { exact: true })).toBeVisible();
+  await expect(page.getByText("Demo workspace", { exact: true }).first()).toBeVisible();
 
   // The workspace names the creator it is actually configured for. Asserting a fixture
   // name here is what let "Mika Rao" stay hardcoded in nine places while

@@ -1,19 +1,14 @@
 import { Check, ShieldCheck, WarningCircle } from "@phosphor-icons/react/dist/ssr";
 import Image from "next/image";
 
+import { EvidenceCard } from "@/components/evidence-card";
 import { StudioDecisionPanel } from "@/components/studio-decision-panel";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { getLatestClipManifest } from "@/domain/clip-manifest";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment } from "@/domain/experiment";
 
 export const dynamic = "force-dynamic";
-
-function timestamp(seconds?: number) {
-  if (seconds === undefined) return null;
-  const mm = Math.floor(seconds / 60);
-  const ss = Math.floor(seconds % 60).toString().padStart(2, "0");
-  return `${mm}:${ss}`;
-}
 
 /** Display label for a manifest clip.
  *
@@ -67,9 +62,10 @@ function plural(count: number, one: string, many: string) {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-export default function StudioPage() {
-  const experiment = getExperiment("exp_one_more_rule");
-  const manifest = getLatestClipManifest();
+export default async function StudioPage() {
+  const creator = await currentCreator();
+  const experiment = getExperiment("exp_one_more_rule", creator.id);
+  const manifest = getLatestClipManifest(creator.id);
   const realClips = manifest?.clips ?? [];
   const pipelineOutputs = experiment.pipelineOutputs ?? [];
   const memory = manifest?.memory;
@@ -91,11 +87,18 @@ export default function StudioPage() {
   } else if (manifest?.message) {
     manifestAlerts.push({ tone: "neutral", title: "No callback found", body: manifest.message });
   }
+  if (manifest && !manifest.approvalReady) {
+    manifestAlerts.push({
+      tone: "warning",
+      title: "Review only — approval blocked",
+      body: manifest.approvalBlockedReasons.join(" "),
+    });
+  }
 
   return (
     <WorkspaceShell active="Studio" pageName="Studio">
       <div className="surface studio-surface">
-        <section className="page-hero studio-hero"><div><h1>Review the package</h1><p>{realClips.length ? `${plural(realClips.length, "clip", "clips")} from the latest run, each with the evidence for why it was chosen. Approving here approves the real clips too.` : "No clipper run yet. Clip a stream from Ingest and its clips appear here with their evidence trail."}</p><div className="hero-meta"><span className="status-chip status-chip--review">Needs approval</span><span>Revision {experiment.revision}</span>{realClips.length ? <span>{plural(realClips.length, "real clip", "real clips")}</span> : null}<span>{plural(experiment.outputs.length, "seeded output", "seeded outputs")}</span></div></div><div className="studio-summary"><span><Check weight="bold" /> Approval gates distribution</span><span><ShieldCheck weight="fill" /> {realClips.length ? "Real pipeline output + seeded sample" : "Seeded sample only"}</span></div></section>
+        <section className="page-hero studio-hero"><div><h1>Review the package</h1><p>{realClips.length ? `${plural(realClips.length, "clip", "clips")} from the latest run, each with the evidence for why it was chosen. ${manifest?.approvalReady ? "Approving here approves the cleared clips too." : "The clips remain review-only until provenance and rights are complete."}` : "No clipper run yet. Clip a stream from Ingest and its clips appear here with their evidence trail."}</p><div className="hero-meta"><span className="status-chip status-chip--review">Needs approval</span><span>Revision {experiment.revision}</span>{realClips.length ? <span>{plural(realClips.length, "real clip", "real clips")}</span> : null}<span>{plural(experiment.outputs.length, "seeded output", "seeded outputs")}</span></div></div><div className="studio-summary"><span><Check weight="bold" /> Approval gates distribution</span><span>{manifest?.approvalReady ? <ShieldCheck weight="fill" /> : <WarningCircle weight="fill" />} {pipelineOutputs.length ? "Cleared pipeline output + seeded sample" : "Seeded sample approval only"}</span></div></section>
 
         {manifest ? (
           <section className="manifest-panel" aria-label="Latest clipper manifest">
@@ -112,12 +115,11 @@ export default function StudioPage() {
               </div>
             ))}
             <div className="output-grid output-grid--manifest">
-              {realClips.slice(0, 3).map((clip, index) => {
-                const sourceTime = timestamp(clip.sourceT);
+              {realClips.map((clip, index) => {
                 return (
-                  <article className="output-card" key={clip.clip_id} aria-label={clip.clip_id}>
-                    <div className="output-preview manifest-preview"><video controls preload="metadata" src={`/api/clips/${encodeURIComponent(clip.clip_id)}/media`} aria-label={`${clip.clip_id} preview`} /><span className="output-order">0{index + 1}</span><span className="duration">{Math.round(clip.duration)}s</span></div>
-                    <div className="output-body"><h2>{clipLabel(clip)}</h2><small className="clip-id">{clip.clip_id}</small><div className="output-platform"><span>{clip.callback ? "callback clip" : "service clip"}</span><strong>{clip.platform}</strong></div><p className="selection-reason">{selectionReason(clip)}</p><p className="clip-transcript"><span>Transcript</span>{clip.text_for_copy || "No transcript excerpt was included in the manifest."}</p><div className="output-rationale"><span>{clip.callback ? "Callback evidence" : "Manifest"}</span><strong>{clip.callback ? `${clip.threadLabel ?? "Thread"} · confidence ${clip.callbackConfidence ?? "?"}` : manifest.manifestPath}</strong>{clip.callback ? <div className="callback-citation"><span>{clip.sourceStream ?? "Unknown source"}{sourceTime ? ` · ${sourceTime}` : ""}</span><q>{clip.sourceQuote ?? "No source quote recorded."}</q></div> : null}</div><div className="provenance"><ShieldCheck /><span>Real clipper manifest</span></div></div>
+                  <article className={`output-card${clip.ok ? "" : " output-card--failed"}`} key={clip.clip_id} aria-label={clip.clip_id}>
+                    <div className={`output-preview manifest-preview${clip.path ? "" : " manifest-preview--failed"}`}>{clip.path ? <video controls preload="metadata" src={`/api/clips/${encodeURIComponent(clip.clip_id)}/media`} aria-label={`${clip.clip_id} preview`} /> : <><WarningCircle weight="fill" /><strong>Render unavailable</strong></>}<span className="output-order">0{index + 1}</span><span className="duration">{Math.round(clip.duration)}s</span></div>
+                    <div className="output-body"><h2>{clipLabel(clip)}</h2><small className="clip-id">{clip.clip_id}</small><div className="output-platform"><span>{clip.ok ? (clip.callback ? "callback clip" : "service clip") : "failed clip"}</span><strong>{clip.platform}</strong></div>{clip.ok ? <p className="selection-reason">{selectionReason(clip)}</p> : <p className="clip-failure" role="status"><WarningCircle weight="fill" />{clip.error || "This clip failed its quality gate and is excluded from approval."}</p>}{clip.copy?.caption ? <p className="clip-caption"><span>Caption</span>{clip.copy.caption}</p> : null}{clip.copy?.hashtags?.length ? <ul className="output-hashtags">{clip.copy.hashtags.map((tag) => <li key={tag}>#{tag}</li>)}</ul> : null}<p className="clip-transcript"><span>Transcript</span>{clip.text_for_copy || "No transcript excerpt was included in the manifest."}</p>{clip.evidence ? <EvidenceCard evidence={clip.evidence} /> : <div className="output-rationale"><span>Manifest</span><strong>{manifest.manifestPath}</strong></div>}<div className={`provenance${manifest.approvalReady && clip.ok ? "" : " provenance--blocked"}`}>{manifest.approvalReady && clip.ok ? <ShieldCheck /> : <WarningCircle />}<span>{clip.ok ? (manifest.source.footage_rights ? manifest.source.footage_rights.replaceAll("_", " ") : "Legacy manifest — rights not recorded") : "Failed quality gate · excluded from approval"}</span></div></div>
                   </article>
                 );
               })}
@@ -164,7 +166,7 @@ export default function StudioPage() {
           {experiment.outputs.map((output, index) => (
             <article className="output-card" key={output.id} aria-label={output.title}>
               <div className={`output-preview output-preview--${index + 1}`}><Image src={output.thumbnailUrl} alt="" fill sizes="(max-width: 900px) 100vw, 33vw" loading="eager" /><span className="output-order">0{index + 1}</span><span className="duration">{output.duration}</span></div>
-              <div className="output-body"><h2>{output.title}</h2><div className="output-platform"><span>{output.type.replaceAll("_", " ")}</span><strong>{output.platform}</strong></div><blockquote>“{output.hook}”</blockquote><p>{output.caption}</p><div className="output-rationale"><span>Purpose</span><strong>{output.rationale}</strong></div><div className="provenance"><ShieldCheck /><span>Project-owned synthetic media</span></div></div>
+              <div className="output-body"><h2>{output.title}</h2><div className="output-platform"><span>{output.type.replaceAll("_", " ")}</span><strong>{output.platform}</strong></div><blockquote>“{output.hook}”</blockquote><p>{output.caption}</p>{output.hashtags?.length ? <ul className="output-hashtags">{output.hashtags.map((tag) => <li key={tag}>#{tag}</li>)}</ul> : null}<div className="output-rationale"><span>Purpose</span><strong>{output.rationale}</strong></div><div className="provenance"><ShieldCheck /><span>Project-owned synthetic media</span></div></div>
             </article>
           ))}
         </section>

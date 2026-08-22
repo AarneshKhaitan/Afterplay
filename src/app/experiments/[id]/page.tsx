@@ -2,17 +2,142 @@ import { ArrowRight, Check, WarningCircle } from "@phosphor-icons/react/dist/ssr
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { loadLiveWorkspaceCounts } from "@/components/live/data";
+import { LiveExperimentsColdState } from "@/components/live/experiments-cold-state";
 import { StrategyModePanel } from "@/components/strategy-mode-panel";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 import { getExperiment } from "@/domain/experiment";
+import { getLiveExperiment } from "@/domain/live-experiments";
+import { workspaceModeState } from "@/domain/mode";
+
+export const dynamic = "force-dynamic";
 
 export default async function ExperimentPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  if (id !== "exp_one_more_rule") notFound();
-  const experiment = getExperiment(id);
+  const [{ id }, creator, modeState] = await Promise.all([
+    params,
+    currentCreator(),
+    workspaceModeState(),
+  ]);
+  if (id !== "exp_one_more_rule" && id !== "live_current") notFound();
+
+  if (id === "live_current") {
+    const liveExperiment = getLiveExperiment(creator.id);
+    if (!liveExperiment) {
+      return (
+        <WorkspaceShell
+          active="Experiments"
+          pageName="Experiment detail"
+          modeState={modeState}
+          badge="No live experiment"
+          dataNote="No live experiment contract is persisted for this creator."
+        >
+          <LiveExperimentsColdState
+            creatorName={creator.displayName}
+            creatorId={creator.id}
+            counts={loadLiveWorkspaceCounts(creator)}
+          />
+        </WorkspaceShell>
+      );
+    }
+
+    return (
+      <WorkspaceShell
+        active="Experiments"
+        pageName="Experiment detail"
+        modeState={modeState}
+        badge="Live experiment draft"
+        dataNote="This draft was created from a real intelligence recommendation and remains creator-review only."
+      >
+        <div className="surface experiment-surface">
+          <div className="page-breadcrumb"><Link href="/experiments">Experiments</Link><span>/</span><span>Live draft</span></div>
+          <section className="page-hero experiment-hero">
+            <div>
+              <h1>{liveExperiment.title}</h1>
+              <p>{liveExperiment.hypothesis}</p>
+              <div className="hero-meta">
+                <span className="status-chip status-chip--review">Draft</span>
+                <span>{liveExperiment.source.kind === "intel_recommendation" ? "From Intel" : "From Strategy"}</span>
+                <span>{liveExperiment.effort ? `${liveExperiment.effort} effort` : "Effort unset"}</span>
+              </div>
+            </div>
+            <div className="confidence-orbit"><span>Confidence</span><strong>{liveExperiment.confidence}%</strong></div>
+          </section>
+
+          <div className="experiment-detail-grid">
+            <div className="experiment-main">
+              <section className="content-section signal-contract" aria-labelledby="live-signal-title">
+                <div className="content-section-heading"><h2 id="live-signal-title">Success contract</h2></div>
+                <dl>
+                  <div><dt>Behavior</dt><dd>{liveExperiment.targetBehavior}</dd></div>
+                  <div><dt>Success signal</dt><dd>{liveExperiment.successSignal}</dd></div>
+                  <div><dt>Status</dt><dd>Draft awaiting creator approval</dd></div>
+                </dl>
+              </section>
+
+              <section className="content-section" aria-labelledby="live-evidence-title">
+                <div className="content-section-heading"><h2 id="live-evidence-title">Evidence receipts</h2><span>{liveExperiment.evidenceRefs.length} refs</span></div>
+                <div className="evidence-list">
+                  {liveExperiment.evidenceRefs.map((reference, index) => (
+                    <article className="evidence-card" key={reference}>
+                      <span className="evidence-index">{String(index + 1).padStart(2, "0")}</span>
+                      <div>
+                        <div className="evidence-card-top"><h3>{reference}</h3><span className="strength strength--directional">source</span></div>
+                        <p>Grounded in the intelligence scan that produced this recommendation.</p>
+                        <small>{liveExperiment.source.scanId ?? "scan unavailable"}</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <aside className="experiment-aside" aria-label="Experiment source">
+              <section className="judgment-card">
+                <h2>Review state</h2>
+                <p>This proposal is persisted for {creator.displayName}. It has not been dispatched, measured, or passed to Riff.</p>
+                <div className="falsifier"><span>Created</span><strong>{new Date(liveExperiment.createdAt).toLocaleString()}</strong></div>
+              </section>
+              <section className="review-card">
+                <h2>Next action</h2>
+                <p>Use this as the live experiment contract once you approve the wording and measurement window.</p>
+                <Link className="primary-action" href="/intel">Back to Intel <ArrowRight weight="bold" /></Link>
+              </section>
+            </aside>
+          </div>
+        </div>
+      </WorkspaceShell>
+    );
+  }
+
+  if (modeState.mode === "live") {
+    return (
+      <WorkspaceShell
+        active="Experiments"
+        pageName="Experiment detail"
+        modeState={modeState}
+        badge="No live experiment"
+        dataNote="No live experiment contract is persisted for this creator. The seeded experiment is available only in demo mode."
+      >
+        <LiveExperimentsColdState
+          creatorName={creator.displayName}
+          creatorId={creator.id}
+          counts={loadLiveWorkspaceCounts(creator)}
+        />
+      </WorkspaceShell>
+    );
+  }
+
+  const experiment = getExperiment(id, creator.id);
 
   return (
-    <WorkspaceShell active="Experiments" pageName="Experiment detail">
+    <WorkspaceShell
+      active="Experiments"
+      pageName="Experiment detail"
+      modeState={modeState}
+      badge="Seeded experiment fixture"
+      dataNote="The hypothesis, evidence, outputs, approvals, distribution receipts, and results on this page belong to a synthetic demo fixture."
+    >
       <div className="surface experiment-surface">
         <div className="page-breadcrumb"><Link href="/experiments">Experiments</Link><span>/</span><span>Experiment 04</span></div>
         <section className="page-hero experiment-hero">

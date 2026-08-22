@@ -15,7 +15,14 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const creatorId = url.searchParams.get("creatorId") ?? (await currentCreator()).id;
+  const activeCreator = await currentCreator();
+  const requestedCreatorId = url.searchParams.get("creatorId");
+  if (requestedCreatorId && requestedCreatorId !== activeCreator.id) {
+    return NextResponse.json({
+      error: { code: "creator_mismatch", message: "The memory does not belong to the active creator workspace." },
+    }, { status: 409 });
+  }
+  const creatorId = activeCreator.id;
   const memory = loadMemory(creatorId);
   return NextResponse.json(
     { memory, active: activeBeliefs(memory) },

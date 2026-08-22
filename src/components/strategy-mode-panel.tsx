@@ -1,7 +1,13 @@
 "use client";
 
-import { Lightning, Sparkle, WarningCircle } from "@phosphor-icons/react";
+import { ArrowRight, Lightning, Sparkle, WarningCircle } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
+
+import {
+  strategyProductAction,
+  type StrategyOutputBriefType,
+} from "@/domain/strategy";
 
 type Proposal = {
   name: string;
@@ -11,6 +17,10 @@ type Proposal = {
   alternatives: Array<{ title: string; reasonNotChosen: string }>;
   uncertainty: string;
   falsifier: string;
+  targetBehavior: string;
+  successSignal: string;
+  evidenceRefs: string[];
+  outputBriefs: Array<{ type: StrategyOutputBriefType; purpose: string }>;
 };
 
 type Meta = { mode: "demo" | "live"; model: string | null };
@@ -47,13 +57,18 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
     setError(null);
     const started = Date.now();
     try {
+      const creatorResponse = await fetch("/api/creator", { cache: "no-store" });
+      const creatorBody = await creatorResponse.json();
+      if (!creatorResponse.ok || typeof creatorBody.active?.id !== "string") {
+        throw new Error("The active creator workspace could not be resolved.");
+      }
       const response = await fetch("/api/strategy/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode,
           input: {
-            creatorId: "creator_mika_rigged",
+            creatorId: creatorBody.active.id,
             objective: "Grow the returning audience for this gaming creator.",
             evidenceRefs,
           },
@@ -122,7 +137,7 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
         <div className="mode-alert" role="alert">
           <WarningCircle weight="fill" />
           <div>
-            <strong>Live planning is unavailable</strong>
+            <strong>{pending === "demo" ? "Demo planning failed" : "Planning is unavailable"}</strong>
             <span>{error}</span>
             <span className="mode-alert-note">
               No demo output was substituted. This is the intended behaviour.
@@ -161,6 +176,27 @@ export function StrategyModePanel({ evidenceRefs }: { evidenceRefs: string[] }) 
               <span>Uncertainty</span>
               <p>{proposal.uncertainty}</p>
             </div>
+          </div>
+          <div className="mode-result-grid">
+            <div>
+              <span>Success contract</span>
+              <p>{proposal.targetBehavior}</p>
+              <strong>{proposal.successSignal}</strong>
+            </div>
+            <div>
+              <span>Evidence receipts</span>
+              <p>{proposal.evidenceRefs.join(" · ")}</p>
+            </div>
+          </div>
+          <div className="mode-actions" aria-label="Strategy product actions">
+            {proposal.outputBriefs.map((brief) => {
+              const action = strategyProductAction(brief.type);
+              return (
+                <Link key={brief.type} className="primary-action" href={action.href}>
+                  {action.label} <ArrowRight weight="bold" />
+                </Link>
+              );
+            })}
           </div>
         </div>
       ) : null}

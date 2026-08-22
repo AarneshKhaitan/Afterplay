@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from dataclasses import dataclass, field
 
 # ── VTT -> word-level timings ─────────────────────────────────────────────────
@@ -190,8 +191,23 @@ class Moment:
 
 
 def candidates(sents: list[Sentence], target=30.0, tol=10.0) -> list[tuple[float, float, str]]:
-    """Every sentence-aligned window of roughly `target` seconds."""
+    """Every distinct sentence-aligned window of roughly `target` seconds.
+
+    Windows are seeded per sentence, so consecutive cues that share a start time --
+    routine in YouTube auto-captions -- seed windows with an identical (start, end)
+    span and merely different text. Those are the same clip opportunity, and keeping
+    both is a real defect rather than a cosmetic one: it inflates `candidate_count`,
+    shifts every percentile, and lets a memory boost land on one copy while its twin
+    ranks hundreds of places lower, so the artifact reports the same window as both a
+    callback and not. The manifest identifies a window by (start, end) alone, so that
+    is the identity deduplicated here -- at the same 3dp the manifest rounds to, so
+    the "decision windows must be unique" invariant holds by construction.
+
+    The first seed wins. It starts at the earliest sentence, so it carries the most
+    text, which is the better input for memory retrieval.
+    """
     out = []
+    seen: set[tuple[float, float]] = set()
     for i, s0 in enumerate(sents):
         chunk = []
         for s in sents[i:]:
@@ -204,18 +220,17 @@ def candidates(sents: list[Sentence], target=30.0, tol=10.0) -> list[tuple[float
             continue
         end = chunk[-1].end
         if target - tol <= end - s0.start <= target + tol:
+            span = (round(s0.start, 3), round(end, 3))
+            if span in seen:
+                continue
+            seen.add(span)
             out.append((s0.start, end, " ".join(c.text for c in chunk)))
     return out
 
 
-def rank(sents: list[Sentence], heatmap: list[dict] | None = None, target=30.0,
-         n=5, min_gap=20.0, tol=10.0) -> list[Moment]:
-    """Rank candidate windows and return the top `n` that don't overlap.
-
-    Uses the engagement heatmap when the source has one, else the cold-start
-    signals. Selection is greedy with a spacing constraint so the clips aren't five
-    variations of the same 40 seconds.
-    """
+def score_all(sents: list[Sentence], heatmap: list[dict] | None = None,
+              target=30.0, tol=10.0) -> list[Moment]:
+    """Score every candidate window without selecting or mutating its rank."""
     moments: list[Moment] = []
     for start, end, text in candidates(sents, target, tol):
         h = heat_avg(heatmap or [], start, end)
@@ -227,15 +242,27 @@ def rank(sents: list[Sentence], heatmap: list[dict] | None = None, target=30.0,
             moments.append(Moment(start, end, cs.score, text, f"cold-start: {cs.describe()}",
                                   {"events": cs.events, "turns": cs.turns,
                                    "questions": cs.questions, "wpm": round(cs.wpm, 1)}))
+    return moments
 
-    moments.sort(key=lambda m: -m.score)
+
+def select(moments: list[Moment], n=5, min_gap=20.0) -> list[Moment]:
+    """Greedily select top-scored, non-overlapping moments without mutating input."""
+    ordered = sorted(moments, key=lambda moment: -moment.score)
     picked: list[Moment] = []
-    for m in moments:
-        if all(m.start >= p.end + min_gap or m.end <= p.start - min_gap for p in picked):
-            picked.append(m)
+    for moment in ordered:
+        if all(moment.start >= prior.end + min_gap or
+               moment.end <= prior.start - min_gap for prior in picked):
+            picked.append(moment)
         if len(picked) >= n:
             break
     return picked
+
+
+def rank(sents: list[Sentence], heatmap: list[dict] | None = None, target=30.0,
+         n=5, min_gap=20.0, tol=10.0) -> list[Moment]:
+    """Score all windows, then return the top `n` that satisfy the spacing rule."""
+    return select(score_all(sents, heatmap, target=target, tol=tol), n=n,
+                  min_gap=min_gap)
 
 
 # ── pluggable reasoner (PRD 7.2 creator-aware ranking) ────────────────────────
@@ -316,7 +343,11 @@ class MemoryReasoner(Reasoner):
         self.memory_degradation_reason = None
         self.callback_found = False
         self.callbacks_ranked_out = 0
+        self.callbacks_filtered_out = 0
         self.threads_considered = 0
+        self.memory_timings = {"embed": 0.0, "retrieve": 0.0, "judge": 0.0}
+        from .baseline import unavailable_ablation
+        self.ablation = unavailable_ablation("not_run")
 
     def rank(self, sents, heatmap=None, *, target=30.0, n=5, min_gap=20.0,
              tol=10.0, **kw) -> list[Moment]:
@@ -324,12 +355,30 @@ class MemoryReasoner(Reasoner):
         self.memory_degradation_reason = None
         self.callback_found = False
         self.callbacks_ranked_out = 0
+        self.callbacks_filtered_out = 0
         self.threads_considered = 0
+        self.memory_timings = {"embed": 0.0, "retrieve": 0.0, "judge": 0.0}
+        from .baseline import compare_rankings, normalize_scores, unavailable_ablation
+        self.ablation = unavailable_ablation("not_run")
         try:
-            moments: list[Moment] = []
-            candidate_windows = candidates(sents, target, tol)
+            raw_baseline_moments = score_all(sents, heatmap, target=target, tol=tol)
+            raw_baseline_selected = select(raw_baseline_moments, n=n, min_gap=min_gap)
+            if not raw_baseline_moments:
+                self.ablation = unavailable_ablation("no_candidate_windows")
+                return []
+            baseline_moments = normalize_scores(raw_baseline_moments)
+            baseline_selected = select(baseline_moments, n=n, min_gap=min_gap)
+            moments = [Moment(m.start, m.end, m.score, m.text, m.why,
+                              dict(m.signals)) for m in baseline_moments]
             try:
-                retrieved_by_idx = self._retrieve_candidates([text for _, _, text in candidate_windows])
+                retrieved_by_idx = self._retrieve_candidates([moment.text for moment in moments])
+                retrieval_timings = getattr(
+                    self.channel_memory, "last_retrieval_timings", {}
+                )
+                self.memory_timings["embed"] = float(retrieval_timings.get("embed") or 0.0)
+                self.memory_timings["retrieve"] = float(
+                    retrieval_timings.get("retrieve") or 0.0
+                )
                 self.threads_considered = len({
                     str(item.get("id"))
                     for hits in retrieved_by_idx.values()
@@ -338,30 +387,28 @@ class MemoryReasoner(Reasoner):
                 })
             except Exception as e:                                   # noqa: BLE001
                 self._set_memory_degradation(f"thread lookup failed ({type(e).__name__}: {e})")
-                return rank(sents, heatmap, target=target, n=n, min_gap=min_gap, tol=tol)
+                self.ablation = unavailable_ablation(
+                    self.memory_degradation_reason,
+                    candidate_count=len(raw_baseline_moments),
+                )
+                return raw_baseline_selected
 
             judge = self.judge
             if retrieved_by_idx and judge is None:
                 from .channel_memory import judge_callback_with_openai
                 judge = judge_callback_with_openai
 
-            for idx, (start, end, text) in enumerate(candidate_windows):
-                h = heat_avg(heatmap or [], start, end)
-                if h is not None:
-                    score = h
-                    why = f"heatmap mean {h:.3f}"
-                    signals = {"heatmap": h}
-                else:
-                    cs = cold_signals(text, end - start)
-                    score = cs.score
-                    why = f"cold-start: {cs.describe()}"
-                    signals = {"events": cs.events, "turns": cs.turns,
-                               "questions": cs.questions, "wpm": round(cs.wpm, 1)}
-
+            for idx, moment in enumerate(moments):
                 retrieved = retrieved_by_idx.get(idx, [])
+                retrieved = [
+                    thread for thread in retrieved
+                    if (thread.get("first_seen") or {}).get("verified") is True
+                ]
                 if retrieved and judge:
                     try:
-                        verdict = judge(text, retrieved)
+                        judge_started = time.perf_counter()
+                        verdict = judge(moment.text, retrieved)
+                        self.memory_timings["judge"] += time.perf_counter() - judge_started
                     except Exception as e:                           # noqa: BLE001
                         self._set_memory_degradation(f"callback judge failed ({type(e).__name__}: {e})")
                         verdict = {"is_callback": False}
@@ -372,11 +419,11 @@ class MemoryReasoner(Reasoner):
                             and confidence >= self.min_confidence):
                         thread = next(item for item in retrieved
                                       if str(item.get("id")) == thread_id)
-                        score += self.boost * confidence
-                        why = f"callback[{thread.get('label', thread_id)}]: " \
-                              f"{verdict.get('why', '')}"
+                        moment.score += self.boost * confidence
+                        moment.why = f"callback[{thread.get('label', thread_id)}]: " \
+                                     f"{verdict.get('why', '')}"
                         first = thread.get("first_seen") or {}
-                        signals.update({
+                        moment.signals.update({
                             "callback": True,
                             "thread_id": thread_id,
                             "thread_label": thread.get("label"),
@@ -384,19 +431,27 @@ class MemoryReasoner(Reasoner):
                             "why": verdict.get("why", ""),
                             "source_stream": first.get("stream_id"),
                             "source_t": first.get("t"),
+                            "source_t_reported": first.get("t_reported"),
                             "source_quote": first.get("quote"),
+                            "source_quote_display": first.get("quote_display"),
+                            "source_match_ratio": first.get("match_ratio"),
+                            "source_repair": first.get("repair"),
+                            "citation_verified": True,
                         })
 
-                moments.append(Moment(start, end, score, text, why, signals))
-
-            moments.sort(key=lambda m: -m.score)
-            picked: list[Moment] = []
-            for m in moments:
-                if all(m.start >= p.end + min_gap or m.end <= p.start - min_gap
-                       for p in picked):
-                    picked.append(m)
-                if len(picked) >= n:
-                    break
+            picked = select(moments, n=n, min_gap=min_gap)
+            self.memory_timings = {
+                key: round(value, 6) for key, value in self.memory_timings.items()
+            }
+            if self.memory_degraded:
+                self.ablation = unavailable_ablation(
+                    self.memory_degradation_reason or "memory_unavailable",
+                    candidate_count=len(baseline_moments),
+                )
+            else:
+                self.ablation = compare_rankings(
+                    baseline_moments, moments, baseline_selected, picked
+                )
 
             # Report the clips that SHIPPED, not every candidate considered. Setting this
             # during scoring meant a callback in a window that lost the top-n cut still
@@ -414,6 +469,7 @@ class MemoryReasoner(Reasoner):
             logging.getLogger("afterplay").warning("channel memory ranking unavailable "
                                                    "(%s); falling back to heuristic", e)
             self._set_memory_degradation(f"ranking failure ({type(e).__name__}: {e})")
+            self.ablation = unavailable_ablation(self.memory_degradation_reason)
             return rank(sents, heatmap, target=target, n=n, min_gap=min_gap, tol=tol)
 
     def _set_memory_degradation(self, reason: str):

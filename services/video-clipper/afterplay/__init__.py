@@ -12,7 +12,9 @@ Architecture (PRD 10), each stage spending strictly more than the last:
 Public surface:
 
     from afterplay import Orchestrator, Settings, Brand
-    job = Orchestrator(creator="ksi").run("https://...", platforms=["shorts"])
+    job = Orchestrator(creator="ksi").run(
+        "https://...", footage_rights="permission_granted", platforms=["shorts"]
+    )
 """
 from .core import (Brand, FFmpegError, AfterplayError, MediaInfo, PLATFORMS, Platform,
                    QCFailure, ResolveError, Settings, detect_encoder, probe)

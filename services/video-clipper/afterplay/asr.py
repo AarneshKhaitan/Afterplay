@@ -132,7 +132,7 @@ def transcribe(audio_path, *, language: str | None = None, vad: bool = True,
     return t
 
 
-def to_vtt(words: list[Word], path, group: int = 7) -> Path:
+def to_vtt(words: list[Word], path, group: int = 7, language: str = "auto") -> Path:
     """Write a WebVTT with word-level tags, in the same shape the caption path reads.
 
     Writing it out means an ASR transcript is inspectable, cacheable and re-runnable —
@@ -143,7 +143,7 @@ def to_vtt(words: list[Word], path, group: int = 7) -> Path:
         m, s = divmod(r, 60)
         return f"{int(h):02d}:{int(m):02d}:{s:06.3f}"
 
-    lines = ["WEBVTT", "Kind: captions", "Language: auto", ""]
+    lines = ["WEBVTT", "Kind: captions", f"Language: {language}", ""]
     for i in range(0, len(words), group):
         chunk = words[i:i + group]
         start = chunk[0].t

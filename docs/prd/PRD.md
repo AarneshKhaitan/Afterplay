@@ -51,7 +51,7 @@ Everything below was **executed**, not inferred. Re-run anything you doubt.
 | Honest Analyst | Three payloads → inconclusive (42) / contradicted (32) / cautious second test (64), each citing submitted numbers — [E-007](./EVIDENCE.md#e-007-honest-analyst) |
 | Authority model | dispatch-before-approval 409, stale revision 409, reject-without-feedback 400, results-without-disclosure literal 400, live-AI-without-key 503 (no silent fallback), double dispatch → still 3 receipts — [E-008](./EVIDENCE.md#e-008-authority-model) |
 | Clip playback | Byte-range serving (206 / 416, byte-identical slices); real mouse click plays through to `0:24 / 0:24` — [E-009](./EVIDENCE.md#e-009-clip-media-and-playback) |
-| Test suites | Python **116 passed, 1 skipped**; Playwright production **26 passed**; build/typecheck/lint clean — [E-005](./EVIDENCE.md#e-005-test-suites) |
+| Test suites | Python **192 passed, 1 skipped** (re-run 2026-08-21); Playwright production **22 passed** as of [E-005](./EVIDENCE.md#e-005-test-suites); build/typecheck/lint clean |
 
 Evidence links resolve to dated command/output snapshots in [EVIDENCE.md](./EVIDENCE.md).
 Each entry records the command that **produced** the result, not a grep of this document.
@@ -59,9 +59,10 @@ Timings are hardware-dependent; the evidence log states the machine.
 
 ### Fixtures, not live
 
-- **Strategy director in demo mode is a constant function.** Asked to help a Vietnamese
-  cooking streamer, it returns Mika Rao's physics-sandbox diagnosis verbatim
-  (`src/ai/strategy.ts`).
+- **Strategy director in demo mode is a constant function.** It always returns the same
+  fixed `deterministicProposal` regardless of the creator or evidence it is given — a
+  generic "name the recurring format" diagnosis computed from nothing, not the creator's
+  actual data (`src/ai/strategy.ts`).
 - Workspace, creator baseline, evidence, and the three Studio "outputs" are seeded.
 - Distribution receipts are simulated. No OAuth, no platform analytics.
 
@@ -126,13 +127,13 @@ demo. `P1` = required for the product claim. `P2` = production maturity.
 | # | Gap | Detail |
 |---|---|---|
 | ~~G7~~ | **CLOSED** — the loop is closed in both directions | Recorded outcomes measurably re-rank a later run and the Analyst cites a real `clip_id` ([E-016](./EVIDENCE.md#e-016-ranking-feedback-changes-a-later-run)); real clipper clips now ride the approval loop as an **additive** `pipelineOutputs` set — the curated three-card package is never overwritten — and are approved and dispatched with it ([E-020](./EVIDENCE.md#e-020-pipeline-clips-in-the-approval-loop)). Real published analytics reach the priors through `results --input <csv>` ([E-021](./EVIDENCE.md#e-021-real-analytics-csv-into-the-ranking-priors)); actual publishing is still G12. |
-| **G8** | No creator upload | No file input, no multipart handler, no ingest route in `src/`. Media enters only via CLI on the operator's machine. |
-| **G9** | No channel connect | **No channel enumeration anywhere** — no playlist, no `/@handle`, no flat-playlist. `backfill` takes one video and a manually assigned `--stream-id`. "Point it at my channel" does not exist. |
+| **G8** | No raw file upload | `src/app/api/ingest/route.ts` and the `src/app/ingest` page now let a creator point the browser at a YouTube URL (or a pre-cached source) and poll a real job — no terminal required. What is still missing is a **multipart upload handler**: there is no `<input type="file">` or `FormData` path anywhere in `src/`, so a creator whose only copy is a local file still needs the CLI's `--local`. |
+| ~~G9~~ | **CLOSED** — channel connect is built | `src/app/api/channel/route.ts` (`previewChannel` / `list_channel_videos`, yt-dlp `extract_flat`) resolves a `/@handle` or channel URL into a video list; `src/app/api/channel/backfill/route.ts` lets the creator pick which listed videos form the backfill set and auto-derives the creator id. Both are wired into the `ChannelConsole` component on the `src/app/ingest` page. |
 | **G10** | No OAuth | `src/app/integrations/page.tsx` states "OAuth is not configured". No YouTube Analytics, no real performance data. |
 | **G11** | Studio is review-only | Approve / request changes / reject. No trim, re-cut, caption edit, reorder, or regenerate. |
 | **G12** | No publishing | Approval produces simulated receipts; nothing reaches a platform. |
 | **G13** | Mode expectations undocumented | No table telling a judge what `demo` guarantees vs what `live` requires — the root of "is this real or fake?" |
-| **G14** | Model config drift — **local `.env` only** | Repo files already agree: `.env.example` and `docs/AI.md:30` both say `gpt-5.6-sol`. The drift exists only in the developer's gitignored `.env` (`gpt-4o-mini`). Action is a one-line note plus each developer updating their own `.env`. |
+| **G14** | Model config drift — **local `.env` only** | Repo files already agree: `.env.example` and `docs/AI.md:34` both say `gpt-5.6-sol`. The drift exists only in the developer's gitignored `.env` (`gpt-4o-mini`). Action is a one-line note plus each developer updating their own `.env`. |
 | **G15** | `tasks/todo.md` is historical | Contains duplicated, contradictory, and superseded sections; reads as notes, not status |
 
 ### P2 — open
@@ -144,7 +145,7 @@ demo. `P1` = required for the product claim. `P2` = production maturity.
 | **G18** | yt-dlp deprecation warning | "No supported JavaScript runtime… some formats may be missing." Install `deno` on any machine that ingests. |
 | ~~G19~~ | **CLOSED** — silent failures fail loudly | Verified by fault injection, not by inspection: a revoked key produces `degraded: true` with the 401 text, rendered in Studio as an assertive `role="alert"` warning and never as "no callback found" — [E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale). A callback that ranked out is also its own reported state — [E-024](./EVIDENCE.md#e-024-callback-found-reflects-shipped-clips). |
 | ~~G20~~ | **CLOSED** — a dead run cannot masquerade as current | A render killed mid-run leaves `status: started` and no manifest; the app serves the last complete run and says so. Fault-injected, and it exposed a real defect: stale and degraded were chained, so one hid the other — [E-026](./EVIDENCE.md#e-026-fault-injection-degraded-and-stale). |
-| **G21** | Not durable | Seeded in-process state; not multi-instance or multi-tenant |
+| **G21** | Not durable | **Partially closed.** Experiment/result state is now written through a versioned atomic-JSON persistence layer (`src/domain/persist.ts`) under `AFTERPLAY_EXPERIMENT_DIR` and is per-creator isolated (`src/domain/experiment.ts`, `src/domain/live-experiments.ts`), so it survives a process restart. Still file-based on a single host — not multi-instance, and the creator cookie remains a local selector, not an authentication credential. |
 | **G22** | Media route has no caching semantics | `no-store`, no ETag/Last-Modified |
 | ~~G23~~ | **CLOSED** — ASR proven on real caption-less gameplay | 15 minutes of KSI gameplay audio with captions withheld: 2427 words at lang confidence 0.97, yielding **5 concrete named threads**, not generic ones. The missing-dependency path names the fix rather than falling through to "requires captions" — [E-025](./EVIDENCE.md#e-025-asr-backfill-on-a-caption-less-source). |
 

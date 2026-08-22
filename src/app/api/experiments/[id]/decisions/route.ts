@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { experimentErrorResponse, invalidRequest } from "@/app/api/http";
+import { currentCreator } from "@/domain/creators";
 import { recordDecision } from "@/domain/experiment";
 
 const decisionSchema = z.object({
@@ -28,8 +29,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
-    const { id } = await context.params;
-    return NextResponse.json(recordDecision({ id, ...parsed.data }));
+    const [{ id }, creator] = await Promise.all([context.params, currentCreator()]);
+    return NextResponse.json(recordDecision({ id, ...parsed.data, creatorId: creator.id }));
   } catch (error) {
     return experimentErrorResponse(error);
   }

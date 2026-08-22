@@ -1,7 +1,9 @@
 node_modules/
 .next/
 playwright-report/
+playwright-report-live/
 test-results/
+test-results-live/
 .env*
 !.env.example
 *.log
@@ -20,8 +22,14 @@ __pycache__/
 # Never commit: these are transcripts of other people's videos.
 .demo-cache/
 
+# Local demo workdir with third-party media renders. Never commit.
+.demo-final/
+
 # Competitive intelligence store (scans, cache, memory)
 .intel/
+
+# Durable local product state (experiments and later creator-scoped stores)
+.afterplay/
 
 # Local Claude Code settings (per-developer, may contain permission overrides)
 .claude/settings.local.json

@@ -1,6 +1,26 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { TEST_EXPERIMENT_DIR } from "./experiment-dir";
 
 const experimentUrl = "/api/experiments/exp_one_more_rule";
+const configuredCreator = "creator_mika_rigged";
+const guestHeaders = { cookie: "afterplay_creator=guest" };
+
+function onlyStateFile(): string {
+  const files = readdirSync(TEST_EXPERIMENT_DIR).filter((file) => file.endsWith(".json"));
+  expect(files).toHaveLength(1);
+  return join(TEST_EXPERIMENT_DIR, files[0]);
+}
+
+test.beforeAll(() => {
+  rmSync(TEST_EXPERIMENT_DIR, { recursive: true, force: true });
+});
+
+test.afterAll(() => {
+  rmSync(TEST_EXPERIMENT_DIR, { recursive: true, force: true });
+});
 
 test.beforeEach(async ({ request }) => {
   const reset = await request.post("/api/demo/reset");
@@ -137,4 +157,85 @@ test("result analysis reflects failed submitted metrics", async ({ request }) =>
     "Tracked live visits moved from 3 to 0 (-3).",
   ]));
   expect(body.learning.evidence.join(" ")).not.toContain("13.6%");
+});
+
+test("missing state is initialized as a creator-scoped versioned document", async ({ request }) => {
+  rmSync(TEST_EXPERIMENT_DIR, { recursive: true, force: true });
+
+  const response = await request.get(experimentUrl);
+  expect(response.ok()).toBe(true);
+  expect(await response.json()).toMatchObject({
+    experiment: { status: "awaiting_approval", revision: 2 },
+  });
+
+  const persisted = JSON.parse(readFileSync(onlyStateFile(), "utf-8"));
+  expect(persisted).toMatchObject({
+    _afterplay: {
+      format: "afterplay.versioned-json",
+      schema: "afterplay.experiment-store",
+      version: 1,
+    },
+    value: {
+      creatorId: configuredCreator,
+      experiment: { id: "exp_one_more_rule", status: "awaiting_approval" },
+    },
+  });
+});
+
+test("legacy raw experiment state is adopted and rewritten without losing lifecycle data", async ({
+  request,
+}) => {
+  const statePath = onlyStateFile();
+  const current = JSON.parse(readFileSync(statePath, "utf-8"));
+  current.value.experiment.stage = "Legacy stage retained";
+  writeFileSync(statePath, JSON.stringify({ experiment: current.value.experiment }), "utf-8");
+
+  const response = await request.get(experimentUrl);
+  expect(response.ok()).toBe(true);
+  expect(await response.json()).toMatchObject({
+    experiment: { stage: "Legacy stage retained", status: "awaiting_approval" },
+  });
+
+  const migrated = JSON.parse(readFileSync(statePath, "utf-8"));
+  expect(migrated).toMatchObject({
+    _afterplay: { schema: "afterplay.experiment-store", version: 1 },
+    value: {
+      creatorId: configuredCreator,
+      experiment: { stage: "Legacy stage retained" },
+    },
+  });
+});
+
+test("corrupt state fails visibly and is not silently replaced", async ({ request }) => {
+  const statePath = onlyStateFile();
+  writeFileSync(statePath, "{not-json", "utf-8");
+
+  const response = await request.get(experimentUrl);
+  expect(response.status()).toBe(500);
+  expect(await response.json()).toEqual({
+    error: {
+      code: "experiment_state_corrupt",
+      message: "The saved experiment state is invalid and was not reset.",
+    },
+  });
+  expect(readFileSync(statePath, "utf-8")).toBe("{not-json");
+});
+
+test("each creator has an isolated durable lifecycle", async ({ request }) => {
+  await request.post("/api/demo/reset", { headers: guestHeaders });
+
+  const approval = await request.post(`${experimentUrl}/decisions`, {
+    data: { action: "approve", revision: 2 },
+  });
+  expect(approval.ok()).toBe(true);
+
+  const configured = await request.get(experimentUrl);
+  const guest = await request.get(experimentUrl, { headers: guestHeaders });
+  expect(await configured.json()).toMatchObject({ experiment: { status: "approved" } });
+  expect(await guest.json()).toMatchObject({ experiment: { status: "awaiting_approval" } });
+
+  const creators = readdirSync(TEST_EXPERIMENT_DIR)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => JSON.parse(readFileSync(join(TEST_EXPERIMENT_DIR, file), "utf-8")).value.creatorId);
+  expect(creators.sort()).toEqual([configuredCreator, "guest"].sort());
 });

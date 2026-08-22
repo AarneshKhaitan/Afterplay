@@ -59,6 +59,111 @@ class TestChannelMemory:
         assert hits[0]["similarity"] > 0.9
         assert "embedding" not in hits[0]
         assert "updated" not in hits[0]
+        assert hits[0]["first_seen"]["verified"] is True
+        assert memory.verification_counts == {
+            "verified": 1,
+            "repaired": 1,
+            "unverified": 0,
+        }
+
+    def test_legacy_unverified_threads_are_not_retrievable(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory
+
+        creator_dir = tmp_path / "legacy"
+        creator_dir.mkdir()
+        (creator_dir / "threads.json").write_text(json.dumps([{
+            "id": "authored_on_demo_night",
+            "kind": "running_joke",
+            "label": "unsupported claim",
+            "summary": "This record predates citation verification.",
+            "first_seen": {"stream_id": "old", "t": 12.0, "quote": "not checked"},
+            "mentions": [],
+            "embedding": [1.0, 0.0, 0.1],
+        }]), encoding="utf-8")
+
+        memory = ChannelMemory("legacy", root=tmp_path, embedder=_fake_embed)
+
+        assert memory.threads[0].first_seen.verified is False
+        assert memory.retrieve("unsupported claim") == []
+
+    def test_backfill_rejects_unmatched_model_citation(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory
+
+        def extractor(stream_id, transcript):
+            return {"threads": [{
+                "kind": "running_joke",
+                "label": "fabricated callback",
+                "summary": "Model output with no transcript support.",
+                "first_seen": {"t": 12.0, "quote": "this quote is invented"},
+            }]}
+
+        memory = ChannelMemory("creator", root=tmp_path, embedder=_fake_embed)
+        extracted = memory.backfill(
+            "stream_a",
+            [Sentence(10.0, 20.0, "the actual transcript says something else")],
+            extractor=extractor,
+        )
+
+        assert len(extracted) == 1
+        assert extracted[0].has_verified_evidence() is False
+        assert memory.threads == []
+        assert not memory.path.exists()
+        assert memory.verification_counts == {
+            "verified": 0,
+            "repaired": 0,
+            "unverified": 1,
+        }
+
+    def test_backfill_can_prune_legacy_unverified_store(self, tmp_path):
+        from afterplay.channel_memory import ChannelMemory
+
+        creator_dir = tmp_path / "creator"
+        creator_dir.mkdir()
+        (creator_dir / "threads.json").write_text(json.dumps([
+            {
+                "id": "legacy_unverified",
+                "kind": "running_joke",
+                "label": "unsupported claim",
+                "summary": "This record predates citation verification.",
+                "first_seen": {"stream_id": "old", "t": 12.0, "quote": "not checked"},
+                "embedding": [1.0, 0.0, 0.1],
+            },
+            {
+                "id": "trusted_existing",
+                "kind": "running_joke",
+                "label": "cursed sniper on bridge",
+                "summary": "This record already passed verification.",
+                "first_seen": {
+                    "stream_id": "trusted",
+                    "t": 12.0,
+                    "quote": "the cursed sniper is back",
+                    "verified": True,
+                    "match_ratio": 1.0,
+                },
+                "embedding": [1.0, 1.0, 0.1],
+            },
+        ]), encoding="utf-8")
+
+        def extractor(stream_id, transcript):
+            return {"threads": [{
+                "kind": "running_joke",
+                "label": "fabricated callback",
+                "summary": "The replacement is also unsupported.",
+                "first_seen": {"t": 12.0, "quote": "this quote is invented"},
+            }]}
+
+        memory = ChannelMemory("creator", root=tmp_path, embedder=_fake_embed)
+        memory.backfill(
+            "stream_a",
+            [Sentence(10.0, 20.0, "the actual transcript says something else")],
+            extractor=extractor,
+            prune_unverified=True,
+        )
+
+        assert memory.pruned_unverified == 1
+        assert [thread.id for thread in memory.threads] == ["trusted_existing"]
+        persisted = json.loads(memory.path.read_text(encoding="utf-8"))
+        assert [thread["id"] for thread in persisted] == ["trusted_existing"]
 
     def test_memory_reasoner_boosts_clear_callbacks_and_carries_signals(self):
         class Memory:
@@ -70,7 +175,12 @@ class TestChannelMemory:
                     "first_seen": {
                         "stream_id": "stream_a",
                         "t": 12.0,
+                        "t_reported": 15.0,
                         "quote": "the cursed sniper is back",
+                        "quote_display": "The sniper is back.",
+                        "match_ratio": 0.96,
+                        "repair": "timestamp_corrected",
+                        "verified": True,
                     },
                 }]
 
@@ -90,6 +200,10 @@ class TestChannelMemory:
         assert moments[0].signals["callback"] is True
         assert moments[0].signals["thread_id"] == "thread_1"
         assert moments[0].signals["source_stream"] == "stream_a"
+        assert moments[0].signals["source_t_reported"] == 15.0
+        assert moments[0].signals["source_quote_display"] == "The sniper is back."
+        assert moments[0].signals["source_match_ratio"] == 0.96
+        assert moments[0].signals["source_repair"] == "timestamp_corrected"
         assert moments[0].score >= 2.4
 
     def test_memory_reasoner_does_not_judge_without_retrieved_threads(self):
@@ -107,6 +221,31 @@ class TestChannelMemory:
             n=1,
             tol=5.0,
         )
+        assert "callback" not in moments[0].signals
+
+    def test_memory_reasoner_does_not_judge_unverified_threads(self):
+        class LegacyMemory:
+            def retrieve_many(self, texts, k=3, top_windows=10):
+                return {0: [{
+                    "id": "legacy_thread",
+                    "label": "unsupported",
+                    "first_seen": {
+                        "stream_id": "old",
+                        "t": 1.0,
+                        "quote": "not checked",
+                    },
+                }]}
+
+        def judge(text, retrieved):
+            raise AssertionError("judge must not receive unverified evidence")
+
+        moments = MemoryReasoner(LegacyMemory(), judge=judge).rank(
+            [Sentence(0.0, 10.0, "a possible callback")],
+            target=10.0,
+            n=1,
+            tol=1.0,
+        )
+
         assert "callback" not in moments[0].signals
 
     def test_memory_reasoner_falls_back_when_memory_fails(self):
@@ -135,8 +274,8 @@ class TestChannelMemory:
             kind="running_joke",
             label="target thread",
             summary="A callback target.",
-            first_seen=StreamMention("prior", 3.0, "target quote"),
-            mentions=[StreamMention("prior", 3.0, "target quote")],
+            first_seen=StreamMention("prior", 3.0, "target quote", verified=True),
+            mentions=[StreamMention("prior", 3.0, "target quote", verified=True)],
             embedding=[1.0, 0.0],
         )]
         judged = []
@@ -164,7 +303,7 @@ class TestChannelMemory:
             def retrieve_many(self, texts, k=3, top_windows=10):
                 return {0: [{"id": "real_thread", "label": "Real thread",
                              "first_seen": {"stream_id": "prior", "t": 1.0,
-                                            "quote": "real quote"}}]}
+                                             "quote": "real quote", "verified": True}}]}
 
         def judge(text, retrieved):
             return {"is_callback": True, "thread_id": "invented_thread",
@@ -180,7 +319,7 @@ class TestChannelMemory:
             def retrieve_many(self, texts, k=3, top_windows=10):
                 return {0: [{"id": "thread_1", "label": "Thread",
                              "first_seen": {"stream_id": "prior", "t": 1.0,
-                                            "quote": "quote"}}]}
+                                             "quote": "quote", "verified": True}}]}
 
         def judge(text, retrieved):
             return {"is_callback": True, "thread_id": "thread_1",
@@ -192,10 +331,16 @@ class TestChannelMemory:
         assert "callback" not in moments[0].signals
 
     def test_clip_manifest_includes_signals(self):
-        job = JobResult(job_id="job", source={},
+        job = JobResult(
+                        job_id="job", creator_id="manifest-owner",
+                        source={"footage_rights": "project_owned",
+                                "transcript_language": "en",
+                                "transcript_source": "provided_vtt",
+                                "subtitle_track": "fixture.en.vtt"},
                         clips=[ClipResult(clip_id="c1", platform="shorts",
                                           start=0.0, end=20.0, duration=20.0,
-                                          signals={"callback": True})])
+                                          signals={"callback": True},
+                                          decision_window={"start": 0.0, "end": 20.0})])
         assert job.to_dict()["clips"][0]["signals"] == {"callback": True}
 
 
@@ -215,10 +360,15 @@ class TestASR:
 
     def test_vtt_is_wellformed(self, tmp_path):
         from afterplay.asr import to_vtt
-        p = to_vtt([Word(0.0, "hello"), Word(0.5, "world")], tmp_path / "a.vtt")
+        p = to_vtt(
+            [Word(0.0, "नमस्ते"), Word(0.5, "दोस्त")],
+            tmp_path / "a.vtt",
+            language="hi",
+        )
         txt = p.read_text(encoding="utf-8")
         assert txt.startswith("WEBVTT")
         assert "-->" in txt and "<c>" in txt
+        assert "Language: hi" in txt
 
     def test_empty_words_yields_header_only(self, tmp_path):
         from afterplay.asr import to_vtt
@@ -521,6 +671,7 @@ class TestMCP:
         # the expensive tool must warn a model off casual use
         mk = next(t for t in s if t["name"] == "make_clips")
         assert "EXPENSIVE" in mk["description"]
+        assert set(mk["schema"]["required"]) == {"creator", "rights"}
 
     def test_unknown_tool_returns_json_error_not_exception(self):
         from afterplay.mcp_server import call
@@ -538,8 +689,15 @@ class TestMCP:
 
     def test_make_clips_validates_platforms(self):
         from afterplay.mcp_server import call
-        out = json.loads(call("make_clips", url="x", platforms="myspace"))
+        out = json.loads(call("make_clips", url="x", platforms="myspace",
+                              creator="owner", rights="not_cleared"))
         assert "error" in out and "known" in out
+
+    def test_make_clips_requires_explicit_owner_and_rights(self):
+        from afterplay.mcp_server import call
+        assert "creator is required" in json.loads(call("make_clips", url="x"))["error"]
+        out = json.loads(call("make_clips", url="x", creator="owner"))
+        assert "rights" in out["error"]
 
     def test_creator_report_works_on_an_unknown_creator(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "mem"))
@@ -581,8 +739,9 @@ class TestCopyWiring:
                        "Nobody refuses a plate like that. Really?\n", encoding="utf-8")
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o",
                      max_repair_attempts=0)
-        job = Orchestrator(settings=s, workers=1).run(
-            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+        job = Orchestrator(settings=s, workers=1, creator="copy-owner").run(
+            local=str(src), vtt=str(vtt), footage_rights="project_owned",
+            platforms=["shorts"], n_clips=1,
             target=8.0, job_id="copy1")
         done = [c for c in job.clips if c.ok]
         assert done, [c.error for c in job.clips]
@@ -603,7 +762,7 @@ class TestBackfillASRFallback:
     def _args(self, tmp_path, **kw):
         import argparse
         base = dict(url=None, info_json=None, vtt=None, local=None,
-                    creator="c_asr", stream_id="s1")
+                    creator="c_asr", stream_id="s1", rights="not_cleared")
         base.update(kw)
         return argparse.Namespace(**base)
 
@@ -694,22 +853,125 @@ class TestMemoryDegradationSignal:
 class TestJobStatus:
     """A3: a run that dies before writing a manifest must not look complete."""
 
-    def test_completed_run_writes_status_complete(self, tmp_path):
+    def test_completed_run_writes_status_complete(self, tmp_path, monkeypatch):
         import json as _json
         from afterplay import Orchestrator, Settings
         from afterplay.core import synth_source
+        monkeypatch.setenv("AFTERPLAY_MEMORY", str(tmp_path / "memory"))
         src = synth_source(tmp_path / "st.mp4", seconds=14, size=(320, 180), tone=True)
         vtt = tmp_path / "st.vtt"
         vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:12.000\n"
                        "A complete thought that ends cleanly. Another one here.\n",
                        encoding="utf-8")
         s = Settings(workdir=tmp_path / "w", outdir=tmp_path / "o", max_repair_attempts=0)
-        Orchestrator(settings=s, workers=1).run(
-            local=str(src), vtt=str(vtt), platforms=["shorts"], n_clips=1,
+        orch = Orchestrator(settings=s, workers=1, creator="status-owner")
+        transitions = []
+        write_status = orch._write_status
+
+        def capture_status(job_dir, state, **kwargs):
+            transitions.append((state, kwargs.get("stage"), kwargs.get("detail")))
+            return write_status(job_dir, state, **kwargs)
+
+        monkeypatch.setattr(orch, "_write_status", capture_status)
+        orch.run(
+            local=str(src), vtt=str(vtt), footage_rights="project_owned",
+            platforms=["shorts"], n_clips=1,
             target=8.0, job_id="statusok")
         status = _json.loads((tmp_path / "w" / "statusok" / "status.json").read_text())
         assert status["state"] == "complete"
+        assert status["stage"] == "done"
+        assert status["detail"] == "1/1 clips passed quality checks."
+        assert status["creator_id"] == "status-owner"
         assert status.get("manifest")
+        assert transitions == [
+            ("started", "resolve", "Resolving source metadata and captions."),
+            ("running", "transcript", "Reading captions or transcribing source audio."),
+            ("running", "memory", "Ranking candidate moments without channel memory."),
+            ("running", "render", "Cutting, reframing, captioning, and checking clips."),
+            ("complete", "done", "1/1 clips passed quality checks."),
+        ]
+        manifest = _json.loads(
+            (tmp_path / "w" / "statusok" / "manifest.json").read_text()
+        )
+        assert manifest["creator_id"] == "status-owner"
+
+    def test_status_and_manifest_explicitly_mark_unscoped_runs(self, tmp_path):
+        import json as _json
+        import pytest
+        from afterplay import Orchestrator, Settings
+        from afterplay.agent import JobResult
+
+        orch = Orchestrator(
+            settings=Settings(workdir=tmp_path / "w", outdir=tmp_path / "o"),
+            creator=None,
+        )
+        job_dir = tmp_path / "w" / "unscoped"
+        orch._write_status(job_dir, "started")
+
+        status = _json.loads((job_dir / "status.json").read_text())
+        assert status["state"] == "started"
+        assert status["stage"] == "resolve"
+        assert status["creator_id"] is None
+        with pytest.raises(ValueError, match="creator_id"):
+            JobResult(job_id="unscoped", source={
+                "footage_rights": "project_owned", "transcript_language": "en",
+                "transcript_source": "provided_vtt", "subtitle_track": "fixture.en.vtt",
+            }).to_dict()
+
+    def test_cli_failure_status_preserves_creator(self, tmp_path, monkeypatch):
+        import argparse
+        import json as _json
+        import pytest
+        from afterplay import cli
+
+        monkeypatch.setenv("AFTERPLAY_WORKDIR", str(tmp_path / "w"))
+
+        def fail_run(self, **kwargs):
+            self._write_status(
+                self.settings.workdir / kwargs["job_id"],
+                "running",
+                stage="memory",
+                detail="Ranking candidate moments with channel context.",
+            )
+            raise RuntimeError("deliberate failure")
+
+        monkeypatch.setattr(cli.Orchestrator, "run", fail_run)
+        args = argparse.Namespace(
+            max_repairs=0,
+            encoder=None,
+            watermark=None,
+            memory=False,
+            # argparse always supplies this (store_true, default False); a hand-built
+            # Namespace has to as well, or cmd_run raises AttributeError before the
+            # failure this test is actually about.
+            captions=False,
+            creator="failure-owner",
+            llm=False,
+            platforms="shorts",
+            workers=1,
+            job_id="failed-job",
+            url=None,
+            local=None,
+            info_json=None,
+            vtt=None,
+            clips=1,
+            target=8.0,
+            webhook=None,
+            rights="project_owned",
+            json=False,
+        )
+
+        with pytest.raises(RuntimeError, match="deliberate failure"):
+            cli.cmd_run(args)
+
+        status = _json.loads(
+            (tmp_path / "w" / "failed-job" / "status.json").read_text()
+        )
+        assert status["state"] == "failed"
+        assert status["stage"] == "memory"
+        assert status["detail"] == "Ranking candidate moments with channel context."
+        assert status["creator_id"] == "failure-owner"
+        assert status["message"] == "RuntimeError: deliberate failure"
 
 
 class TestResultsCli:
@@ -864,7 +1126,7 @@ class TestCallbackFoundReflectsShippedClips:
             def retrieve_many(self, texts, k=3, top_windows=10):
                 return {i: [{"id": "thread_1", "label": "the thread",
                              "first_seen": {"stream_id": "prior", "t": 1.0,
-                                            "quote": "the setup"}}]
+                                             "quote": "the setup", "verified": True}}]
                         for i in range(len(texts))}
 
         def judge(text, retrieved):

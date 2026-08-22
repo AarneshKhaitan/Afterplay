@@ -7,6 +7,7 @@ import type { Insight, ScanJob, VideoRecord } from "@/domain/intel/types";
 
 import { EvidenceChips } from "./evidence-chips";
 import { PositionMap } from "./position-map";
+import { RecommendationAction } from "./recommendation-action";
 
 function videoIndex(scan: ScanJob): Map<string, VideoRecord> {
   return new Map(scan.channels.flatMap((c) => c.videos).map((v) => [v.id, v]));
@@ -34,7 +35,9 @@ function InsightList({
           </header>
           <p>{insight.detail}</p>
           <footer>
-            <span className="confidence-pill">{Math.round(insight.confidence * 100)}% confidence</span>
+            <span className="confidence-pill">
+              {Math.round(insight.confidence * 100)}% model judgment
+            </span>
             <EvidenceChips evidence={insight.evidence} scan={scan} />
           </footer>
         </article>
@@ -49,6 +52,17 @@ export function ReportView({ scan }: { scan: ScanJob }) {
   const board = scoreboard(scan.channels);
   const st = standings(scan.channels);
   const own = scan.channels.find((c) => c.role === "own");
+  const sampledChannels = scan.channels.filter((channel) => channel.stats.sampledVideos > 0);
+  const totalSampledVideos = sampledChannels.reduce(
+    (total, channel) => total + channel.stats.sampledVideos,
+    0,
+  );
+  const transcriptCount = scan.channels.reduce(
+    (total, channel) => total + channel.videos.filter((video) => video.transcript).length,
+    0,
+  );
+  const thinChannels = sampledChannels.filter((channel) => channel.stats.sampledVideos < 3);
+  const thinCorpus = thinChannels.length > 0;
 
   if (!analysis) {
     return <p className="intel-empty">This scan produced no analysis.</p>;
@@ -104,9 +118,10 @@ export function ReportView({ scan }: { scan: ScanJob }) {
         </div>
         <div className="intel-provenance">
           <span>
-            {scan.channels.length} channels · {scan.cost?.videosScraped ?? 0} real videos ·{" "}
-            {scan.channels.reduce((s, c) => s + c.videos.filter((v) => v.transcript).length, 0)}{" "}
-            transcripts
+            {scan.channels.length} {scan.channels.length === 1 ? "channel" : "channels"} ·{" "}
+            {scan.cost?.videosScraped ?? 0} real{" "}
+            {(scan.cost?.videosScraped ?? 0) === 1 ? "video" : "videos"} · {transcriptCount}{" "}
+            {transcriptCount === 1 ? "transcript" : "transcripts"}
           </span>
           <span>
             Scraped live from YouTube. Rankings are relative to each channel&rsquo;s own median.{" "}
@@ -114,13 +129,22 @@ export function ReportView({ scan }: { scan: ScanJob }) {
               ? "Sample: each channel’s all-time most popular uploads, so posting cadence is not measurable from it."
               : "Sample: each channel’s most recent uploads, so cadence and recency are measured, not inferred."}
           </span>
+          {thinCorpus ? (
+            <span>
+              Directional sample: {thinChannels.length} of {sampledChannels.length}{" "}
+              {sampledChannels.length === 1 ? "channel has" : "channels have"} fewer than 3
+              sampled videos. Treat findings as hypotheses to test.
+            </span>
+          ) : null}
         </div>
       </section>
 
       <section className="intel-section" aria-labelledby="standings-title">
         <div className="section-heading">
           <h3 id="standings-title">Where you stand</h3>
-          <span className="sample-note">Against the competitor median</span>
+          <span className="sample-note">
+            Against the competitor median · n={totalSampledVideos} videos across {sampledChannels.length} channels
+          </span>
         </div>
         <div className="standings-grid">
           {st.map((row) => (
@@ -144,7 +168,7 @@ export function ReportView({ scan }: { scan: ScanJob }) {
                 <span>{row.ratio.toFixed(2)}x their median</span>
               </div>
               <small>
-                Ahead of {row.betterThan} of {row.of}
+                Ahead of {row.betterThan} of {row.of} · n={row.ownSampledVideos} yours vs n={row.competitorSampledVideos} competitor videos
               </small>
             </article>
           ))}
@@ -156,7 +180,9 @@ export function ReportView({ scan }: { scan: ScanJob }) {
       <section className="intel-section" aria-labelledby="board-title">
         <div className="section-heading">
           <h3 id="board-title">The field</h3>
-          <span className="sample-note">Sorted by views per subscriber — size-normalised reach</span>
+          <span className="sample-note">
+            Sorted by views per subscriber · n={totalSampledVideos} videos
+          </span>
         </div>
         <div className="board-table" role="table">
           <div className="board-row board-row--head" role="row">
@@ -167,6 +193,7 @@ export function ReportView({ scan }: { scan: ScanJob }) {
             <span role="columnheader">Engagement</span>
             <span role="columnheader">Hit rate</span>
             <span role="columnheader">Cadence</span>
+            <span role="columnheader">Sample</span>
           </div>
           {board.map((row) => (
             <div
@@ -186,6 +213,7 @@ export function ReportView({ scan }: { scan: ScanJob }) {
               <span role="cell" title={row.uploadsPerWeek === null ? "Not measurable from an all-time-popular sample" : undefined}>
                 {row.uploadsPerWeek !== null ? `${row.uploadsPerWeek}/wk` : "not measured"}
               </span>
+              <span role="cell">n={row.sampledVideos}</span>
             </div>
           ))}
         </div>
@@ -289,8 +317,12 @@ export function ReportView({ scan }: { scan: ScanJob }) {
 
       <section className="intel-section" aria-labelledby="recs-title">
         <div className="section-heading">
-          <h3 id="recs-title">What to do next</h3>
-          <span className="sample-note">Ordered by the analyst&rsquo;s confidence</span>
+          <h3 id="recs-title">What to test next</h3>
+          <span className="sample-note">
+            {thinCorpus
+              ? "Directional hypotheses from a thin public-data sample"
+              : "Ordered by the analyst’s model judgment"}
+          </span>
         </div>
         <div className="rec-list">
           {[...analysis.recommendations]
@@ -303,11 +335,13 @@ export function ReportView({ scan }: { scan: ScanJob }) {
                     <h4>{rec.title}</h4>
                     <div className="rec-chips">
                       <span className={`effort-chip effort-chip--${rec.effort}`}>{rec.effort} effort</span>
-                      <span className="confidence-pill">{Math.round(rec.confidence * 100)}%</span>
+                      <span className="confidence-pill">
+                        {Math.round(rec.confidence * 100)}% model judgment
+                      </span>
                     </div>
                   </header>
                   <p className="rec-action">
-                    <Target weight="bold" /> {rec.action}
+                    <Target weight="bold" /> Test: {rec.action}
                   </p>
                   <p className="rec-rationale">{rec.rationale}</p>
                   <div className="rec-signal">
@@ -315,6 +349,7 @@ export function ReportView({ scan }: { scan: ScanJob }) {
                     <strong>{rec.expectedSignal}</strong>
                   </div>
                   <EvidenceChips evidence={rec.evidence} scan={scan} />
+                  <RecommendationAction scanId={scan.scanId} recommendation={rec} />
                 </div>
               </article>
             ))}

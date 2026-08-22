@@ -1,4 +1,7 @@
 import "@fontsource-variable/manrope";
+import "@fontsource-variable/fraunces/wonk.css";
+import "@fontsource/space-mono/400.css";
+import "@fontsource/space-mono/700.css";
 import type { Metadata } from "next";
 
 import "./globals.css";

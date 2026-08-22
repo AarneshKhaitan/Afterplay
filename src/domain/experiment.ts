@@ -1,7 +1,20 @@
 ﻿// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
 // node:fs imports into client bundles. The value-side call lives in the API route.
-import { getLatestClipManifest } from "./clip-manifest";
+import { createHash } from "node:crypto";
+import { closeSync, openSync, readSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+
+import { z } from "zod";
+
+import { getLatestClipManifest, type ClipperManifest } from "./clip-manifest";
+import { defaultCreatorId } from "./creators";
 import { BASELINE, formatDelta } from "./experiment-metrics";
+import {
+  PersistenceError,
+  readVersionedJson,
+  writeVersionedJson,
+  type VersionedJsonSchema,
+} from "./persist";
 import type { PerClipResult } from "./results-bridge";
 
 export { BASELINE, resultMovement } from "./experiment-metrics";
@@ -26,16 +39,16 @@ export type ExperimentOutput = {
   duration: string;
   hook: string;
   caption: string;
+  /** Present only for pipeline clips: the generated post tags. */
+  hashtags?: string[];
   rationale: string;
   thumbnailUrl: string;
   status: OutputStatus;
   provenance: {
     media: "generated_fixture" | "pipeline_manifest";
     source: string;
-    /** Never assert ownership the system cannot substantiate. A clip produced from a
-     * platform URL was extracted from third-party content; only `--local` media is
-     * known to be creator-owned. */
-    rights: "project_owned" | "creator_owned" | "third_party_extracted";
+    /** Explicit operator attestation from manifest v2. Never infer rights from URL or path. */
+    rights: "project_owned" | "creator_owned" | "permission_granted" | "licensed";
   };
 };
 
@@ -112,6 +125,11 @@ export type GrowthExperiment = {
     revision: number;
     feedback?: string;
     decidedAt: string;
+    pipelineBinding?: {
+      manifestJobId: string | null;
+      manifestDigest: string | null;
+      clipIds: string[];
+    };
   };
   receipts: DistributionReceipt[];
   result?: ExperimentResult;
@@ -125,6 +143,7 @@ export type GrowthExperiment = {
 };
 
 export type ExperimentStore = {
+  creatorId: string;
   experiment: GrowthExperiment;
 };
 
@@ -240,17 +259,231 @@ const initialExperiment: GrowthExperiment = {
   receipts: [],
 };
 
-declare global {
-  var __afterplayExperimentStore: ExperimentStore | undefined;
+const outputSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(["premise_cut", "community_cut", "return_prompt"]),
+  title: z.string(),
+  platform: z.enum(["YouTube Shorts", "TikTok", "Instagram Reels"]),
+  duration: z.string(),
+  hook: z.string(),
+  caption: z.string(),
+  hashtags: z.array(z.string()).optional(),
+  rationale: z.string(),
+  thumbnailUrl: z.string(),
+  status: z.enum(["ready", "approved", "distributed"]),
+  provenance: z.object({
+    media: z.enum(["generated_fixture", "pipeline_manifest"]),
+    source: z.string(),
+    rights: z.enum(["project_owned", "creator_owned", "permission_granted", "licensed"]),
+  }).strict(),
+}).strict();
+
+const perClipResultSchema = z.object({
+  clip_id: z.string().min(1),
+  post_id: z.string().min(1).optional(),
+  platform: z.enum(["YouTube Shorts", "TikTok", "Instagram Reels"]).optional(),
+  metrics: z.object({
+    views: z.number().int().nonnegative(),
+    likes: z.number().int().nonnegative().optional(),
+    comments: z.number().int().nonnegative().optional(),
+    shares: z.number().int().nonnegative().optional(),
+    saves: z.number().int().nonnegative().optional(),
+    avg_watch_pct: z.number().min(0).max(100).optional(),
+  }).strict(),
+}).strict();
+
+const growthExperimentSchema = z.object({
+  id: z.literal("exp_one_more_rule"),
+  name: z.literal("One More Rule"),
+  revision: z.number().int().positive(),
+  status: z.enum([
+    "awaiting_approval",
+    "changes_requested",
+    "rejected",
+    "approved",
+    "distributed",
+    "learned",
+  ]),
+  owner: z.literal("Strategist"),
+  stage: z.string(),
+  diagnosis: z.string(),
+  hypothesis: z.string(),
+  targetBehavior: z.string(),
+  successSignal: z.string(),
+  timebox: z.string(),
+  confidence: z.number().min(0).max(100),
+  evidence: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string(),
+    detail: z.string(),
+    source: z.string(),
+    strength: z.enum(["strong", "directional"]),
+  }).strict()),
+  alternatives: z.array(z.object({
+    title: z.string(),
+    reasonNotChosen: z.string(),
+  }).strict()),
+  uncertainty: z.string(),
+  falsifier: z.string(),
+  plan: z.array(z.object({
+    step: z.number().int().positive(),
+    role: z.enum(["Strategist", "Scout", "Producer", "Analyst"]),
+    action: z.string(),
+    state: z.enum(["complete", "waiting"]),
+  }).strict()),
+  outputs: z.array(outputSchema),
+  // A response projection may have been captured by an early prototype. It is accepted
+  // for migration, then removed so stale manifest data never becomes durable state.
+  pipelineOutputs: z.array(outputSchema).optional(),
+  decision: z.object({
+    id: z.string().min(1),
+    action: z.enum(["approve", "reject", "request_change"]),
+    revision: z.number().int().positive(),
+    feedback: z.string().optional(),
+    decidedAt: z.string(),
+    pipelineBinding: z.object({
+      manifestJobId: z.string().min(1).nullable(),
+      manifestDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+      clipIds: z.array(z.string().min(1)),
+    }).strict().optional(),
+  }).strict().optional(),
+  receipts: z.array(z.object({
+    id: z.string().min(1),
+    experimentId: z.string().min(1),
+    outputId: z.string().min(1),
+    platform: z.enum(["YouTube Shorts", "TikTok", "Instagram Reels"]),
+    simulated: z.literal(true),
+    state: z.literal("accepted"),
+    scheduledFor: z.string(),
+  }).strict()),
+  result: z.object({
+    disclosure: z.literal("synthetic_sample_data"),
+    causalClaim: z.literal(false),
+    metrics: z.object({
+      views: z.number().int().nonnegative(),
+      returningViewerRate: z.number().min(0).max(100),
+      repeatCommenters: z.number().int().nonnegative(),
+      trackedLiveVisits: z.number().int().nonnegative(),
+      nextStreamAverageConcurrency: z.number().nonnegative(),
+    }).strict(),
+    perClip: z.array(perClipResultSchema).optional(),
+  }).strict().optional(),
+  learning: z.object({
+    conclusion: z.string(),
+    confidence: z.number().min(0).max(100),
+    evidence: z.array(z.string()),
+    limitations: z.array(z.string()),
+    nextMove: z.string(),
+  }).strict().optional(),
+  nextExperiment: z.object({
+    id: z.string().min(1),
+    name: z.literal("Name the Builder"),
+    status: z.literal("proposed"),
+    hypothesis: z.string(),
+  }).strict().optional(),
+}).strict();
+
+type PersistedExperimentStore = {
+  /** Missing only in the unversioned prototype format. */
+  creatorId?: string;
+  experiment: GrowthExperiment;
+};
+
+const experimentStoreSchema: VersionedJsonSchema<PersistedExperimentStore> = {
+  name: "afterplay.experiment-store",
+  version: 1,
+  acceptLegacy: true,
+  accepts: (value): value is PersistedExperimentStore => z.object({
+    creatorId: z.string().trim().min(1).max(100).optional(),
+    experiment: growthExperimentSchema,
+  }).strict().safeParse(value).success,
+};
+
+function experimentRoot(): string {
+  const configured = process.env.AFTERPLAY_EXPERIMENT_DIR?.trim();
+  if (!configured) return join(process.cwd(), ".afterplay", "experiments");
+  return isAbsolute(configured) ? configured : resolve(process.cwd(), configured);
 }
 
-function cloneInitialStore(): ExperimentStore {
-  return { experiment: structuredClone(initialExperiment) };
+function normalizeCreatorId(creatorId?: string): string {
+  const normalized = (creatorId ?? defaultCreatorId()).trim();
+  if (!normalized || normalized.length > 100) {
+    throw new ExperimentError("invalid_creator_id", "The creator id is invalid.", 400);
+  }
+  return normalized;
 }
 
-function store(): ExperimentStore {
-  globalThis.__afterplayExperimentStore ??= cloneInitialStore();
-  return globalThis.__afterplayExperimentStore;
+function experimentStorePath(creatorId: string): string {
+  // Creator ids can originate in configuration. A digest makes traversal impossible
+  // while the envelope retains the original id for ownership checks and diagnostics.
+  const key = createHash("sha256").update(creatorId).digest("hex").slice(0, 32);
+  return join(experimentRoot(), `${key}.json`);
+}
+
+function persistenceError(error: unknown): never {
+  if (!(error instanceof PersistenceError)) throw error;
+
+  const incompatible = error.code === "schema_mismatch" || error.code === "unsupported_version";
+  const unavailable = error.code === "read_failed" || error.code === "write_failed";
+  throw new ExperimentError(
+    incompatible
+      ? "experiment_state_incompatible"
+      : unavailable
+        ? "experiment_state_unavailable"
+        : "experiment_state_corrupt",
+    incompatible
+      ? "The saved experiment state uses an unsupported format."
+      : unavailable
+        ? "Experiment state could not be read or written."
+        : "The saved experiment state is invalid and was not reset.",
+    500,
+  );
+}
+
+function writeStore(value: ExperimentStore): void {
+  const durable = structuredClone(value);
+  delete durable.experiment.pipelineOutputs;
+  try {
+    writeVersionedJson(experimentStorePath(value.creatorId), experimentStoreSchema, durable);
+  } catch (error) {
+    persistenceError(error);
+  }
+}
+
+function cloneInitialStore(creatorId: string): ExperimentStore {
+  return { creatorId, experiment: structuredClone(initialExperiment) };
+}
+
+function store(creatorId?: string): ExperimentStore {
+  const resolvedCreatorId = normalizeCreatorId(creatorId);
+  const path = experimentStorePath(resolvedCreatorId);
+  let persisted: PersistedExperimentStore | null;
+  try {
+    persisted = readVersionedJson(path, experimentStoreSchema);
+  } catch (error) {
+    persistenceError(error);
+  }
+
+  if (!persisted) {
+    const initial = cloneInitialStore(resolvedCreatorId);
+    writeStore(initial);
+    return initial;
+  }
+  if (persisted.creatorId && persisted.creatorId !== resolvedCreatorId) {
+    throw new ExperimentError(
+      "experiment_creator_mismatch",
+      "The saved experiment state belongs to a different creator and was not loaded.",
+      500,
+    );
+  }
+
+  const migrated: ExperimentStore = {
+    creatorId: resolvedCreatorId,
+    experiment: structuredClone(persisted.experiment),
+  };
+  delete migrated.experiment.pipelineOutputs;
+  if (!persisted.creatorId || persisted.experiment.pipelineOutputs) writeStore(migrated);
+  return migrated;
 }
 
 function assertExperimentId(id: string): asserts id is GrowthExperiment["id"] {
@@ -269,9 +502,10 @@ function assertCurrentRevision(experiment: GrowthExperiment, revision: number) {
   }
 }
 
-export function resetExperimentStore(): GrowthExperiment {
-  globalThis.__afterplayExperimentStore = cloneInitialStore();
-  return getExperiment(initialExperiment.id);
+export function resetExperimentStore(creatorId?: string): GrowthExperiment {
+  const initial = cloneInitialStore(normalizeCreatorId(creatorId));
+  writeStore(initial);
+  return toResponse(initial.experiment, initial.creatorId);
 }
 
 /** Clone for return, with the pipeline projection attached.
@@ -280,15 +514,22 @@ export function resetExperimentStore(): GrowthExperiment {
  * projection in `getExperiment` alone meant a mutation response (approve, dispatch,
  * results) carried no `pipelineOutputs`, so a client that replaced its state from that
  * response made the pipeline-clips section disappear after approval. */
-function toResponse(experiment: GrowthExperiment): GrowthExperiment {
+function toResponse(experiment: GrowthExperiment, creatorId: string): GrowthExperiment {
   const clone = structuredClone(experiment);
-  clone.pipelineOutputs = projectPipelineOutputs(clone);
+  const projection = currentPipelineProjection(clone, creatorId);
+  const binding = clone.decision?.pipelineBinding;
+  const approvedProjectionIsCurrent = binding
+    ? matchesPipelineBinding(binding, projection)
+    : projection.outputs.length === 0;
+  clone.pipelineOutputs = clone.decision?.action === "approve" && !approvedProjectionIsCurrent
+    ? [] : projection.outputs;
   return clone;
 }
 
-export function getExperiment(id: string): GrowthExperiment {
+export function getExperiment(id: string, creatorId?: string): GrowthExperiment {
   assertExperimentId(id);
-  return toResponse(store().experiment);
+  const state = store(creatorId);
+  return toResponse(state.experiment, state.creatorId);
 }
 
 /** Real clipper output, presented as its own approvable set.
@@ -299,15 +540,25 @@ export function getExperiment(id: string): GrowthExperiment {
  * own section and carry the same approval status, so approving the experiment approves
  * real clips too — which is what closes the loop (G7).
  */
-function projectPipelineOutputs(experiment: GrowthExperiment): ExperimentOutput[] {
-  const manifest = getLatestClipManifest();
-  const clips = (manifest?.clips ?? []).filter((clip) => clip.ok !== false);
-  if (!manifest || clips.length === 0) return [];
+type PipelineProjection = {
+  manifestJobId: string | null;
+  manifestDigest: string | null;
+  outputs: ExperimentOutput[];
+};
 
-  // A platform URL means the media was extracted from third-party content; only local
-  // media is known to be creator-owned. Never assert ownership we cannot substantiate.
-  const rights: ExperimentOutput["provenance"]["rights"] =
-    manifest.source?.url ? "third_party_extracted" : "creator_owned";
+type PipelineBinding = NonNullable<NonNullable<GrowthExperiment["decision"]>["pipelineBinding"]>;
+
+function projectManifestOutputs(
+  experiment: GrowthExperiment,
+  manifest: ClipperManifest | null,
+): ExperimentOutput[] {
+  const clips = (manifest?.clips ?? []).filter((clip) => clip.ok === true);
+  if (!manifest || !manifest.approvalReady || !manifest.source.footage_rights
+      || manifest.source.footage_rights === "not_cleared" || clips.length === 0) return [];
+
+  // This value is an explicit operator attestation in manifest v2. URL and path are
+  // intentionally ignored: neither proves ownership or permission.
+  const rights: ExperimentOutput["provenance"]["rights"] = manifest.source.footage_rights;
   const status: OutputStatus =
     experiment.status === "distributed" || experiment.status === "learned"
       ? "distributed"
@@ -341,7 +592,11 @@ function projectPipelineOutputs(experiment: GrowthExperiment): ExperimentOutput[
       : clip.platform === "reels" ? "Instagram Reels" : "YouTube Shorts",
     duration: `00:${Math.round(clip.duration).toString().padStart(2, "0")}`,
     hook: clip.why ?? "Selected by the clipper pipeline.",
-    caption: clip.text_for_copy ?? "",
+    // The generated post caption, not `text_for_copy` -- that is the raw transcript
+    // slice, and mapping it here put ">> Is these gear? These two gears." on the card
+    // where the writeup belongs. Falls back to the transcript only if copy is absent.
+    caption: clip.copy?.caption?.trim() || clip.text_for_copy || "",
+    hashtags: clip.copy?.hashtags?.filter((tag) => tag.trim().length > 0),
     rationale: clip.callback
       ? `Callback to ${clip.threadLabel ?? "creator memory"} at confidence ${clip.callbackConfidence ?? "?"}.`
       : "Standalone clip; no history-dependent moment required.",
@@ -351,30 +606,102 @@ function projectPipelineOutputs(experiment: GrowthExperiment): ExperimentOutput[
   }));
 }
 
+function currentPipelineProjection(experiment: GrowthExperiment, creatorId: string): PipelineProjection {
+  const manifest = getLatestClipManifest(creatorId);
+  const mediaDigests = (manifest?.clips ?? []).map((clip) => ({
+    clipId: clip.clip_id,
+    digest: clip.path ? digestFile(clip.path) : null,
+  }));
+  const projected = projectManifestOutputs(experiment, manifest);
+  const readableIds = new Set(
+    mediaDigests.filter((row) => row.digest).map((row) => row.clipId),
+  );
+  const outputs = projected.every((output) => readableIds.has(output.id)) ? projected : [];
+  const manifestDigest = manifest ? createHash("sha256").update(JSON.stringify({
+    creatorId,
+    schema: manifest.schema,
+    schemaVersion: manifest.schema_version,
+    jobId: manifest.job_id,
+    source: manifest.source,
+    clips: manifest.clips,
+    ablation: manifest.ablation,
+    memory: manifest.memory,
+    message: manifest.message,
+    approvalReady: manifest.approvalReady,
+    approvalBlockedReasons: manifest.approvalBlockedReasons,
+    mediaDigests,
+  })).digest("hex") : null;
+  return {
+    manifestJobId: manifest?.job_id ?? null,
+    manifestDigest,
+    outputs,
+  };
+}
+
+function digestFile(path: string): string | null {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, "r");
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let bytesRead = 0;
+    do {
+      bytesRead = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (bytesRead) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead);
+    return hash.digest("hex");
+  } catch {
+    return null;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function projectionBinding(projection: PipelineProjection): PipelineBinding {
+  return {
+    manifestJobId: projection.manifestJobId,
+    manifestDigest: projection.manifestDigest,
+    clipIds: projection.outputs.map((output) => output.id),
+  };
+}
+
+function matchesPipelineBinding(binding: PipelineBinding, projection: PipelineProjection): boolean {
+  return binding.manifestJobId === projection.manifestJobId
+    && binding.manifestDigest === projection.manifestDigest
+    && binding.clipIds.length === projection.outputs.length
+    && binding.clipIds.every((id, index) => id === projection.outputs[index]?.id);
+}
+
 export function recordDecision(input: {
   id: string;
   action: "approve" | "reject" | "request_change";
   revision: number;
   feedback?: string;
+  creatorId?: string;
 }): { experiment: GrowthExperiment; decision: NonNullable<GrowthExperiment["decision"]> } {
   assertExperimentId(input.id);
-  const experiment = store().experiment;
+  const state = store(input.creatorId);
+  const experiment = state.experiment;
   assertCurrentRevision(experiment, input.revision);
 
   if (experiment.status !== "awaiting_approval") {
     if (experiment.decision?.action === input.action && experiment.decision.revision === input.revision) {
-      return { experiment: toResponse(experiment), decision: structuredClone(experiment.decision) };
+      return { experiment: toResponse(experiment, state.creatorId), decision: structuredClone(experiment.decision) };
     }
     throw new ExperimentError("decision_not_allowed", "This experiment is no longer awaiting a decision.", 409);
   }
 
-  const decision = {
+  const pipelineBinding = input.action === "approve"
+    ? projectionBinding(currentPipelineProjection(experiment, state.creatorId))
+    : undefined;
+  const decision: NonNullable<GrowthExperiment["decision"]> = {
     id: `decision_${input.action}_r${input.revision}`,
     action: input.action,
     revision: input.revision,
     feedback: input.feedback,
     decidedAt: "2026-08-05T09:44:00.000Z",
-  } as const;
+    pipelineBinding,
+  };
 
   experiment.decision = decision;
   if (input.action === "approve") {
@@ -389,7 +716,8 @@ export function recordDecision(input: {
     experiment.stage = "Creator changes requested";
   }
 
-  return { experiment: toResponse(experiment), decision: structuredClone(decision) };
+  writeStore(state);
+  return { experiment: toResponse(experiment, state.creatorId), decision: structuredClone(decision) };
 }
 
 /** Simulated publish slot for the nth dispatched output.
@@ -403,16 +731,17 @@ function simulatedSlot(index: number): string {
   return new Date(DISPATCH_EPOCH + index * (24 * 60 * 60 * 1000 - 30 * 60 * 1000)).toISOString();
 }
 
-export function dispatchExperiment(input: { id: string; revision: number }): {
+export function dispatchExperiment(input: { id: string; revision: number; creatorId?: string }): {
   experiment: GrowthExperiment;
   receipts: DistributionReceipt[];
 } {
   assertExperimentId(input.id);
-  const experiment = store().experiment;
+  const state = store(input.creatorId);
+  const experiment = state.experiment;
   assertCurrentRevision(experiment, input.revision);
 
   if (experiment.status === "distributed" || experiment.status === "learned") {
-    return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
+    return { experiment: toResponse(experiment, state.creatorId), receipts: structuredClone(experiment.receipts) };
   }
   if (experiment.status !== "approved") {
     throw new ExperimentError(
@@ -422,9 +751,20 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
     );
   }
 
-  // Receipts cover the curated package AND the pipeline clips: approving the
-  // experiment approves both, so distribution must account for both.
-  const dispatched = [...experiment.outputs, ...projectPipelineOutputs(experiment)];
+  const projection = currentPipelineProjection(experiment, state.creatorId);
+  const binding = experiment.decision?.pipelineBinding;
+  const legacyDecisionCanDispatch = !binding && projection.outputs.length === 0;
+  if ((!binding && !legacyDecisionCanDispatch) || (binding && !matchesPipelineBinding(binding, projection))) {
+    throw new ExperimentError(
+      "approved_outputs_changed",
+      "The clip manifest changed after approval. Review and approve the current outputs before distribution.",
+      409,
+    );
+  }
+
+  // Receipts cover the curated package and only the exact pipeline clips reviewed at
+  // approval. A changed manifest must go through a new decision instead of inheriting it.
+  const dispatched = [...experiment.outputs, ...projection.outputs];
   experiment.receipts = dispatched.map((output, index) => ({
     id: `sim_receipt_${index + 1}`,
     experimentId: experiment.id,
@@ -438,21 +778,28 @@ export function dispatchExperiment(input: { id: string; revision: number }): {
   experiment.status = "distributed";
   experiment.stage = "Observing sample results";
 
-  return { experiment: toResponse(experiment), receipts: structuredClone(experiment.receipts) };
+  writeStore(state);
+  return { experiment: toResponse(experiment, state.creatorId), receipts: structuredClone(experiment.receipts) };
 }
 
-export function recordResults(input: { id: string; result: ExperimentResult; perClip?: PerClipResult[] }): {
+export function recordResults(input: {
+  id: string;
+  result: ExperimentResult;
+  perClip?: PerClipResult[];
+  creatorId?: string;
+}): {
   experiment: GrowthExperiment;
   result: ExperimentResult;
   learning: ExperimentLearning;
   nextExperiment: NonNullable<GrowthExperiment["nextExperiment"]>;
 } {
   assertExperimentId(input.id);
-  const experiment = store().experiment;
+  const state = store(input.creatorId);
+  const experiment = state.experiment;
 
   if (experiment.status === "learned" && experiment.result && experiment.learning && experiment.nextExperiment) {
     return {
-      experiment: toResponse(experiment),
+      experiment: toResponse(experiment, state.creatorId),
       result: structuredClone(experiment.result),
       learning: structuredClone(experiment.learning),
       nextExperiment: structuredClone(experiment.nextExperiment),
@@ -551,8 +898,9 @@ export function recordResults(input: { id: string; result: ExperimentResult; per
   experiment.status = "learned";
   experiment.stage = "Learning recorded";
 
+  writeStore(state);
   return {
-    experiment: toResponse(experiment),
+    experiment: toResponse(experiment, state.creatorId),
     result: structuredClone(experiment.result),
     learning: structuredClone(experiment.learning),
     nextExperiment: structuredClone(experiment.nextExperiment),

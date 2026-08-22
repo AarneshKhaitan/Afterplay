@@ -35,7 +35,7 @@ def cmd_plan(a) -> int:
     # import by name: `afterplay.resolve` the function shadows the submodule
     from .resolve import from_info_json, resolve as resolve_url
     from .understand import parse_vtt, sentences
-    from .agent import TOOLS, ClaudePolicy, HeuristicPolicy
+    from .agent import TOOLS, ClaudePolicy, HeuristicPolicy, MemoryPolicy
 
     s = Settings()
     t0 = time.time()
@@ -51,9 +51,16 @@ def cmd_plan(a) -> int:
         return 2
     words = parse_vtt(Path(src.vtt_path).read_text(encoding="utf-8"))
     sents = sentences(words)
-    policy = ClaudePolicy() if a.llm else HeuristicPolicy()
+    if a.memory:
+        if not a.creator:
+            print("--memory requires --creator", file=sys.stderr)
+            return 2
+        policy = MemoryPolicy(a.creator)
+    else:
+        policy = ClaudePolicy() if a.llm else HeuristicPolicy()
+    reasoner = policy.reasoner()
     moments = TOOLS.call("rank_moments", sents=sents, heatmap=src.heatmap,
-                         n=a.clips, target=a.target, reasoner=policy.reasoner())
+                         n=a.clips, target=a.target, reasoner=reasoner)
     elapsed = time.time() - t0
 
     out = {"source": {"url": src.url, "title": src.title, "uploader": src.uploader,
@@ -64,6 +71,16 @@ def cmd_plan(a) -> int:
            "clips": [{"start": round(m.start, 2), "end": round(m.end, 2),
                       "duration": round(m.dur, 2), "score": round(m.score, 3),
                       "why": m.why, "text": m.text[:400]} for m in moments]}
+    if a.memory:
+        out["memory"] = {
+            "creator": a.creator,
+            "degraded": bool(getattr(reasoner, "memory_degraded", False)),
+            "reason": getattr(reasoner, "memory_degradation_reason", None),
+            "callback_found": bool(getattr(reasoner, "callback_found", False)),
+            "threads_considered": int(getattr(reasoner, "threads_considered", 0)),
+            "timings": getattr(reasoner, "memory_timings", {}),
+            "ablation": getattr(reasoner, "ablation", None),
+        }
     if a.json:
         print(json.dumps(out, indent=2))
     else:
@@ -79,7 +96,7 @@ def cmd_plan(a) -> int:
 
 
 def cmd_run(a) -> int:
-    settings = Settings(max_repair_attempts=a.max_repairs)
+    settings = Settings(max_repair_attempts=a.max_repairs, captions=a.captions)
     if a.encoder:
         settings.encoder = a.encoder
     brand = None
@@ -107,11 +124,12 @@ def cmd_run(a) -> int:
     job_id = a.job_id or f"job_{uuid.uuid4().hex[:10]}"
     try:
         job = orch.run(url=a.url, local=a.local, info_json=a.info_json, vtt=a.vtt,
+                       footage_rights=a.rights,
                        platforms=plats, n_clips=a.clips, target=a.target,
                        job_id=job_id, webhook=a.webhook)
     except Exception as e:                                      # noqa: BLE001
-        Orchestrator._write_status(settings.workdir / job_id, "failed",
-                                   message=f"{type(e).__name__}: {e}")
+        orch._write_status(settings.workdir / job_id, "failed",
+                           message=f"{type(e).__name__}: {e}")
         raise
 
     if a.json:
@@ -146,6 +164,7 @@ def cmd_memory(a) -> int:
 
 
 def cmd_backfill(a) -> int:
+    from .channel_backfill import append_provenance
     from .channel_memory import ChannelMemory
     from .resolve import from_info_json, from_local, resolve as resolve_url
     from .understand import parse_vtt, sentences
@@ -200,11 +219,112 @@ def cmd_backfill(a) -> int:
         return 2
 
     memory = ChannelMemory(a.creator)
-    extracted = memory.backfill(a.stream_id, sents)
+    extracted = memory.backfill(
+        a.stream_id,
+        sents,
+        prune_unverified=getattr(a, "prune_unverified", False),
+    )
+    counts = getattr(
+        memory,
+        "verification_counts",
+        {"verified": len(extracted), "repaired": 0, "unverified": 0},
+    )
     out = {"creator": a.creator, "stream_id": a.stream_id,
-           "threads_added": len(extracted), "path": str(memory.path)}
+           "threads_suggested": len(extracted),
+           "threads_added": counts["verified"],
+           "citations_repaired": counts["repaired"],
+           "citations_rejected": counts["unverified"],
+           "legacy_threads_pruned": memory.pruned_unverified,
+           "path": str(memory.path)}
+    provenance = append_provenance(
+        memory,
+        job_id=f"backfill_{a.stream_id}",
+        channel=a.url or a.local or a.info_json or a.stream_id,
+        rights=a.rights,
+        videos=[{
+            "video_id": a.stream_id,
+            "url": a.url,
+            "state": "complete",
+            "transcript_language": getattr(src, "transcript_language", None),
+            "transcript_source": getattr(src, "transcript_source", "provided_vtt" if a.vtt else None),
+            "subtitle_track": getattr(src, "subtitle_track", str(vtt_path) if vtt_path else None),
+        }],
+    )
+    out["provenance_path"] = str(provenance)
     print(json.dumps(out, indent=2))
     return 0
+
+
+def cmd_eval(a) -> int:
+    """Evaluate callback detection from recorded responses unless record is explicit."""
+    from .evals.run_eval import EvaluationError, evaluate
+
+    try:
+        report = evaluate(
+            tuning_path=Path(a.tuning), heldout_path=Path(a.heldout),
+            replay_path=Path(a.replays), mode="record" if a.record else "replay",
+            model=a.model, threshold=a.threshold,
+            report_path=Path(a.report) if a.report else None,
+        )
+    except EvaluationError as exc:
+        print(f"evaluation failed: {exc}", file=sys.stderr)
+        return 2
+
+    if a.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        heldout = report["heldout"]
+        print(report["claim_scope"])
+        print(f"threshold: {report['metadata']['threshold']:.2f} (tuning only)")
+        print(f"held-out detection: precision {heldout['detection']['precision']:.3f}  "
+              f"recall {heldout['detection']['recall']:.3f}  "
+              f"confusion {heldout['detection']['confusion_matrix']}")
+        print(f"held-out thread selection: precision "
+              f"{heldout['thread_selection']['precision']:.3f}  "
+              f"recall {heldout['thread_selection']['recall']:.3f}  "
+              f"wrong-thread {heldout['thread_selection']['wrong_thread']}")
+        if a.report:
+            print(f"report: {a.report}")
+    return 0
+
+
+def cmd_backfill_channel(a) -> int:
+    from .channel_backfill import preview_channel, run_channel_backfill
+    from .channels import ChannelError
+
+    try:
+        if a.dry_run:
+            print(json.dumps(preview_channel(a.channel, limit=a.limit), indent=2))
+            return 0
+        if not a.creator:
+            print("--creator is required unless --dry-run is used", file=sys.stderr)
+            return 2
+        selected_videos = [
+            stripped
+            for chunk in (a.videos or [])
+            for stripped in (part.strip() for part in chunk.split(","))
+            if stripped
+        ]
+        if not selected_videos:
+            print("--videos requires at least one previewed video id", file=sys.stderr)
+            return 2
+        if not a.rights:
+            print("--rights is required for a channel backfill", file=sys.stderr)
+            return 2
+        job_id = a.job_id or f"channel_{uuid.uuid4().hex[:10]}"
+        code, report = run_channel_backfill(
+            a.channel,
+            creator_id=a.creator,
+            video_ids=selected_videos,
+            rights=a.rights,
+            job_id=job_id,
+            workers=a.workers,
+        )
+        print(json.dumps(report, indent=2))
+        return code
+    except ChannelError as exc:
+        print(json.dumps({"error": exc.code, "message": str(exc)}), file=sys.stderr)
+        return 2
 
 
 def cmd_predemo(a) -> int:
@@ -260,6 +380,13 @@ def cmd_doctor(a) -> int:
     for mod in ("cv2", "numpy", "yt_dlp"):
         try:
             m = __import__(mod)
+            # yt-dlp keeps its version in a submodule, so the generic getattr below
+            # reported a bare "ok" for it. That mattered: a stale extractor is the
+            # single likeliest cause of a run that reads captions fine and then 403s
+            # on the media, and "ok" hid the one number needed to spot it.
+            if mod == "yt_dlp":
+                rows.append((mod, _ytdlp_state()))
+                continue
             rows.append((mod, getattr(m, "__version__", "ok")))
         except Exception as e:                                # noqa: BLE001
             rows.append((mod, f"MISSING: {e}"))
@@ -339,6 +466,28 @@ def cmd_results(a) -> int:
     return 0
 
 
+
+def _ytdlp_state() -> str:
+    """yt-dlp's version, plus a warning once it is old enough to start getting 403s.
+
+    YouTube changes how it signs media URLs every few weeks. An out-of-date extractor
+    still resolves metadata and subtitles, so a run looks healthy right up to the point
+    ffmpeg cannot fetch the video and exits with an opaque code. The threshold is 30 days
+    because the build that actually broke here was 46 days old -- anything laxer would
+    have stayed silent through the exact failure this check exists to catch.
+    """
+    from datetime import date
+    from yt_dlp.version import __version__ as raw
+
+    try:
+        year, month, day = (int(part) for part in raw.split(".")[:3])
+        age = (date.today() - date(year, month, day)).days
+    except (ValueError, TypeError):
+        return raw
+    if age > 30:
+        return f"{raw}  STALE ({age}d) - run: pip install -U yt-dlp"
+    return f"{raw}  ({age}d old)"
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser("afterplay", description="autonomous short-form clipper")
     p.add_argument("--verbose", "-v", action="store_true")
@@ -371,12 +520,31 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("plan", help="decision phase only (no video bytes)")
     common(sp)
+    sp.add_argument("--creator", help="creator id for callback memory")
+    sp.add_argument("--memory", action="store_true",
+                    help="use OpenAI creator-memory callback detection")
     sp.set_defaults(fn=cmd_plan)
+
+    sp = sub.add_parser("eval", help="replay the bounded callback evaluation corpus")
+    sp.add_argument("--set", dest="heldout", required=True,
+                    help="held-out JSONL evaluated only after threshold selection")
+    sp.add_argument("--tuning", required=True,
+                    help="tuning JSONL used for the threshold sweep")
+    sp.add_argument("--replays", default="evals/replays.jsonl",
+                    help="immutable recorded callback responses")
+    sp.add_argument("--record", action="store_true",
+                    help="explicitly call OpenAI for replay misses and record responses")
+    sp.add_argument("--model", help="model id; defaults to AFTERPLAY_CLIPPER_MODEL")
+    sp.add_argument("--threshold", type=float,
+                    help="fixed threshold override (otherwise selected on tuning only)")
+    sp.add_argument("--report", help="write the immutable JSON report to this path")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.set_defaults(fn=cmd_eval)
 
     sp = sub.add_parser("run", help="full pipeline: extract, render, QC, deliver")
     common(sp)
     sp.add_argument("--platforms", default="shorts")
-    sp.add_argument("--creator", help="creator id for local JSON memory")
+    sp.add_argument("--creator", required=True, help="creator id and manifest owner")
     sp.add_argument("--workers", type=int, default=4)
     sp.add_argument("--max-repairs", dest="max_repairs", type=int, default=3)
     sp.add_argument("--encoder", help="force an encoder (default: auto-detect)")
@@ -385,6 +553,15 @@ def main(argv=None) -> int:
     sp.add_argument("--webhook", help="POST the manifest here on completion")
     sp.add_argument("--memory", action="store_true",
                     help="use OpenAI creator-memory callback detection")
+    sp.add_argument("--captions", action="store_true",
+                    help="burn word-level captions into the video. Off by default: "
+                         "most source footage already carries the creator's own "
+                         "burned-in captions, and stacking ours on top disagrees "
+                         "with it")
+    sp.add_argument("--rights", required=True,
+                    choices=["project_owned", "creator_owned", "permission_granted",
+                             "licensed", "not_cleared"],
+                    help="explicit footage-rights attestation for the output manifest")
     sp.set_defaults(fn=cmd_run)
 
     sp = sub.add_parser("backfill", help="extract callback memory from a past stream")
@@ -394,7 +571,37 @@ def main(argv=None) -> int:
     sp.add_argument("--local", help="ingest a local file (creator-owned path)")
     sp.add_argument("--creator", required=True, help="creator id for local JSON memory")
     sp.add_argument("--stream-id", required=True, help="stable id for this source stream")
+    sp.add_argument(
+        "--prune-unverified",
+        action="store_true",
+        help="remove legacy records without verifier-backed evidence after extraction succeeds",
+    )
+    sp.add_argument("--rights", required=True,
+                    choices=["project_owned", "creator_owned", "permission_granted",
+                             "licensed", "not_cleared"],
+                    help="explicit rights attestation for the transcript source")
     sp.set_defaults(fn=cmd_backfill)
+
+    sp = sub.add_parser(
+        "backfill-channel",
+        help="preview a channel or build memory from selected captioned uploads",
+    )
+    sp.add_argument("channel", help="explicit @handle or YouTube channel URL")
+    sp.add_argument("--creator", help="creator id returned by the dry-run preview")
+    # One value per flag, repeatable, and comma-splittable. Deliberately NOT nargs="+":
+    # argparse reads a hyphen-leading value ("-KuTXDqFGI8" is a real YouTube id) as a
+    # flag and exits 2. The "--videos=<id>" form parses those correctly.
+    sp.add_argument("--videos", action="append", default=None,
+                    help="video id from the preview; repeat or comma-separate for several")
+    sp.add_argument("--rights",
+                    choices=["project_owned", "creator_owned", "permission_granted",
+                             "licensed", "not_cleared"])
+    sp.add_argument("--job-id", dest="job_id")
+    sp.add_argument("--workers", type=int)
+    sp.add_argument("--limit", type=int, default=5, help="preview listing size")
+    sp.add_argument("--dry-run", action="store_true",
+                    help="list videos and derive creator id without OpenAI calls")
+    sp.set_defaults(fn=cmd_backfill_channel)
 
     sp = sub.add_parser("memory", help="inspect local creator memory")
     sp.add_argument("creator")

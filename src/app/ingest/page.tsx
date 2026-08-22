@@ -1,9 +1,12 @@
+import { ChannelConsole } from "@/components/ingest/channel-console";
 import { IngestConsole } from "@/components/ingest/ingest-console";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { currentCreator } from "@/domain/creators";
 
 export const dynamic = "force-dynamic";
 
-export default function IngestPage() {
+export default async function IngestPage() {
+  const creator = await currentCreator();
   return (
     <WorkspaceShell active="Ingest" pageName="Ingest">
       <div className="surface ingest-surface">
@@ -23,7 +26,8 @@ export default function IngestPage() {
           </div>
         </section>
 
-        <IngestConsole />
+        <ChannelConsole />
+        <IngestConsole key={creator.id} />
       </div>
     </WorkspaceShell>
   );

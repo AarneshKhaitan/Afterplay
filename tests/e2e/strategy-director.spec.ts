@@ -1,12 +1,20 @@
-import { expect, test } from "@playwright/test";
+import { expect, type APIRequestContext, test } from "@playwright/test";
 
-const input = {
-  creatorId: "creator_mika_rigged",
-  objective: "Increase returning audience without optimizing for raw reach alone.",
-  evidenceRefs: ["evidence_format_gap", "evidence_return_gap", "evidence_chat"],
-};
+const evidenceRefs = ["evidence_format_gap", "evidence_return_gap", "evidence_chat"];
+
+async function inputForActiveCreator(request: APIRequestContext) {
+  const response = await request.get("/api/creator");
+  expect(response.ok()).toBe(true);
+  const body = await response.json();
+  return {
+    creatorId: body.active.id as string,
+    objective: "Increase returning audience without optimizing for raw reach alone.",
+    evidenceRefs,
+  };
+}
 
 test("demo strategy is deterministic and schema-validated", async ({ request }) => {
+  const input = await inputForActiveCreator(request);
   const first = await request.post("/api/strategy/plan", { data: { mode: "demo", input } });
   const second = await request.post("/api/strategy/plan", { data: { mode: "demo", input } });
 
@@ -30,6 +38,7 @@ test("demo strategy is deterministic and schema-validated", async ({ request }) 
 });
 
 test("unconfigured live mode fails visibly instead of returning fixture success", async ({ request }) => {
+  const input = await inputForActiveCreator(request);
   const response = await request.post("/api/strategy/plan", { data: { mode: "live", input } });
 
   expect(response.status()).toBe(503);
@@ -42,4 +51,20 @@ test("unconfigured live mode fails visibly instead of returning fixture success"
     meta: { mode: "live", fallbackUsed: false },
   });
   expect(body).not.toHaveProperty("proposal");
+});
+
+test("live strategy rejects a creator outside the active workspace", async ({ request }) => {
+  const input = await inputForActiveCreator(request);
+  const response = await request.post("/api/strategy/plan", {
+    data: { mode: "live", input: { ...input, creatorId: "foreign_creator" } },
+  });
+
+  expect(response.status()).toBe(403);
+  expect(await response.json()).toMatchObject({
+    error: {
+      code: "creator_scope_mismatch",
+      message: "The strategy request does not belong to the active creator workspace.",
+    },
+    meta: { mode: "live", fallbackUsed: false },
+  });
 });

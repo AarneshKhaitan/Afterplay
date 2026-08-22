@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { invalidRequest } from "@/app/api/http";
 import {
-  assertIngestableUrl, IngestError, newJobId, pythonConfigured, startIngestJob,
+  assertIngestableUrl, IngestError, newJobId, pythonConfigured, readIngestJob, startIngestJob,
 } from "@/domain/ingest/jobs";
 import { currentCreator } from "@/domain/creators";
 import { findCachedSource, listCachedSources, mediaDirConfigured } from "@/domain/ingest/sources";
@@ -19,6 +19,10 @@ const startSchema = z.object({
   clips: z.number().int().min(1).max(10).default(3),
   platforms: z.enum(["shorts", "reels", "tiktok"]).default("shorts"),
   memory: z.boolean().default(true),
+  captions: z.boolean().default(false),
+  footageRights: z.enum([
+    "project_owned", "creator_owned", "permission_granted", "licensed", "not_cleared",
+  ]),
 });
 
 /** What can be ingested right now, and honestly under what conditions. */
@@ -50,6 +54,17 @@ export async function POST(request: Request) {
     return invalidRequest(parsed.error.issues[0]?.message ?? "The ingest request is invalid.");
   }
 
+  const input = parsed.data;
+  const creator = await currentCreator();
+  if (input.creator !== creator.id) {
+    return NextResponse.json({
+      error: {
+        code: "creator_mismatch",
+        message: "The ingest request does not belong to the active creator workspace.",
+      },
+    }, { status: 409 });
+  }
+
   const python = pythonConfigured();
   if (!python.ok) {
     return NextResponse.json({
@@ -62,7 +77,6 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
 
-  const input = parsed.data;
   try {
     const jobId = newJobId();
     const source = input.source.kind === "url"
@@ -75,15 +89,18 @@ export async function POST(request: Request) {
 
     startIngestJob({
       jobId,
-      creator: input.creator,
+      creator: creator.id,
       clips: input.clips,
       platforms: input.platforms,
       memory: input.memory,
+      captions: input.captions,
+      footageRights: input.footageRights,
       source,
     });
 
     return NextResponse.json({
       jobId,
+      job: readIngestJob(jobId, creator.id),
       // Say plainly whether this run will touch the network, so nobody demos a
       // YouTube-dependent path believing it is offline.
       network: source.kind === "url"

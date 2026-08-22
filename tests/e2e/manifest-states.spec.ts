@@ -25,6 +25,7 @@ test.beforeAll(() => {
   writeFileSync(clipPath, Buffer.from("not-a-real-mp4"));
   writeFileSync(join(COMPLETE, "manifest.json"), JSON.stringify({
     job_id: "states_complete",
+    creator_id: "creator_mika_rigged",
     source: { title: "Degraded run", url: null, duration: 90 },
     clips: [{ clip_id: "clip01_shorts", platform: "shorts", start: 10, end: 32,
               duration: 22, path: clipPath, ok: true, why: "standalone" }],
@@ -37,12 +38,12 @@ test.beforeAll(() => {
     encoder: "h264_qsv",
   }), "utf-8");
   writeFileSync(join(COMPLETE, "status.json"),
-    JSON.stringify({ state: "complete", updated: Date.now() / 1000 }), "utf-8");
+    JSON.stringify({ creator_id: "creator_mika_rigged", state: "complete", updated: Date.now() / 1000 }), "utf-8");
 
   // A newer job that died before writing a manifest — the G20 case.
   mkdirSync(NEWER_INCOMPLETE, { recursive: true });
   writeFileSync(join(NEWER_INCOMPLETE, "status.json"),
-    JSON.stringify({ state: "started", updated: Date.now() / 1000 + 60,
+    JSON.stringify({ creator_id: "creator_mika_rigged", state: "started", updated: Date.now() / 1000 + 60,
                      message: "Job started." }), "utf-8");
 });
 

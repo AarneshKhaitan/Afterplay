@@ -1,0 +1,32 @@
+{
+  "_afterplay": {
+    "format": "afterplay.versioned-json",
+    "schema": "creator.workspaces",
+    "version": 1
+  },
+  "value": {
+    "workspaces": [
+      {
+        "id": "betasquad",
+        "channelId": "UCxOzbkk0bdVl6-tH1Fcajfg",
+        "displayName": "Beta Squad",
+        "handle": "@BetaSquad",
+        "mode": "live"
+      },
+      {
+        "id": "probe_ksi",
+        "channelId": "UCmX6q9X6hE6v4nS4mJ0H0aQ",
+        "displayName": "Sidemen",
+        "handle": "Sidemen",
+        "mode": "demo"
+      },
+      {
+        "id": "sidemen",
+        "channelId": "UCDogdKl7t7NHzQ95aEwkdMw",
+        "displayName": "Sidemen",
+        "handle": "@Sidemen",
+        "mode": "live"
+      }
+    ]
+  }
+}

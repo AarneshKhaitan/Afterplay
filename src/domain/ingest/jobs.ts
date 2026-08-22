@@ -1,13 +1,35 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
-import { clipperRoot, type CachedSource } from "./sources";
+import { getClipManifestForJob } from "../clip-manifest";
+import {
+  CreatorProcessConflictError,
+  durableActiveJob,
+  pythonConfigured,
+  runningJob,
+  runningJobForCreator,
+  spawnPythonJob,
+  terminateProcessTree,
+  unregisterRunningJob,
+  workdir,
+} from "./process";
+import { type CachedSource } from "./sources";
+import { renameWithRetry } from "@/domain/atomic-rename";
 
 /** Server-only. Spawns the Python clipper and reads its progress off disk. */
 
 export type StageId = "resolve" | "transcript" | "memory" | "render" | "done";
-export type StageState = "pending" | "running" | "complete" | "failed";
+export type StageState = "pending" | "running" | "complete" | "failed" | "cancelled";
+export type IngestJobState = "started" | "running" | "cancelling" | "complete" | "failed" | "cancelled";
 
 export type IngestStage = {
   id: StageId;
@@ -21,7 +43,8 @@ export type IngestStage = {
 
 export type IngestJob = {
   jobId: string;
-  state: "started" | "complete" | "failed";
+  creatorId: string;
+  state: IngestJobState;
   message?: string;
   stages: IngestStage[];
   log: string[];
@@ -39,39 +62,82 @@ export class IngestError extends Error {
   }
 }
 
-function workdir(): string {
-  const configured = process.env.AFTERPLAY_WORKDIR ?? process.env.AFTERPLAY_CLIPPER_WORKDIR;
-  if (configured) {
-    // Same rule as the Python side: a relative value in .env is repo-root-relative.
-    return configured.startsWith("/") || /^[A-Za-z]:/.test(configured)
-      ? configured
-      : join(process.cwd(), configured);
-  }
-  return join(clipperRoot(), ".work");
+type JobStatusDocument = {
+  creator_id?: string | null;
+  state?: IngestJobState;
+  stage?: StageId;
+  detail?: string;
+  updated?: number;
+  message?: string;
+  manifest?: string;
+};
+
+const TERMINAL_STATES = new Set<IngestJobState>(["complete", "failed", "cancelled"]);
+
+function statusPath(jobId: string): string {
+  return join(workdir(), jobId, "status.json");
 }
 
-/** The interpreter that has the service's dependencies.
- *
- * A bare `python` picks up whatever is on PATH, which is exactly how a reviewer ended up
- * with `ModuleNotFoundError: No module named 'cv2'` and concluded the pipeline was
- * broken. Prefer the venv the README tells you to create. */
-function pythonBin(): string {
-  const root = clipperRoot();
-  const candidates = [
-    process.env.AFTERPLAY_PYTHON,
-    join(root, ".venv", "Scripts", "python.exe"),
-    join(root, ".venv", "bin", "python"),
-  ].filter(Boolean) as string[];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+function completedManifestStatus(jobId: string, creatorId: string): JobStatusDocument | null {
+  const manifestPath = join(workdir(), jobId, "manifest.json");
+  const manifest = safeJson<{
+    creator_id?: string | null;
+    status?: string;
+    clips?: Array<{ ok?: boolean }>;
+    message?: string | null;
+  }>(manifestPath);
+  if (manifest?.creator_id !== creatorId || manifest.status !== "complete"
+      || !Array.isArray(manifest.clips)) {
+    return null;
   }
-  return "python";
+  const clipsOk = manifest.clips.filter((clip) => clip.ok !== false).length;
+  return {
+    creator_id: creatorId,
+    state: "complete",
+    stage: "done",
+    detail: `${clipsOk}/${manifest.clips.length} clips passed quality checks.`,
+    updated: Date.now() / 1000,
+    message: manifest.message ?? undefined,
+    manifest: manifestPath,
+  };
 }
 
-export function pythonConfigured(): { ok: boolean; interpreter: string } {
-  const interpreter = pythonBin();
-  return { ok: interpreter !== "python" || existsSync(interpreter), interpreter };
+function writeStatus(path: string, status: JobStatusDocument): void {
+  const temporary = `${path}.${process.pid}-${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify(status), "utf-8");
+    renameWithRetry(temporary, path);
+  } finally {
+    try {
+      unlinkSync(temporary);
+    } catch (error) {
+      if (!isNodeError(error, ["ENOENT"])) throw error;
+    }
+  }
 }
+
+function isNodeError(error: unknown, codes: readonly string[]): boolean {
+  return typeof error === "object" && error !== null && "code" in error
+    && typeof error.code === "string" && codes.includes(error.code);
+}
+
+function terminalStatus(
+  path: string,
+  creatorId: string,
+  state: "failed" | "cancelled",
+  message: string,
+): void {
+  const previous = safeJson<JobStatusDocument>(path);
+  writeStatus(path, {
+    ...previous,
+    creator_id: creatorId,
+    state,
+    updated: Date.now() / 1000,
+    message,
+  });
+}
+
+export { pythonConfigured };
 
 const YOUTUBE_HOSTS = new Set([
   "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be",
@@ -108,17 +174,42 @@ export type StartOptions = {
   clips: number;
   platforms: string;
   memory: boolean;
+  captions: boolean;
+  footageRights: "project_owned" | "creator_owned" | "permission_granted" | "licensed" | "not_cleared";
   source: { kind: "url"; url: string } | { kind: "cached"; source: CachedSource };
 };
 
 export function startIngestJob(options: StartOptions): { jobId: string; args: string[] } {
+  if (runningJobForCreator(options.creator)) {
+    throw new IngestError("An ingest job is already running for this creator.", 409);
+  }
+  const durableJobId = durableActiveJob(
+    options.creator,
+    (jobId, creatorId) => completedManifestStatus(jobId, creatorId) !== null,
+  );
+  if (durableJobId) {
+    throw new IngestError(
+      `Job ${durableJobId} still reports active. Resolve that host process before starting another ingest.`,
+      409,
+    );
+  }
+
   const dir = join(workdir(), options.jobId);
   mkdirSync(dir, { recursive: true });
+  writeStatus(join(dir, "status.json"), {
+    creator_id: options.creator,
+    state: "started",
+    stage: "resolve",
+    detail: "Job queued; resolving the source next.",
+    updated: Date.now() / 1000,
+    message: "Job queued.",
+  });
 
   const args = ["-m", "afterplay.cli", "--json", "run", "--job-id", options.jobId,
     "--creator", options.creator, "--clips", String(options.clips),
-    "--platforms", options.platforms];
+    "--platforms", options.platforms, "--rights", options.footageRights];
   if (options.memory) args.push("--memory");
+  if (options.captions) args.push("--captions");
 
   if (options.source.kind === "url") {
     args.push(options.source.url);
@@ -126,59 +217,187 @@ export function startIngestJob(options: StartOptions): { jobId: string; args: st
     const { mediaPath, infoJsonPath, vttPath } = options.source.source;
     if (mediaPath) args.push("--local", mediaPath);
     else if (infoJsonPath) args.push("--info-json", infoJsonPath);
-    else throw new IngestError("That cached source has neither media nor saved metadata.");
+    else {
+      terminalStatus(
+        join(dir, "status.json"),
+        options.creator,
+        "failed",
+        "The cached source has neither media nor saved metadata.",
+      );
+      throw new IngestError("That cached source has neither media nor saved metadata.");
+    }
     args.push("--vtt", vttPath);
   }
 
   // The CLI logs progress to stderr; keep it so the status endpoint can report real
   // stages instead of a spinner that means nothing.
   const logPath = join(dir, "run.log");
-  const fd = openSync(logPath, "a");
+  let fd: number;
+  try {
+    fd = openSync(logPath, "a");
+  } catch (error) {
+    terminalStatus(
+      join(dir, "status.json"),
+      options.creator,
+      "failed",
+      `The job log could not be opened: ${(error as Error).message}`,
+    );
+    throw new IngestError("The clipper job log could not be opened.", 500);
+  }
 
-  const child = spawn(pythonBin(), args, {
-    cwd: clipperRoot(),
-    // No shell: user input reaches the process as argv, never as a command string.
-    shell: false,
-    // NOT detached. On Windows a detached child was dying silently a few seconds in —
-    // the run.log held only the start banner and no traceback, while the identical
-    // command run by hand completed. Keeping it in the server's process group makes the
-    // job live exactly as long as the server, which is what an operator expects anyway,
-    // and lets us record an exit that would otherwise vanish.
-    detached: false,
-    stdio: ["ignore", fd, fd],
-    env: { ...process.env, PYTHONPATH: clipperRoot(), PYTHONUNBUFFERED: "1" },
-  });
+  let child;
+  try {
+    child = spawnPythonJob({
+      jobId: options.jobId,
+      creatorId: options.creator,
+      kind: "ingest",
+      args,
+      stdio: ["ignore", fd, fd],
+    });
+  } catch (error) {
+    terminalStatus(
+      join(dir, "status.json"),
+      options.creator,
+      "failed",
+      `The clipper process could not be created: ${(error as Error).message}`,
+    );
+    if (error instanceof CreatorProcessConflictError) {
+      throw new IngestError("An ingest job is already running for this creator.", 409);
+    }
+    throw new IngestError("The clipper process could not be created.", 500);
+  } finally {
+    closeSync(fd);
+  }
 
   // A job that dies without writing a manifest must say so rather than appearing to run
   // forever. The CLI writes status.json itself on a clean failure; this covers the case
   // where the process never got that far.
-  child.on("exit", (code, signal) => {
-    if (code === 0) return;
+  child.once("error", (error) => {
+    unregisterRunningJob(options.jobId, child);
     const statusPath = join(dir, "status.json");
-    try {
-      const raw = readFileSync(statusPath, "utf-8");
-      if ((JSON.parse(raw) as { state?: string }).state !== "started") return;
-    } catch { /* no status yet: fall through and write one */ }
-    writeFileSync(statusPath, JSON.stringify({
-      state: "failed",
-      updated: Date.now() / 1000,
-      message: signal
+    const current = safeJson<JobStatusDocument>(statusPath);
+    if (!current?.state || !TERMINAL_STATES.has(current.state)) {
+      terminalStatus(statusPath, options.creator, "failed", `The clipper could not start: ${error.message}`);
+    }
+  });
+  child.once("exit", (code, signal) => {
+    unregisterRunningJob(options.jobId, child);
+
+    const path = join(dir, "status.json");
+    const completed = completedManifestStatus(options.jobId, options.creator);
+    if (completed) {
+      writeStatus(path, completed);
+      return;
+    }
+    const current = safeJson<JobStatusDocument>(path);
+    if (current?.state === "cancelling") return;
+    if (current?.state && TERMINAL_STATES.has(current.state)) return;
+    if (code === 0) {
+      terminalStatus(
+        path,
+        options.creator,
+        "failed",
+        "The clipper exited without recording a complete manifest.",
+      );
+      return;
+    }
+    terminalStatus(
+      path,
+      options.creator,
+      "failed",
+      signal
         ? `The clipper was terminated by ${signal}.`
         : `The clipper exited with code ${code}. See run.log.`,
-    }), "utf-8");
+    );
   });
   child.unref();
 
   return { jobId: options.jobId, args };
 }
 
+export async function cancelIngestJob(jobId: string, creatorId: string): Promise<IngestJob> {
+  const job = readIngestJob(jobId, creatorId);
+  if (!job) throw new IngestError("No such job.", 404);
+  if (TERMINAL_STATES.has(job.state)) return job;
+
+  const path = statusPath(jobId);
+  const alreadyComplete = completedManifestStatus(jobId, creatorId);
+  if (alreadyComplete) {
+    writeStatus(path, alreadyComplete);
+    return readIngestJob(jobId, creatorId) ?? job;
+  }
+
+  const running = runningJob(jobId, creatorId, "ingest");
+  if (!running) {
+    throw new IngestError(
+      "This job is still visible, but its process handle was lost after a server restart. Stop it from the host before retrying.",
+      409,
+    );
+  }
+
+  const previous = safeJson<JobStatusDocument>(path);
+  writeStatus(path, {
+    ...previous,
+    creator_id: creatorId,
+    state: "cancelling",
+    updated: Date.now() / 1000,
+    message: "Stopping the clipper process tree.",
+  });
+  try {
+    await terminateProcessTree(running.child);
+    // Python writes status atomically too. A genuinely completed manifest wins the race;
+    // otherwise publish cancelled only after the whole process tree is confirmed gone.
+    const completed = completedManifestStatus(jobId, creatorId);
+    if (completed) writeStatus(path, completed);
+    else {
+      terminalStatus(path, creatorId, "cancelled", "Cancelled by the creator.");
+    }
+    unregisterRunningJob(jobId, running.child);
+  } catch (error) {
+    const completed = completedManifestStatus(jobId, creatorId);
+    if (completed) {
+      writeStatus(path, completed);
+      return readIngestJob(jobId, creatorId) ?? job;
+    }
+    writeStatus(path, {
+      ...previous,
+      creator_id: creatorId,
+      state: "cancelling",
+      updated: Date.now() / 1000,
+      message: `Process-tree termination could not be confirmed: ${(error as Error).message}. Resolve the host process before starting another ingest.`,
+    });
+    throw new IngestError("The job's process tree could not be confirmed stopped.", 500);
+  }
+  return readIngestJob(jobId, creatorId) ?? job;
+}
+
 const STAGE_TEMPLATE: Array<Omit<IngestStage, "state" | "detail">> = [
   { id: "resolve", label: "Resolving the source", truth: "yt-dlp reads metadata and captions. No video bytes are downloaded yet." },
   { id: "transcript", label: "Reading the transcript", truth: "Parses captions into sentences and scores candidate windows." },
-  { id: "memory", label: "Searching channel memory", truth: "Embeds every candidate window once, then asks the model to judge the closest past threads." },
+  { id: "memory", label: "Ranking candidate moments", truth: "Uses channel memory when enabled; otherwise ranks standalone transcript or audio signals." },
   { id: "render", label: "Cutting and reframing", truth: "ffmpeg extracts each window, reframes to vertical, burns captions, then QC-checks the result." },
   { id: "done", label: "Manifest written", truth: "Clips and their evidence trail are handed to Studio." },
 ];
+const STAGE_ORDER = STAGE_TEMPLATE.map((stage) => stage.id);
+
+function structuredProgress(status: JobStatusDocument | null): {
+  states: Record<StageId, StageState>;
+  details: Partial<Record<StageId, string>>;
+} | null {
+  if (!status?.stage || !STAGE_ORDER.includes(status.stage)) return null;
+  const current = STAGE_ORDER.indexOf(status.stage);
+  const states = Object.fromEntries(STAGE_ORDER.map((id, index) => {
+    let state: StageState = index < current ? "complete" : index === current ? "running" : "pending";
+    if (status.state === "complete") state = "complete";
+    else if (index === current && status.state === "failed") state = "failed";
+    else if (index === current && status.state === "cancelled") state = "cancelled";
+    return [id, state];
+  })) as Record<StageId, StageState>;
+  return {
+    states,
+    details: status.detail ? { [status.stage]: status.detail } : {},
+  };
+}
 
 function parseProgress(log: string): { states: Record<StageId, StageState>; details: Partial<Record<StageId, string>>; lines: string[] } {
   const states: Record<StageId, StageState> = {
@@ -222,9 +441,8 @@ function parseProgress(log: string): { states: Record<StageId, StageState>; deta
   }
 
   // Anything before the first incomplete stage must have happened.
-  const order: StageId[] = ["resolve", "transcript", "memory", "render", "done"];
   let seenIncomplete = false;
-  for (const id of order) {
+  for (const id of STAGE_ORDER) {
     if (states[id] === "complete" && !seenIncomplete) continue;
     if (states[id] !== "complete") {
       if (!seenIncomplete && states[id] === "pending") states[id] = "running";
@@ -234,50 +452,71 @@ function parseProgress(log: string): { states: Record<StageId, StageState>; deta
   return { states, details, lines };
 }
 
-export function readIngestJob(jobId: string): IngestJob | null {
+export function readIngestJob(jobId: string, creatorId: string): IngestJob | null {
   const dir = join(workdir(), jobId);
   if (!existsSync(dir)) return null;
 
   const log = safeRead(join(dir, "run.log")) ?? "";
-  const status = safeJson<{ state?: IngestJob["state"]; message?: string }>(join(dir, "status.json"));
+  const status = safeJson<JobStatusDocument>(join(dir, "status.json"));
   const manifest = safeJson<{
+    creator_id?: string | null;
+    status?: string;
     clips?: Array<{ clip_id: string; ok?: boolean; signals?: Record<string, unknown> }>;
     memory?: { degraded?: boolean; reason?: string | null; callback_found?: boolean; callbacks_ranked_out?: number };
     message?: string | null;
   }>(join(dir, "manifest.json"));
+  if (status?.creator_id !== creatorId || (manifest && manifest.creator_id !== creatorId)) {
+    return null;
+  }
+  const validatedManifest = getClipManifestForJob(jobId, creatorId);
+  const artifactValidationFailed = !validatedManifest
+    && (Boolean(manifest) || status?.state === "complete");
 
-  const { states, details, lines } = parseProgress(log);
-  const state = status?.state ?? (manifest ? "complete" : "started");
+  const legacy = parseProgress(log);
+  const progress = structuredProgress(status) ?? legacy;
+  const { states, details } = progress;
+  const { lines } = legacy;
+  const manifestComplete = validatedManifest?.status === "complete";
+  const state: IngestJobState = artifactValidationFailed
+    ? "failed"
+    : manifestComplete
+    ? "complete"
+    : status?.state ?? (manifest ? "complete" : "started");
 
-  if (state === "failed") {
+  if (!status?.stage && (state === "failed" || state === "cancelled")) {
     for (const stage of Object.keys(states) as StageId[]) {
-      if (states[stage] === "running") states[stage] = "failed";
+      if (states[stage] === "running") states[stage] = state;
     }
   }
   if (state === "complete") {
     for (const stage of Object.keys(states) as StageId[]) states[stage] = "complete";
   }
+  if (artifactValidationFailed) states.done = "failed";
 
   return {
     jobId,
+    creatorId,
     state,
-    message: manifest?.message ?? status?.message,
+    message: artifactValidationFailed
+      ? "The clipper wrote an invalid manifest. Its outputs are excluded from review."
+      : validatedManifest?.message ?? status?.message,
     stages: STAGE_TEMPLATE.map((stage) => ({
       ...stage,
       state: states[stage.id],
       detail: details[stage.id],
     })),
     log: lines.slice(-40),
-    clips: (manifest?.clips ?? []).map((clip) => ({
+    clips: (validatedManifest?.clips ?? []).map((clip) => ({
       clipId: clip.clip_id,
-      ok: clip.ok !== false,
-      callback: (clip.signals as { callback?: boolean } | undefined)?.callback === true,
-      threadLabel: (clip.signals as { thread_label?: string } | undefined)?.thread_label,
+      ok: clip.ok === true,
+      callback: clip.callback === true,
+      threadLabel: clip.callback ? clip.threadLabel : undefined,
     })),
-    callbackFound: manifest?.memory?.callback_found,
-    callbacksRankedOut: manifest?.memory?.callbacks_ranked_out,
-    degraded: manifest?.memory?.degraded,
-    degradedReason: manifest?.memory?.reason ?? null,
+    callbackFound: validatedManifest?.memory?.callback_found === true
+      && validatedManifest.clips.some((clip) => clip.callback === true),
+    callbacksRankedOut: validatedManifest?.memory?.callbacks_ranked_out,
+    degraded: validatedManifest?.memory?.degraded,
+    degradedReason: validatedManifest?.memory?.reason ?? null,
   };
 }
 

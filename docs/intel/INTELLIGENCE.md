@@ -1,6 +1,6 @@
 # Competitive intelligence engine
 
-Last verified against the codebase on 9 August 2026.
+Last verified against the codebase on 21 August 2026.
 
 The intelligence console (`/intel`) is the answer to "what should I make next, and why".
 It scrapes a creator's channel and up to five competitors, measures what actually
@@ -107,7 +107,7 @@ No finding, number or recommendation is hardcoded.
 | `USD_PER_RESULT = 0.005` | `domain/intel/apify.ts` | Display-only cost estimate, from the actor's pricing page. Never gates a run. |
 | `MAX_RESULTS_PER_SCAN = 400` | `domain/intel/apify.ts` | Cost ceiling so a typo cannot spend the balance. |
 | `REINFORCE` / `DECAY` / `WEAK_FLOOR` | `domain/intel/memory.ts` | Belief-update constants. Tunable policy, applied uniformly. |
-| Default creator id `creator_mika_rigged` | `app/intel/page.tsx` | Ties the console to the demo workspace. |
+| Default creator id | `src/domain/creators.ts` (`currentCreator`/`defaultCreatorId`) | `/intel` no longer hardcodes a creator id: it reads the `afterplay_creator` cookie, falling back to `AFTERPLAY_CREATOR_ID` or the first creator discovered on disk. |
 
 **Not hardcoded:** every insight, recommendation, parallel, belief, headline, metric, lift
 value and chat answer.
@@ -124,7 +124,9 @@ The actor bills per scraped video (~$0.005). Three guards:
    nothing, so a demo can be rehearsed indefinitely once warmed.
 3. **Visible estimate.** The setup panel shows the estimated cost before you launch.
 
-Test runs can never spend: both Playwright configs pin `APIFY_API_TOKEN` empty.
+Test runs can never spend: `playwright.config.ts`, `playwright.experiment.config.ts`,
+`playwright.live.config.ts`, and `playwright.production.config.ts` all pin `APIFY_API_TOKEN`
+empty.
 
 ---
 
@@ -174,9 +176,9 @@ sample output.
 ## 9. Verification
 
 ```bash
-npx playwright test tests/e2e/intel-engine.spec.ts    # 24 adversarial unit tests
-npx playwright test tests/e2e/intel-console.spec.ts   # 6 browser tests
-npx playwright test                                    # full suite, 57 tests
+npx playwright test tests/e2e/intel-engine.spec.ts    # 29 adversarial unit tests
+npx playwright test tests/e2e/intel-console.spec.ts   # 8 browser tests
+npx playwright test                                    # full suite, 114 tests
 ```
 
 `intel-engine.spec.ts` covers the shapes that genuinely arrive from the scraper: zero-view

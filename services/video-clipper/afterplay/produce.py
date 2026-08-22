@@ -228,8 +228,18 @@ def build_ass(words: list[Word], clip_start: float, dur: float, plat: Platform,
     karaoke highlighting, all in one pass.
     """
     font_px = max(18, int(round(plat.height * brand.font_size_pct)))
-    # rough advance width for a semibold UI sans; conservative so lines don't overrun
-    avg_adv = font_px * 0.52
+    # Rough advance width per character, as a fraction of font_px. Measured directly
+    # off real libass renders (ffmpeg's ass filter) of the brand font at font_px=100:
+    # mixed-case text advances ~0.36x font_px per character, all-caps (brand.uppercase
+    # =True, or any creator whose captions read louder) ~0.44x. The old constant,
+    # 0.52, has margin over mixed case on THIS box with the brand font resolved
+    # correctly -- but production has shipped lines that overran the frame, which
+    # means at least one of {a wider fallback font when the exact brand font isn't
+    # installed, the outline stroke pushing the visible glyph wider, a heavier/condensed
+    # brand font elsewhere} eats that margin in practice. 0.60 keeps ~35% headroom over
+    # the worst case measured here (uppercase) so max_chars stays an underestimate
+    # rather than an overestimate across those conditions.
+    avg_adv = font_px * 0.60
     usable = plat.width * 0.86
     max_chars = max(8, min(brand.max_chars_per_line, int(usable / avg_adv)))
 
@@ -255,7 +265,7 @@ def build_ass(words: list[Word], clip_start: float, dur: float, plat: Platform,
 ScriptType: v4.00+
 PlayResX: {plat.width}
 PlayResY: {plat.height}
-WrapStyle: 2
+WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
@@ -300,10 +310,12 @@ class RenderSpec:
     zoom: float = 1.0                # >1 tightens the crop (subject-out-of-frame fix)
     x_bias: float = 0.0              # nudge the crop window horizontally (px)
     # A hard 9:16 crop of a 16:9 source keeps 31.6% of the frame width and then blows
-    # it up 2.7x — heads lose their tops, two-shots lose a head. Below this fraction of
-    # the source width we crop WIDER than the target and letterbox the surplus over a
-    # blurred fill instead of cropping it away. 0 restores the edge-to-edge crop.
-    min_width_frac: float = 0.50
+    # it up 2.7x — heads lose their tops, two-shots lose a head. This fraction sets the
+    # minimum width (relative to the source) that the crop window is widened to before
+    # zoom; at 1.0 the crop always spans the full source width, so nothing is ever
+    # cropped away — the entire frame is kept and the surplus above/below it is
+    # letterboxed over a blurred fill. 0 restores the edge-to-edge crop.
+    min_width_frac: float = 1.0
     loudnorm: bool = True
     watermark: Path | None = None
 
