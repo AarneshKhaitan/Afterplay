@@ -377,7 +377,31 @@ type InspectedManifest = {
   rejected: boolean;
 };
 
+/** Validated manifests, keyed by path and mtime.
+ *
+ * Every creator-scoped page reads the newest manifest, and reading one means validating
+ * all of them: `manifestFiles` inspects each candidate to find which belongs to the
+ * creator. Validation is not cheap -- `ablationSchema` runs a `superRefine` per moment
+ * plus several whole-array passes, and a 66-minute upload produces 2659 moments in a
+ * 1.2MB file. With four such runs on disk that was over 3MB of zod work per request, and
+ * it pushed page loads past a minute; the process sat at half a core doing nothing else.
+ *
+ * A manifest is immutable once written -- a rerun writes a new job directory -- so mtime
+ * is a sound key. A rewritten file gets a new mtime and re-validates. The cache is
+ * per-process and unbounded, which is fine: entries are one per job directory, and the
+ * process restarts far more often than that count grows. */
+const inspectedManifests = new Map<string, InspectedManifest>();
+
 function inspectManifestFile(file: { path: string; mtimeMs: number }): InspectedManifest {
+  const key = `${file.path}::${file.mtimeMs}`;
+  const cached = inspectedManifests.get(key);
+  if (cached) return cached;
+  const inspected = inspectManifestFileUncached(file);
+  inspectedManifests.set(key, inspected);
+  return inspected;
+}
+
+function inspectManifestFileUncached(file: { path: string; mtimeMs: number }): InspectedManifest {
   const status = readStatus(join(file.path, "..", "status.json"));
   const statusOwner = typeof status?.creator_id === "string" ? status.creator_id : undefined;
   try {
