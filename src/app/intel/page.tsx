@@ -45,6 +45,7 @@ export default async function IntelPage() {
           videos: scan.channels.reduce((sum, channel) => sum + channel.videos.length, 0),
         }))}
         scraperConfigured={apifyConfigured()}
+        demoReplay={process.env.AFTERPLAY_DEMO_REPLAY === "true"}
       />
     </WorkspaceShell>
   );
