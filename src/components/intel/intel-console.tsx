@@ -145,7 +145,8 @@ export function IntelConsole({
             if (share <= reached) return agent;
             // `endedAt` is dropped rather than set to undefined: the field is optional
             // under exactOptionalPropertyTypes, so an explicit undefined is not assignable.
-            const { endedAt: _finished, ...open } = agent;
+            const open = { ...agent };
+            delete open.endedAt;
             // Agents use their own vocabulary -- spawning/working/done -- not the
             // stage one.
             if (share <= reached + 1 / stageCount) {
