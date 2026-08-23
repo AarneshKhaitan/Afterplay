@@ -138,7 +138,8 @@ export function IngestConsole() {
 
       // Advance one stage at a time so the sequence reads exactly as a live run does:
       // the active row spins and shows its detail line, the rows below stay pending.
-      // Roughly 1.6s end to end -- long enough to read, short enough to hold a room.
+      // Roughly 4.8s end to end. The first pass at a third of this was quick enough to
+      // read but felt like a jump cut; at this pace each stage lands as its own beat.
       for (let index = 0; index < finished.stages.length; index += 1) {
         setJob({
           ...finished,
@@ -151,7 +152,7 @@ export function IngestConsole() {
             detail: position <= index ? stage.detail : undefined,
           })),
         });
-        await pause(index === finished.stages.length - 1 ? 240 : 320);
+        await pause(index === finished.stages.length - 1 ? 720 : 960);
       }
       setJob(finished);
     } catch (caught) {

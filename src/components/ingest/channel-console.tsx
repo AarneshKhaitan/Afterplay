@@ -269,7 +269,7 @@ export function ChannelConsole() {
    * The videos, their per-video progress and the final counts are the real ones from a
    * run that happened -- this replays that run's own record. A real backfill reads every
    * caption and calls a model per video, which is minutes and real spend; neither fits a
-   * demo slot. Roughly 1.6s end to end, and the run id shown is the cached job's, so
+   * demo slot. Roughly 4.8s end to end, and the run id shown is the cached job's, so
    * what is on stage stays checkable against what is on disk. */
   async function replayBackfill(replayJobId: string) {
     setStarting(true);
@@ -300,7 +300,7 @@ export function ChannelConsole() {
               : { ...video, state: index === done ? "running" : "pending" }
           )),
         });
-        await pause(done === total ? 200 : Math.max(260, Math.round(1400 / Math.max(1, total))));
+        await pause(done === total ? 600 : Math.max(780, Math.round(4200 / Math.max(1, total))));
       }
       setJob(finished);
     } catch (caught) {

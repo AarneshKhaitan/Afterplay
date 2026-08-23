@@ -115,11 +115,11 @@ export function IntelConsole({
    * A real scan drives a paid Apify scrape and then a model pass -- minutes of wall
    * clock and money spent every press. This replays a scan that actually ran: its
    * stages, its agents, their per-agent counts and findings, and its report. Only the
-   * pace is synthesized, about 2s end to end.
+   * pace is synthesized, about 6s end to end plus the hold.
    *
    * Deliberately slower than the other two replays: the swarm is the beat that shows
    * the work happening, and the existing code already holds it on screen for 2.6s after
-   * a real scan lands for exactly that reason. */
+   * a real scan lands for exactly that reason -- the hold here matches it exactly. */
   const replayScan = useCallback(
     async (cached: ScanJob) => {
       setError(null);
@@ -155,7 +155,7 @@ export function IntelConsole({
             return { ...open, state: "spawning" as const, processed: 0, findings: [] };
           }),
         });
-        await pause(340);
+        await pause(1020);
       }
 
       setLiveScan({ ...cached, status: "complete" });
@@ -163,7 +163,7 @@ export function IntelConsole({
       void refreshMemory();
       // Same hold the real path uses: cutting to the report the instant the last agent
       // lands makes it look like nothing ran.
-      setTimeout(() => setLiveScan(null), 1200);
+      setTimeout(() => setLiveScan(null), 2600);
     },
     [refreshMemory],
   );
