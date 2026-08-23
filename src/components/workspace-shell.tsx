@@ -42,6 +42,7 @@ const navigation: Array<{
     section: "2 · Make",
     items: [
       { label: "Riff live", href: "/live", icon: Broadcast, hint: "Cohost the stream" },
+      { label: "Riff board", href: "/riff-dashboard", icon: Broadcast, hint: "What Riff saw" },
       { label: "Ingest", href: "/ingest", icon: Scissors, hint: "Clip a stream" },
       { label: "Studio", href: "/studio", icon: Stack, hint: "Review and approve" },
     ],
