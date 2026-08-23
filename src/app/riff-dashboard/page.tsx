@@ -17,10 +17,22 @@ const momentIcon = {
   audience: ChatCircleDots,
   poll: Broadcast,
   game: GameController,
+  // A moment where Riff chose not to speak is still a moment worth showing.
+  silent: Waveform,
 } as const;
 
 export default function RiffDashboardPage() {
   const data = riffStreamAnalytics;
+
+  // Chart geometry, derived once so the polyline, the dots and the collision marker
+  // cannot drift apart.
+  const trail = data.scoreTrail;
+  const peak = Math.max(...trail.map((p) => p.score));
+  // The plot stops at 596 of a 720 viewBox. The collision label sits past the last point
+  // and is ~88px at 11px bold, so anything wider than this clipped its final character.
+  const x = (index: number) => (index / (trail.length - 1)) * 596;
+  const y = (score: number) => 102 - (score / peak) * 90;
+  const points = trail.map((p, i) => `${x(i).toFixed(1)},${y(p.score).toFixed(1)}`).join(" ");
 
   return (
     <WorkspaceShell active="Riff board" pageName="Riff Control Room" badge="Stream intelligence">
@@ -57,6 +69,53 @@ export default function RiffDashboardPage() {
 
             <section className="riff-session-metrics" aria-label="Selected session metrics">
               {data.sessionMetrics.map((metric) => <article key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong><small>{metric.note}</small></article>)}
+            </section>
+
+            {/* The run itself, read off the captured frames. The score line is what makes
+              * the moment trail below legible: every entry there has a position on this
+              * curve, and the collision is where it stops. */}
+            <section className="riff-run-chart" aria-labelledby="run-title">
+              <div className="riff-section-heading">
+                <h2 id="run-title">The run</h2>
+                <span>score, sampled from captured frames</span>
+              </div>
+              <svg viewBox="0 0 720 132" role="img" aria-label={`Score climbs from 0 to ${peak} points over 51 seconds, ending in a collision.`}>
+                <defs>
+                  <linearGradient id="runFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#ff6b55" stopOpacity="0.30" />
+                    <stop offset="100%" stopColor="#ff6b55" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {[0, 1, 2, 3].map((row) => (
+                  <line key={row} x1="0" y1={12 + row * 30} x2="720" y2={12 + row * 30}
+                    stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" />
+                ))}
+                <polygon fill="url(#runFill)" points={`0,102 ${points} ${x(trail.length - 1)},102`} />
+                <polyline fill="none" stroke="#ff6b55" strokeWidth="2"
+                  strokeLinejoin="round" strokeLinecap="round" points={points} />
+                {trail.map((p, i) => (
+                  <circle key={p.t} cx={x(i)} cy={y(p.score)} r={p.end ? 4.5 : 2.5}
+                    fill={p.end ? "#ff6b55" : "#0f0f11"} stroke="#ff6b55" strokeWidth="1.5" />
+                ))}
+                <line x1={x(trail.length - 1)} y1="12" x2={x(trail.length - 1)} y2="102"
+                  stroke="#ff6b55" strokeOpacity="0.35" strokeWidth="1" strokeDasharray="3 3" />
+                <text x={x(trail.length - 1) + 10} y={y(peak) + 4} textAnchor="start"
+                  fill="#ff6b55" fontSize="11" fontWeight="700">GAME OVER · {peak}</text>
+                {trail.filter((_, i) => i % 2 === 0).map((p, i) => (
+                  <text key={p.t} x={x(i * 2)} y="124" textAnchor="middle"
+                    fill="currentColor" fillOpacity="0.45" fontSize="10">{p.t}</text>
+                ))}
+              </svg>
+            </section>
+
+            {/* What the director chose. Silence dominating is the point, not a gap. */}
+            <section className="riff-decisions" aria-label="Director decisions this session">
+              {data.decisions.map((decision) => (
+                <article key={decision.kind} className={`riff-decision riff-decision--${decision.kind}`}>
+                  <strong>{decision.count}</strong>
+                  <div><span>{decision.label}</span><small>{decision.note}</small></div>
+                </article>
+              ))}
             </section>
 
             <section className="riff-moment-stream" aria-labelledby="moment-title">
