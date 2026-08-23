@@ -1389,6 +1389,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 /* ── swarm / live scan ── */
 .swarm { padding: 20px; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: linear-gradient(180deg, rgba(255,107,85,.05), transparent 220px), var(--panel); }
 .swarm-head { gap: 22px; flex-wrap: wrap; margin-bottom: 18px; }
+/* Appears only once the run has finished. The swarm no longer times out, so this is
+   the way past it -- it has to read as the obvious next step, not as a close box. */
+.swarm-dismiss { margin-left: auto; align-self: center; padding: 9px 16px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text); font-size: var(--type-small); font-weight: var(--weight-semibold); cursor: pointer; }
+.swarm-dismiss:hover { background: var(--accent); color: #16110f; }
 .swarm-head h2 { margin: 6px 0 0; font-size: 20px; font-weight: var(--weight-bold); letter-spacing: 0; }
 .swarm-status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--type-meta); font-weight: var(--weight-bold); letter-spacing: .08em; text-transform: uppercase; }
 .swarm-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 0 rgba(140,182,232,.6); animation: swarm-pulse 1.6s infinite; }

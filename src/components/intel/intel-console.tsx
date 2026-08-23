@@ -88,10 +88,10 @@ export function IntelConsole({
             if (next.status === "complete") {
               setScan(next);
               void refreshMemory();
-              // Hold the finished swarm on screen briefly: it is the proof that the work
-              // happened, and cutting to the report the instant the last agent lands
-              // makes it look like nothing ran.
-              setTimeout(() => setLiveScan(null), 2600);
+              // The finished swarm stays until it is dismissed. It used to time out after
+              // 2.6s, which was long enough to prove the work happened but not long enough
+              // to read -- and on stage it closed itself mid-sentence. The report is
+              // already behind it; "View the report" moves on when the presenter is ready.
             } else {
               setError(next.error?.message ?? "The scan failed.");
             }
@@ -161,9 +161,7 @@ export function IntelConsole({
       setLiveScan({ ...cached, status: "complete" });
       setScan(cached);
       void refreshMemory();
-      // Same hold the real path uses: cutting to the report the instant the last agent
-      // lands makes it look like nothing ran.
-      setTimeout(() => setLiveScan(null), 2600);
+      // Left on screen, like the real path: the presenter dismisses it.
     },
     [refreshMemory],
   );
@@ -268,7 +266,14 @@ export function IntelConsole({
         <ScanSetup onStart={startScan} disabled={running || !scraperConfigured} history={history} />
       ) : null}
 
-      {liveScan ? <SwarmView scan={liveScan} /> : null}
+      {liveScan ? (
+        <SwarmView
+          scan={liveScan}
+          {...(liveScan.status === "complete" || liveScan.status === "failed"
+            ? { onDismiss: () => setLiveScan(null) }
+            : {})}
+        />
+      ) : null}
 
       {scan && !liveScan ? (
         <>
