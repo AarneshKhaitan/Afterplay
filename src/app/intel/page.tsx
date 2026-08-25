@@ -1,6 +1,7 @@
 import { IntelConsole } from "@/components/intel/intel-console";
 import { WorkspaceShell } from "@/components/workspace-shell";
 import { currentCreator } from "@/domain/creators";
+import { demoReplayEnabled } from "@/domain/demo-replay";
 import { apifyConfigured } from "@/domain/intel/apify";
 import { activeBeliefs } from "@/domain/intel/memory";
 import { latestCompleteScan, listScans, loadMemory } from "@/domain/intel/store";
@@ -45,7 +46,7 @@ export default async function IntelPage() {
           videos: scan.channels.reduce((sum, channel) => sum + channel.videos.length, 0),
         }))}
         scraperConfigured={apifyConfigured()}
-        demoReplay={process.env.AFTERPLAY_DEMO_REPLAY === "true"}
+        demoReplay={await demoReplayEnabled()}
       />
     </WorkspaceShell>
   );

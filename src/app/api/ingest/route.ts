@@ -7,6 +7,7 @@ import {
   readIngestJob, startIngestJob,
 } from "@/domain/ingest/jobs";
 import { currentCreator } from "@/domain/creators";
+import { demoReplayEnabled } from "@/domain/demo-replay";
 import { findCachedSource, listCachedSources, mediaDirConfigured } from "@/domain/ingest/sources";
 
 export const dynamic = "force-dynamic";
@@ -43,9 +44,8 @@ export async function GET() {
     // walk without a job id being typed in at the venue.
     replayJobId: latestCompletedJobId(creator.id),
     // Stage demo: replay the cached run from the normal button instead of starting a
-    // real one. Off unless explicitly set, so a developer machine never silently stops
-    // doing the real thing.
-    demoReplay: process.env.AFTERPLAY_DEMO_REPLAY === "true",
+    // real one. Toggled per browser from the top bar; the env var only sets the default.
+    demoReplay: await demoReplayEnabled(),
   });
 }
 

@@ -12,6 +12,9 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 
+import { DemoReplayToggle } from "@/components/demo-replay-toggle";
+import { demoReplayEnabled } from "@/domain/demo-replay";
+
 import { CreatorSwitcher } from "@/components/creator-switcher";
 import { currentCreator, GUEST, listCreators } from "@/domain/creators";
 import { liveAiState } from "@/domain/identity";
@@ -154,6 +157,7 @@ export async function WorkspaceShell({
             <span className="topbar-date">{identity.displayName}</span>
           </div>
           <div className="topbar-actions">
+            <DemoReplayToggle initial={await demoReplayEnabled()} />
             <span className="sample-badge"><span /> {modeState.mode === "live" ? "Live workspace" : "Demo workspace"}</span>
             {badge ? <span className="sample-badge"><span /> {badge}</span> : null}
             <span className="updated">{live.enabled ? `Live AI · ${live.model}` : "Live AI off"}</span>

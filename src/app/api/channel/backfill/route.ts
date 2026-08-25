@@ -13,6 +13,7 @@ import {
   VIDEO_ID_PATTERN,
 } from "@/domain/channel/contracts";
 import { currentCreator } from "@/domain/creators";
+import { demoReplayEnabled } from "@/domain/demo-replay";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,7 +34,10 @@ const startRequestSchema = z.object({
 export async function GET() {
   const creator = await currentCreator();
   return NextResponse.json({
-    demoReplay: process.env.AFTERPLAY_DEMO_REPLAY === "true",
+    demoReplay: await demoReplayEnabled(),
+    // Scoped to the selected creator, so a workspace with no cached run does the real
+    // thing even with replay on. Building memory for a brand-new channel cannot be
+    // satisfied by replaying somebody else's run.
     replayJobId: latestFinishedBackfillJobId(creator.id),
   });
 }
