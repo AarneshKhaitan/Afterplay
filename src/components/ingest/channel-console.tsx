@@ -111,8 +111,19 @@ export function ChannelConsole() {
   const [error, setError] = useState<string | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [replayConfig, setReplayConfig] =
+    useState<{ demoReplay: boolean; replayJobId: string | null } | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGeneration = useRef(0);
+
+  useEffect(() => {
+    // Whether this machine is set up to replay a cached memory run instead of starting
+    // a real one. A failure here just leaves the real path in place.
+    fetch("/api/channel/backfill", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setReplayConfig(data))
+      .catch(() => setReplayConfig(null));
+  }, []);
 
   useEffect(() => {
     fetch("/api/creator", { cache: "no-store" })
@@ -253,6 +264,53 @@ export function ChannelConsole() {
     return true;
   }
 
+  /** Walk a finished memory run's progress on stage, fast.
+   *
+   * The videos, their per-video progress and the final counts are the real ones from a
+   * run that happened -- this replays that run's own record. A real backfill reads every
+   * caption and calls a model per video, which is minutes and real spend; neither fits a
+   * demo slot. Roughly 4.8s end to end, and the run id shown is the cached job's, so
+   * what is on stage stays checkable against what is on disk. */
+  async function replayBackfill(replayJobId: string) {
+    setStarting(true);
+    setError(null);
+    setPollError(null);
+    setJob(null);
+    setElapsed(0);
+    try {
+      await ensureWorkspace();
+      const response = await fetch(`/api/channel/backfill/${replayJobId}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.job) {
+        throw new Error(errorMessage(data, "The cached memory run could not be read."));
+      }
+      const finished = data.job as BackfillJob;
+      const total = finished.videos.length;
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      // One video at a time, so the overall bar and the per-video rows fill in the same
+      // order a live run fills them.
+      for (let done = 0; done <= total; done += 1) {
+        setJob({
+          ...finished,
+          state: done === total ? finished.state : "running",
+          progress: { done, total },
+          videos: finished.videos.map((video, index) => (
+            index < done ? video
+              : { ...video, state: index === done ? "running" : "pending" }
+          )),
+        });
+        await pause(done === total ? 600 : Math.max(780, Math.round(4200 / Math.max(1, total))));
+      }
+      setJob(finished);
+    } catch (caught) {
+      setWorkspaceState("idle");
+      setError((caught as Error).message);
+    } finally {
+      setStarting(false);
+    }
+  }
+
   async function startBackfill() {
     if (!preview) return;
     if (!footageRights) {
@@ -261,6 +319,12 @@ export function ChannelConsole() {
     }
     if (selectedIds.length === 0) {
       setError("Select at least one upload.");
+      return;
+    }
+    // Stage demo: same button, cached run, no minutes and no spend. Off unless
+    // AFTERPLAY_DEMO_REPLAY is set, so a developer machine still does the real thing.
+    if (replayConfig?.demoReplay && replayConfig.replayJobId) {
+      await replayBackfill(replayConfig.replayJobId);
       return;
     }
     setStarting(true);

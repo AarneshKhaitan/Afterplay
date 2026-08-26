@@ -30,6 +30,10 @@ type Config = {
   mediaDirConfigured: boolean;
   python: { ok: boolean; interpreter: string };
   creatorDefault: string;
+  /** Newest completed run on disk, or null when this creator has none. */
+  replayJobId: string | null;
+  /** Operator setting: replay the cached run instead of starting a real one. */
+  demoReplay: boolean;
 };
 
 export function IngestConsole() {
@@ -48,6 +52,7 @@ export function IngestConsole() {
   const [pollError, setPollError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [replaying, setReplaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollGeneration = useRef(0);
@@ -102,7 +107,72 @@ export function IngestConsole() {
     pollRef.current = setTimeout(poll, 0);
   }, [stopPolling]);
 
+  /** Walk a completed run's stages on stage, fast.
+   *
+   * The stages, their labels and the clips are the real ones from a run that actually
+   * happened -- this replays that run's own record rather than inventing progress. It
+   * exists because a live run takes many minutes and depends on the venue network,
+   * neither of which survives a demo slot. Nothing here calls yt-dlp, ffmpeg or a model;
+   * the banner says so on screen while it plays, so nobody watching is invited to think
+   * a fresh run is happening.
+   */
+  async function replayRun() {
+    if (!config?.replayJobId) {
+      setError("No completed run is cached for this creator yet.");
+      return;
+    }
+    setError(null);
+    setPollError(null);
+    setNetwork(null);
+    setJob(null);
+    setReplaying(true);
+    setElapsed(0);
+    try {
+      const response = await fetch(`/api/ingest/${config.replayJobId}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error?.message ?? "The cached run could not be read.");
+      }
+      const finished: Job = data.job ?? data;
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      // Advance one stage at a time so the sequence reads exactly as a live run does:
+      // the active row spins and shows its detail line, the rows below stay pending.
+      // Roughly 4.8s end to end. The first pass at a third of this was quick enough to
+      // read but felt like a jump cut; at this pace each stage lands as its own beat.
+      for (let index = 0; index < finished.stages.length; index += 1) {
+        setJob({
+          ...finished,
+          state: "running",
+          message: undefined,
+          clips: [],
+          stages: finished.stages.map((stage, position) => ({
+            ...stage,
+            state: position < index ? "complete" : position === index ? "running" : "pending",
+            detail: position <= index ? stage.detail : undefined,
+          })),
+        });
+        await pause(index === finished.stages.length - 1 ? 720 : 960);
+      }
+      setJob(finished);
+    } catch (caught) {
+      setError((caught as Error).message);
+      setJob(null);
+    } finally {
+      setReplaying(false);
+    }
+  }
+
   async function start() {
+    // Demo replay is an explicit operator setting, off unless AFTERPLAY_DEMO_REPLAY is
+    // true. When it is on, this button walks the newest completed run instead of
+    // spawning a new one -- same control, same stage rows, same result, no 18-minute
+    // wait and no spend. The run id shown on screen is the real cached job's, so what
+    // is on stage stays checkable against what is on disk.
+    if (config?.demoReplay && config.replayJobId) {
+      await replayRun();
+      return;
+    }
     setError(null);
     setJob(null);
     setNetwork(null);
@@ -245,8 +315,10 @@ export function IngestConsole() {
         </div>
 
         <button className="ingest-start" onClick={start}
-          disabled={!config || !creator || !footageRights || starting || running || (kind === "url" ? !url : !sourceId)}>
-          {running ? <><Spinner className="spin" /> Clipping… {elapsed}s</> : <>Start clipping <ArrowRight weight="bold" /></>}
+          disabled={!config || !creator || !footageRights || starting || running || replaying || (kind === "url" ? !url : !sourceId)}>
+          {running || replaying
+            ? <><Spinner className="spin" /> Clipping… {elapsed}s</>
+            : <>Start clipping <ArrowRight weight="bold" /></>}
         </button>
 
         {config && !config.python.ok ? (

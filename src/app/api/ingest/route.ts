@@ -3,9 +3,11 @@ import { z } from "zod";
 
 import { invalidRequest } from "@/app/api/http";
 import {
-  assertIngestableUrl, IngestError, newJobId, pythonConfigured, readIngestJob, startIngestJob,
+  assertIngestableUrl, IngestError, latestCompletedJobId, newJobId, pythonConfigured,
+  readIngestJob, startIngestJob,
 } from "@/domain/ingest/jobs";
 import { currentCreator } from "@/domain/creators";
+import { demoReplayEnabled } from "@/domain/demo-replay";
 import { findCachedSource, listCachedSources, mediaDirConfigured } from "@/domain/ingest/sources";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +40,12 @@ export async function GET() {
     mediaDirConfigured: mediaDirConfigured(),
     python,
     creatorDefault: creator.id,
+    // Newest completed run on disk, so the cached replay can find real stages to
+    // walk without a job id being typed in at the venue.
+    replayJobId: latestCompletedJobId(creator.id),
+    // Stage demo: replay the cached run from the normal button instead of starting a
+    // real one. Toggled per browser from the top bar; the env var only sets the default.
+    demoReplay: await demoReplayEnabled(),
   });
 }
 

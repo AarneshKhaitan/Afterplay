@@ -4,6 +4,7 @@ import { z } from "zod";
 import { invalidRequest } from "@/app/api/http";
 import {
   ChannelBackfillError,
+  latestFinishedBackfillJobId,
   startChannelBackfillJob,
 } from "@/domain/channel/backfill";
 import {
@@ -12,6 +13,7 @@ import {
   VIDEO_ID_PATTERN,
 } from "@/domain/channel/contracts";
 import { currentCreator } from "@/domain/creators";
+import { demoReplayEnabled } from "@/domain/demo-replay";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,6 +29,18 @@ const startRequestSchema = z.object({
     context.addIssue({ code: "custom", message: "Video ids must be unique.", path: ["videoIds"] });
   }
 });
+
+/** What the channel console needs to decide between a real run and the stage replay. */
+export async function GET() {
+  const creator = await currentCreator();
+  return NextResponse.json({
+    demoReplay: await demoReplayEnabled(),
+    // Scoped to the selected creator, so a workspace with no cached run does the real
+    // thing even with replay on. Building memory for a brand-new channel cannot be
+    // satisfied by replaying somebody else's run.
+    replayJobId: latestFinishedBackfillJobId(creator.id),
+  });
+}
 
 export async function POST(request: Request) {
   let body: unknown;

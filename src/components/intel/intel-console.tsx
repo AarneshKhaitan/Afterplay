@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { Belief, IntelMemory, ScanJob } from "@/domain/intel/types";
+import type { AgentTask, Belief, IntelMemory, ScanJob } from "@/domain/intel/types";
 
 import { LocalTime } from "./local-time";
 import { MemoryView } from "./memory-view";
@@ -38,6 +38,7 @@ export function IntelConsole({
   initialActiveBeliefs,
   history,
   scraperConfigured,
+  demoReplay = false,
 }: {
   creatorId: string;
   initialScan: ScanJob | null;
@@ -45,6 +46,8 @@ export function IntelConsole({
   initialActiveBeliefs: Belief[];
   history: ScanHistoryRow[];
   scraperConfigured: boolean;
+  /** Operator setting: replay the newest complete scan instead of running a paid one. */
+  demoReplay?: boolean;
 }) {
   const [scan, setScan] = useState<ScanJob | null>(initialScan);
   const [liveScan, setLiveScan] = useState<ScanJob | null>(null);
@@ -85,10 +88,10 @@ export function IntelConsole({
             if (next.status === "complete") {
               setScan(next);
               void refreshMemory();
-              // Hold the finished swarm on screen briefly: it is the proof that the work
-              // happened, and cutting to the report the instant the last agent lands
-              // makes it look like nothing ran.
-              setTimeout(() => setLiveScan(null), 2600);
+              // The finished swarm stays until it is dismissed. It used to time out after
+              // 2.6s, which was long enough to prove the work happened but not long enough
+              // to read -- and on stage it closed itself mid-sentence. The report is
+              // already behind it; "View the report" moves on when the presenter is ready.
             } else {
               setError(next.error?.message ?? "The scan failed.");
             }
@@ -107,6 +110,63 @@ export function IntelConsole({
     };
   }, []);
 
+  /** Walk the newest complete scan's swarm on stage, fast.
+   *
+   * A real scan drives a paid Apify scrape and then a model pass -- minutes of wall
+   * clock and money spent every press. This replays a scan that actually ran: its
+   * stages, its agents, their per-agent counts and findings, and its report. Only the
+   * pace is synthesized, about 6s end to end plus the hold.
+   *
+   * Deliberately slower than the other two replays: the swarm is the beat that shows
+   * the work happening, and the existing code already holds it on screen for 2.6s after
+   * a real scan lands for exactly that reason -- the hold here matches it exactly. */
+  const replayScan = useCallback(
+    async (cached: ScanJob) => {
+      setError(null);
+      setSetupOpen(false);
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const stageCount = cached.stages.length;
+
+      for (let index = 0; index < stageCount; index += 1) {
+        const reached = (index + 1) / stageCount;
+        setLiveScan({
+          ...cached,
+          status: "running",
+          endedAt: undefined,
+          analysis: undefined,
+          stages: cached.stages.map((stage, position) => ({
+            ...stage,
+            state: position < index ? "complete" : position === index ? "running" : "pending",
+          })),
+          // Agents land progressively across the run rather than all at the end, so the
+          // swarm fills in instead of blinking from empty to done.
+          agents: cached.agents.map((agent, position): AgentTask => {
+            const share = (position + 1) / Math.max(1, cached.agents.length);
+            if (share <= reached) return agent;
+            // `endedAt` is dropped rather than set to undefined: the field is optional
+            // under exactOptionalPropertyTypes, so an explicit undefined is not assignable.
+            const open = { ...agent };
+            delete open.endedAt;
+            // Agents use their own vocabulary -- spawning/working/done -- not the
+            // stage one.
+            if (share <= reached + 1 / stageCount) {
+              return { ...open, state: "working" as const,
+                processed: Math.round(agent.total / 2), findings: agent.findings.slice(0, 1) };
+            }
+            return { ...open, state: "spawning" as const, processed: 0, findings: [] };
+          }),
+        });
+        await pause(1020);
+      }
+
+      setLiveScan({ ...cached, status: "complete" });
+      setScan(cached);
+      void refreshMemory();
+      // Left on screen, like the real path: the presenter dismisses it.
+    },
+    [refreshMemory],
+  );
+
   const startScan = useCallback(
     async (input: {
       ownChannel: string;
@@ -115,6 +175,12 @@ export function IntelConsole({
       withTranscripts: boolean;
       sortVideosBy: "NEWEST" | "POPULAR";
     }) => {
+      // Stage demo: same button, cached scan, no Apify spend. Off unless
+      // AFTERPLAY_DEMO_REPLAY is set.
+      if (demoReplay && scan) {
+        await replayScan(scan);
+        return;
+      }
       setError(null);
       try {
         const response = await fetch("/api/intel/scan", {
@@ -134,7 +200,7 @@ export function IntelConsole({
         setError(caught instanceof Error ? caught.message : "The scan could not be started.");
       }
     },
-    [creatorId, poll],
+    [creatorId, poll, demoReplay, scan, replayScan],
   );
 
   const running = liveScan !== null;
@@ -201,7 +267,14 @@ export function IntelConsole({
         <ScanSetup onStart={startScan} disabled={running || !scraperConfigured} history={history} />
       ) : null}
 
-      {liveScan ? <SwarmView scan={liveScan} /> : null}
+      {liveScan ? (
+        <SwarmView
+          scan={liveScan}
+          {...(liveScan.status === "complete" || liveScan.status === "failed"
+            ? { onDismiss: () => setLiveScan(null) }
+            : {})}
+        />
+      ) : null}
 
       {scan && !liveScan ? (
         <>

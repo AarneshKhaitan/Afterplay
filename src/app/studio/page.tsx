@@ -1,5 +1,4 @@
 import { Check, ShieldCheck, WarningCircle } from "@phosphor-icons/react/dist/ssr";
-import Image from "next/image";
 
 import { EvidenceCard } from "@/components/evidence-card";
 import { StudioDecisionPanel } from "@/components/studio-decision-panel";
@@ -155,22 +154,16 @@ export default async function StudioPage() {
           </section>
         ) : null}
 
-        <section className="section-heading section-heading--standalone">
-          <h2>Seeded experiment package</h2>
-          <span className="sample-note">
-            Authored sample content for the growth-experiment loop — not produced by the
-            clipper, and not real media. The real clips are above.
-          </span>
-        </section>
-        <section className="output-grid" aria-label="Experiment outputs">
-          {experiment.outputs.map((output, index) => (
-            <article className="output-card" key={output.id} aria-label={output.title}>
-              <div className={`output-preview output-preview--${index + 1}`}><Image src={output.thumbnailUrl} alt="" fill sizes="(max-width: 900px) 100vw, 33vw" loading="eager" /><span className="output-order">0{index + 1}</span><span className="duration">{output.duration}</span></div>
-              <div className="output-body"><h2>{output.title}</h2><div className="output-platform"><span>{output.type.replaceAll("_", " ")}</span><strong>{output.platform}</strong></div><blockquote>“{output.hook}”</blockquote><p>{output.caption}</p>{output.hashtags?.length ? <ul className="output-hashtags">{output.hashtags.map((tag) => <li key={tag}>#{tag}</li>)}</ul> : null}<div className="output-rationale"><span>Purpose</span><strong>{output.rationale}</strong></div><div className="provenance"><ShieldCheck /><span>Project-owned synthetic media</span></div></div>
-            </article>
-          ))}
-        </section>
-
+        {/* The seeded package's cards are not rendered.
+         *
+         * They were authored sample media -- three stock bridge renders with invented
+         * titles -- sitting directly beneath the creator's own clips. Two sets of cards
+         * in one column invited the reader to take them for the same kind of thing, and
+         * the disclaimer above them was the only thing saying otherwise.
+         *
+         * The experiment itself is untouched: it still backs the approval below, which
+         * is what the revision and receipts belong to. Only its invented artwork is
+         * gone from the page. */}
         <StudioDecisionPanel initialExperiment={experiment} />
       </div>
     </WorkspaceShell>

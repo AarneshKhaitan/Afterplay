@@ -1,7 +1,7 @@
 ﻿// Type-only: `export type` is erased at build time, so this does NOT pull the bridge's
 // node:fs imports into client bundles. The value-side call lives in the API route.
 import { createHash } from "node:crypto";
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { z } from "zod";
@@ -638,7 +638,31 @@ function currentPipelineProjection(experiment: GrowthExperiment, creatorId: stri
   };
 }
 
+/** Media digests, keyed by path, size and mtime.
+ *
+ * The digest binds an approval to the exact bytes that were approved, so it is computed
+ * for every clip on every render of a creator-scoped page. Reading ~40MB of video through
+ * SHA-256 each time is what kept page loads in the seconds after manifest validation was
+ * cached. Size and mtime both key the entry, so a re-render -- which is exactly what must
+ * invalidate an approval -- produces a new digest rather than a stale hit. */
+const fileDigests = new Map<string, string | null>();
+
 function digestFile(path: string): string | null {
+  let key: string;
+  try {
+    const stat = statSync(path);
+    key = `${path}::${stat.size}::${stat.mtimeMs}`;
+  } catch {
+    return null;
+  }
+  const cached = fileDigests.get(key);
+  if (cached !== undefined) return cached;
+  const digest = digestFileUncached(path);
+  fileDigests.set(key, digest);
+  return digest;
+}
+
+function digestFileUncached(path: string): string | null {
   let descriptor: number | undefined;
   try {
     descriptor = openSync(path, "r");

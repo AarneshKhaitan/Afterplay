@@ -28,7 +28,13 @@ function elapsed(from: string, to?: string): string {
  * lines are all real. Each stage carries a `truth` line as its tooltip stating literally
  * what it does, so the theatre never outruns the substance.
  */
-export function SwarmView({ scan }: { scan: ScanJob }) {
+export function SwarmView({ scan, onDismiss }: {
+  scan: ScanJob;
+  /** Supplied once the run has finished. The swarm then stays until it is dismissed
+   * rather than timing out: it is the evidence the work happened, and on stage the
+   * presenter -- not a timer -- decides when the room has finished reading it. */
+  onDismiss?: () => void;
+}) {
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,6 +86,11 @@ export function SwarmView({ scan }: { scan: ScanJob }) {
             <span>stages</span>
           </div>
         </div>
+        {onDismiss && (scan.status === "complete" || scan.status === "failed") ? (
+          <button className="swarm-dismiss" type="button" onClick={onDismiss}>
+            {scan.status === "complete" ? "View the report" : "Close"}
+          </button>
+        ) : null}
       </div>
 
       {/* A pipeline, not a grid of cards.
